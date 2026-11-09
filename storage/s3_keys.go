@@ -40,7 +40,7 @@ type S3Key struct {
 type ListS3KeysInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
 	Region string
-	// ProjectID is required.
+	// ProjectID is required; use ASCII letters, digits, or hyphens.
 	ProjectID string `vngcloud:"required"`
 }
 
@@ -81,7 +81,7 @@ func (c *Client) ListS3Keys(ctx context.Context, in *ListS3KeysInput) (*ListS3Ke
 type CreateS3KeyInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
 	Region string
-	// ProjectID is required.
+	// ProjectID is required; use ASCII letters, digits, or hyphens.
 	ProjectID string `vngcloud:"required"`
 }
 
@@ -162,9 +162,9 @@ func (c *Client) CreateS3Key(ctx context.Context, in *CreateS3KeyInput) (*Create
 type DeleteS3KeyInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
 	Region string
-	// ProjectID is required.
+	// ProjectID is required; use ASCII letters, digits, or hyphens.
 	ProjectID string `vngcloud:"required"`
-	// UserKeyID is required.
+	// UserKeyID is required; use ASCII letters, digits, or hyphens.
 	UserKeyID string `vngcloud:"required"`
 }
 

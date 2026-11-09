@@ -12,9 +12,10 @@ import (
 type GetBucketVersioningInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
 	Region string
-	// ProjectID is required.
+	// ProjectID is required; use ASCII letters, digits, or hyphens.
 	ProjectID string `vngcloud:"required"`
-	// Bucket is required.
+	// Bucket must start with an ASCII letter or digit and use only
+	// letters, digits, periods, underscores, or hyphens, up to 255 bytes.
 	Bucket string `vngcloud:"required"`
 }
 
@@ -66,9 +67,10 @@ func (c *Client) GetBucketVersioning(ctx context.Context, in *GetBucketVersionin
 type PutBucketVersioningInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
 	Region string
-	// ProjectID is required.
+	// ProjectID is required; use ASCII letters, digits, or hyphens.
 	ProjectID string `vngcloud:"required"`
-	// Bucket is required.
+	// Bucket must start with an ASCII letter or digit and use only
+	// letters, digits, periods, underscores, or hyphens, up to 255 bytes.
 	Bucket string `vngcloud:"required"`
 	// Enabled is the target state. It is a pointer so that a caller must
 	// choose: the server reads a body without it as false, which suspends

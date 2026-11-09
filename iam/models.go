@@ -205,14 +205,14 @@ type User struct {
 }
 
 // MFAFactor preserves unknown verification and activation state as nil.
-// See docs/design/iam-users-api.md.
+// See docs/design/iam-users-admin-api.md.
 type MFAFactor struct {
 	Verified *bool `json:"verified"`
 	Enabled  *bool `json:"enabled"`
 }
 
 // UserMFA exposes factor state without contact or enrolment material.
-// See docs/design/iam-users-api.md.
+// See docs/design/iam-users-admin-api.md.
 type UserMFA struct {
 	Email               *MFAFactor `json:"email"`
 	GoogleAuthenticator *MFAFactor `json:"googleAuthenticator"`

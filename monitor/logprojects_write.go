@@ -259,7 +259,7 @@ func (c *Client) waitLogProjectActive(ctx context.Context, op, name string) (*Lo
 // DeleteLogProjectInput identifies the log project to delete, and whether
 // to also purge it from trash in the same call.
 type DeleteLogProjectInput struct {
-	// LogProjectID is required.
+	// LogProjectID is required; use ASCII letters, digits, or hyphens.
 	LogProjectID string `vngcloud:"required"`
 
 	// Purge also deletes the project from trash after moving it there.

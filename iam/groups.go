@@ -37,7 +37,7 @@ func (c *Client) ListGroups(ctx context.Context, in *ListGroupsInput) (*ListGrou
 
 // GetGroupInput requires GroupID.
 type GetGroupInput struct {
-	// GroupID is required.
+	// GroupID is required; use ASCII letters, digits, or hyphens.
 	GroupID string `vngcloud:"required"`
 }
 
@@ -82,7 +82,7 @@ func (c *Client) GetGroup(ctx context.Context, in *GetGroupInput) (*GetGroupOutp
 // ListGroupPoliciesInput pages GroupID's attached policies. A non-positive
 // Size sends core.DefaultPageSize, and Page 0 is the first page.
 type ListGroupPoliciesInput struct {
-	// GroupID is required.
+	// GroupID is required; use ASCII letters, digits, or hyphens.
 	GroupID string `vngcloud:"required"`
 	// Page starts at zero; negative values select zero.
 	Page int

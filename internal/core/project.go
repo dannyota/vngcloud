@@ -9,7 +9,7 @@ import (
 	"danny.vn/vngcloud/internal/transport"
 )
 
-// Project holds project data from the API. See docs/design/sdk-and-cli.md.
+// Project holds project data from the API. See docs/design/cli-reads.md.
 type Project struct {
 	ID        string `json:"projectId"`
 	Name      string `json:"name,omitempty"`

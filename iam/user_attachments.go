@@ -11,7 +11,7 @@ import (
 // ListUserPoliciesInput pages UserID's attached policies. A non-positive
 // Size sends core.DefaultPageSize, and Page 0 is the first page.
 type ListUserPoliciesInput struct {
-	// UserID is required.
+	// UserID is required; use ASCII letters, digits, or hyphens.
 	UserID string `vngcloud:"required"`
 	// Page starts at zero; negative values select zero.
 	Page int
@@ -51,7 +51,7 @@ func (c *Client) ListUserPolicies(ctx context.Context, in *ListUserPoliciesInput
 // returns a bare array of full Group objects, unlike ListGroups, which
 // returns summary rows only.
 type ListUserGroupsInput struct {
-	// UserID is required.
+	// UserID is required; use ASCII letters, digits, or hyphens.
 	UserID string `vngcloud:"required"`
 }
 
@@ -85,7 +85,7 @@ func (c *Client) ListUserGroups(ctx context.Context, in *ListUserGroupsInput) (*
 // policies. A non-positive Size sends core.DefaultPageSize, and Page 0 is
 // the first page.
 type ListServiceAccountPoliciesInput struct {
-	// ServiceAccountID is required.
+	// ServiceAccountID is required; use ASCII letters, digits, or hyphens.
 	ServiceAccountID string `vngcloud:"required"`
 	// Page starts at zero; negative values select zero.
 	Page int

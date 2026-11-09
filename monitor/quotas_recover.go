@@ -7,7 +7,7 @@ import (
 
 // RecoverSyntheticQuotaInput requires ExpectedQuotaID.
 type RecoverSyntheticQuotaInput struct {
-	// ExpectedQuotaID is required.
+	// ExpectedQuotaID is required; use ASCII letters, digits, or hyphens.
 	ExpectedQuotaID string `vngcloud:"required"`
 	// MaxPrice bounds the recovery quote.
 	MaxPrice float64

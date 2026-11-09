@@ -209,7 +209,7 @@ func (c *Client) waitACLAbsentAfterDelete(ctx context.Context, id string) error 
 
 // GetNetworkACLInput identifies the network ACL to read.
 type GetNetworkACLInput struct {
-	// NetworkACLID is required.
+	// NetworkACLID is required; use ASCII letters, digits, or hyphens.
 	NetworkACLID string `vngcloud:"required"`
 }
 
@@ -350,7 +350,7 @@ func wrapAmbiguousACLCreateErr(op string, err error) error {
 
 // DeleteNetworkACLInput identifies the network ACL to delete.
 type DeleteNetworkACLInput struct {
-	// NetworkACLID is required.
+	// NetworkACLID is required; use ASCII letters, digits, or hyphens.
 	NetworkACLID string `vngcloud:"required"`
 }
 

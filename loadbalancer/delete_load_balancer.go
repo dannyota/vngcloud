@@ -19,7 +19,7 @@ const (
 
 // DeleteLoadBalancerInput identifies the load balancer to delete.
 type DeleteLoadBalancerInput struct {
-	// LoadBalancerID is required.
+	// LoadBalancerID is required; use ASCII letters, digits, or hyphens.
 	LoadBalancerID string `vngcloud:"required"`
 
 	// NoWait skips the post-operation wait.

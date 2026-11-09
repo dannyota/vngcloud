@@ -42,9 +42,10 @@ type CORSRule struct {
 type GetBucketCORSInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
 	Region string
-	// ProjectID is required.
+	// ProjectID is required; use ASCII letters, digits, or hyphens.
 	ProjectID string `vngcloud:"required"`
-	// Bucket is required.
+	// Bucket must start with an ASCII letter or digit and use only
+	// letters, digits, periods, underscores, or hyphens, up to 255 bytes.
 	Bucket string `vngcloud:"required"`
 }
 
@@ -111,9 +112,10 @@ func (c *Client) GetBucketCORS(ctx context.Context, in *GetBucketCORSInput) (*Ge
 type PutBucketCORSInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
 	Region string
-	// ProjectID is required.
+	// ProjectID is required; use ASCII letters, digits, or hyphens.
 	ProjectID string `vngcloud:"required"`
-	// Bucket is required.
+	// Bucket must start with an ASCII letter or digit and use only
+	// letters, digits, periods, underscores, or hyphens, up to 255 bytes.
 	Bucket string `vngcloud:"required"`
 	// Rules replaces every rule of the bucket. It is not empty.
 	Rules []CORSRule `vngcloud:"required"`
@@ -228,9 +230,10 @@ func checkCORSRules(op string, rules []CORSRule) error {
 type DeleteBucketCORSInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
 	Region string
-	// ProjectID is required.
+	// ProjectID is required; use ASCII letters, digits, or hyphens.
 	ProjectID string `vngcloud:"required"`
-	// Bucket is required.
+	// Bucket must start with an ASCII letter or digit and use only
+	// letters, digits, periods, underscores, or hyphens, up to 255 bytes.
 	Bucket string `vngcloud:"required"`
 }
 

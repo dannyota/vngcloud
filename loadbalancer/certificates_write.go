@@ -127,7 +127,7 @@ type ImportCertificateInput struct {
 	Name string `vngcloud:"required"`
 	// Type is required.
 	Type string `vngcloud:"required"`
-	// Certificate is required.
+	// Certificate must contain only PEM certificate blocks and no private key.
 	Certificate string `vngcloud:"required"`
 	// CertificateChain must contain only PEM certificate blocks and is valid only for TLS.
 	CertificateChain string
@@ -358,7 +358,7 @@ func (c *Client) mapCertificateNotFound(ctx context.Context, op, id string, err 
 
 // DeleteCertificateInput requires CertificateID.
 type DeleteCertificateInput struct {
-	// CertificateID is required.
+	// CertificateID is required; use ASCII letters, digits, or hyphens.
 	CertificateID string `vngcloud:"required"`
 }
 

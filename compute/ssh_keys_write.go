@@ -83,7 +83,7 @@ type importSSHKeyBody struct {
 type ImportSSHKeyInput struct {
 	// Name is required.
 	Name string `vngcloud:"required"`
-	// PublicKey is required.
+	// PublicKey must be one line after trimming and contain no private key text.
 	PublicKey string `vngcloud:"required"`
 }
 
@@ -248,7 +248,7 @@ func mapSSHKeyDeleteNotFound(op, sshKeyID string, err error) error {
 
 // DeleteSSHKeyInput requires SSHKeyID.
 type DeleteSSHKeyInput struct {
-	// SSHKeyID is required.
+	// SSHKeyID is required; use ASCII letters, digits, or hyphens.
 	SSHKeyID string `vngcloud:"required"`
 }
 

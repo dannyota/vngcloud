@@ -103,7 +103,7 @@ func wrapAmbiguousGroupCreateErr(op string, err error) error {
 // non-nil. It has no guard beyond read-only: changing a group's name or
 // description changes no one's rights.
 type UpdateGroupInput struct {
-	// GroupID is required.
+	// GroupID is required; use ASCII letters, digits, or hyphens.
 	GroupID string `vngcloud:"required"`
 	// Name uses the current group name when nil.
 	Name *string
@@ -178,7 +178,7 @@ func (c *Client) UpdateGroup(ctx context.Context, in *UpdateGroupInput) (*Update
 // DeleteGroupInput identifies the group to delete. It must have no member
 // and no attached policy; see group_guard.go.
 type DeleteGroupInput struct {
-	// GroupID is required.
+	// GroupID is required; use ASCII letters, digits, or hyphens.
 	GroupID string `vngcloud:"required"`
 }
 

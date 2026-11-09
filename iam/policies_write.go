@@ -54,7 +54,7 @@ type CreatePolicyInput struct {
 	Name string `vngcloud:"required"`
 	// Description is sent as description in the create body.
 	Description string
-	// Statements is required.
+	// Statements must contain statements with valid effects, actions, and resources.
 	Statements []Statement `vngcloud:"required"`
 }
 
@@ -143,7 +143,7 @@ func wrapAmbiguousPolicyCreateErr(op string, err error) error {
 // guard.go and CreatePolicyInput's Statements note. PolicyID must not be
 // managed and must not be, or become, privileged; see guard.go.
 type UpdatePolicyInput struct {
-	// PolicyID is required.
+	// PolicyID is required; use ASCII letters, digits, or hyphens.
 	PolicyID string `vngcloud:"required"`
 	// Name leaves its current value unchanged when nil.
 	Name *string
@@ -233,7 +233,7 @@ func (c *Client) UpdatePolicy(ctx context.Context, in *UpdatePolicyInput) (*Upda
 // DeletePolicyInput identifies the policy to delete. It must not be managed
 // and must not be attached to anything; see guard.go.
 type DeletePolicyInput struct {
-	// PolicyID is required.
+	// PolicyID is required; use ASCII letters, digits, or hyphens.
 	PolicyID string `vngcloud:"required"`
 }
 

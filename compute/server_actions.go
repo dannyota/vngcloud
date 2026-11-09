@@ -21,7 +21,7 @@ func is4xxAPIError(err error) bool {
 
 // StartServerInput identifies the server to start.
 type StartServerInput struct {
-	// ServerID is required.
+	// ServerID is required; use ASCII letters, digits, or hyphens.
 	ServerID string `vngcloud:"required"`
 
 	// NoWait skips the post-operation wait.
@@ -63,7 +63,7 @@ func (c *Client) StartServer(ctx context.Context, in *StartServerInput) (*StartS
 
 // StopServerInput identifies the server to stop.
 type StopServerInput struct {
-	// ServerID is required.
+	// ServerID is required; use ASCII letters, digits, or hyphens.
 	ServerID string `vngcloud:"required"`
 
 	// NoWait skips the post-operation wait.
@@ -141,7 +141,7 @@ func (c *Client) toggleServerStatus(ctx context.Context, op, serverID string, no
 
 // RebootServerInput identifies the server to reboot.
 type RebootServerInput struct {
-	// ServerID is required.
+	// ServerID is required; use ASCII letters, digits, or hyphens.
 	ServerID string `vngcloud:"required"`
 
 	// NoWait skips the post-operation wait.
@@ -221,7 +221,7 @@ type renameServerBody struct {
 
 // RenameServerInput renames a server.
 type RenameServerInput struct {
-	// ServerID is required.
+	// ServerID is required; use ASCII letters, digits, or hyphens.
 	ServerID string `vngcloud:"required"`
 	// Name is required.
 	Name string `vngcloud:"required"`

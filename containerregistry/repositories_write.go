@@ -124,7 +124,7 @@ func (c *Client) repositoryFoundAfterServerError(ctx context.Context, id string)
 
 // GetRepositoryInput identifies the repository to read.
 type GetRepositoryInput struct {
-	// RepositoryID is required.
+	// RepositoryID is required; use ASCII letters, digits, or hyphens.
 	RepositoryID string `vngcloud:"required"`
 }
 
@@ -184,7 +184,7 @@ func (c *Client) GetRepository(ctx context.Context, in *GetRepositoryInput) (*Ge
 type CreateRepositoryInput struct {
 	// Name is required.
 	Name string `vngcloud:"required"`
-	// QuotaLimitGB is required.
+	// QuotaLimitGB must be positive.
 	QuotaLimitGB int `vngcloud:"required"`
 
 	// NoWait skips the post-operation wait.
@@ -314,7 +314,7 @@ func (c *Client) waitRepositoryConfirmed(ctx context.Context, op, repositoryID s
 
 // DeleteRepositoryInput identifies the repository to delete.
 type DeleteRepositoryInput struct {
-	// RepositoryID is required.
+	// RepositoryID is required; use ASCII letters, digits, or hyphens.
 	RepositoryID string `vngcloud:"required"`
 
 	// NoWait skips the post-operation wait.

@@ -470,7 +470,7 @@ func (p serverGroupPolicyResp) toPolicy() ServerGroupPolicy {
 type Zone = core.NetworkZone
 
 // Server holds server data from the API.
-// See docs/design/sdk-and-cli.md.
+// See docs/design/vserver-paid-writes-api.md.
 type Server struct {
 	BootVolumeID          string             `json:"bootVolumeId"`
 	CreatedAt             string             `json:"createdAt"`
@@ -511,7 +511,7 @@ type Server struct {
 }
 
 // NetworkInterface holds network interface data from the API.
-// See docs/design/sdk-and-cli.md.
+// See docs/design/vserver-paid-writes-api.md.
 type NetworkInterface struct {
 	CreatedAt     string `json:"createdAt"`
 	FixedIP       string `json:"fixedIp"`
@@ -534,7 +534,7 @@ type NetworkInterface struct {
 // ZoneID comes from the embedded shape; FlavorZoneID comes from ListFlavors,
 // which groups flavors by flavor zone rather than network zone. A value
 // decoded from one source leaves the other's field at its zero value.
-// See docs/design/sdk-and-cli.md.
+// See docs/design/pricing-discovery-api.md.
 type Flavor struct {
 	Bandwidth              int64  `json:"bandwidth"`
 	BandwidthUnit          string `json:"bandwidthUnit"`
@@ -553,7 +553,7 @@ type Flavor struct {
 }
 
 // Image holds image data from the API.
-// See docs/design/sdk-and-cli.md.
+// See docs/design/pricing-discovery-api.md.
 type Image struct {
 	FlavorZoneIDs []string     `json:"flavorZoneIds"`
 	ID            string       `json:"id"`
@@ -564,7 +564,7 @@ type Image struct {
 }
 
 // PackageLimit holds package limit data from the API.
-// See docs/design/sdk-and-cli.md.
+// See docs/design/pricing-discovery-api.md.
 type PackageLimit struct {
 	CPU      int64 `json:"cpu"`
 	DiskSize int64 `json:"diskSize"`
@@ -572,7 +572,7 @@ type PackageLimit struct {
 }
 
 // ServerSecgroup holds server secgroup data from the API.
-// See docs/design/sdk-and-cli.md.
+// See docs/design/vserver-paid-writes.md.
 type ServerSecgroup struct {
 	Name string `json:"name"`
 	UUID string `json:"uuid"`
@@ -582,7 +582,7 @@ type ServerSecgroup struct {
 // even if it did, this model would drop it rather than hold it. CreateSSHKey
 // is the only call that returns a private key, and it returns it separately
 // as a vngcloud.Secret, never on this type.
-// See docs/design/sdk-and-cli.md.
+// See docs/design/vserver-writes.md.
 type SSHKey struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
@@ -592,7 +592,7 @@ type SSHKey struct {
 }
 
 // ServerGroup holds server group data from the API.
-// See docs/design/sdk-and-cli.md.
+// See docs/design/vserver-network-writes-api.md.
 type ServerGroup struct {
 	UUID          string              `json:"uuid"`
 	ServerGroupID any                 `json:"serverGroupId"`
@@ -605,14 +605,14 @@ type ServerGroup struct {
 }
 
 // ServerGroupMember holds server group member data from the API.
-// See docs/design/sdk-and-cli.md.
+// See docs/design/vserver-network-writes-api.md.
 type ServerGroupMember struct {
 	Name string `json:"name"`
 	UUID string `json:"uuid"`
 }
 
 // ServerSecurityGroup holds server security group data from the API.
-// See docs/design/sdk-and-cli.md.
+// See docs/design/vserver-writes.md.
 type ServerSecurityGroup struct {
 	ServerID string `json:"serverId"`
 	Name     string `json:"name"`
@@ -620,7 +620,7 @@ type ServerSecurityGroup struct {
 }
 
 // ServerGroupMembership holds server group membership data from the API.
-// See docs/design/sdk-and-cli.md.
+// See docs/design/vserver-network-writes.md.
 type ServerGroupMembership struct {
 	ServerGroupID string `json:"serverGroupId"`
 	Name          string `json:"name"`
@@ -628,7 +628,7 @@ type ServerGroupMembership struct {
 }
 
 // ServerGroupPolicy holds server group policy data from the API.
-// See docs/design/sdk-and-cli.md.
+// See docs/design/vserver-network-writes.md.
 type ServerGroupPolicy struct {
 	Name          string            `json:"name"`
 	UUID          string            `json:"uuid"`
@@ -639,7 +639,7 @@ type ServerGroupPolicy struct {
 }
 
 // OSImage holds os image data from the API.
-// See docs/design/sdk-and-cli.md.
+// See docs/design/pricing-discovery-api.md.
 type OSImage struct {
 	ID            string       `json:"id"`
 	ImageType     string       `json:"imageType"`

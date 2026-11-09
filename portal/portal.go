@@ -218,7 +218,7 @@ func (r *flexibleList[T]) UnmarshalJSON(data []byte) error {
 type UserInfo map[string]any
 
 // Zone describes a portal zone. ID and UUID are separate API fields.
-// See docs/design/sdk-and-cli.md.
+// See docs/design/cli-reads.md.
 type Zone struct {
 	ID            *string   `json:"id"`
 	UUID          *string   `json:"uuid"`

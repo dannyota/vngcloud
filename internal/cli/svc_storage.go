@@ -86,12 +86,18 @@ var storageOps = []Op[storage.Client]{
 
 // Name is required for purchase, but the SDK input also serves quotes.
 type storageCreateProjectInput struct {
-	Region   string
-	Name     string `vngcloud:"required"`
-	Type     string `vngcloud:"required"`
-	QuotaGB  int64  `vngcloud:"required"`
+	// Region selects the storage region using normal region resolution.
+	Region string
+	// Name names the project to purchase.
+	Name string `vngcloud:"required"`
+	// Type selects the project type.
+	Type string `vngcloud:"required"`
+	// QuotaGB selects a positive quota in GB.
+	QuotaGB int64 `vngcloud:"required"`
+	// MaxPrice bounds the selected term's VND quote.
 	MaxPrice float64
-	NoWait   bool
+	// NoWait skips the post-order wait.
+	NoWait bool
 }
 
 func createStorageProjectOp() Op[storage.Client] {
@@ -157,10 +163,14 @@ func getBucketEncryptionOp() Op[storage.Client] {
 
 // A pointer preserves omission and null until the CLI has checked presence.
 type storagePutBucketEncryptionInput struct {
-	Region     string
-	ProjectID  string `vngcloud:"required"`
+	// Region selects the storage region using normal region resolution.
+	Region string
+	// ProjectID identifies the storage project.
+	ProjectID string `vngcloud:"required"`
+	// BucketName identifies the bucket; the --bucket flag takes precedence.
 	BucketName string `vngcloud:"required"`
-	Enabled    *bool  `vngcloud:"required"`
+	// Enabled must be present and non-null, including when false.
+	Enabled *bool `vngcloud:"required"`
 }
 
 func putBucketEncryptionOp() Op[storage.Client] {

@@ -453,7 +453,7 @@ type EndpointDetail struct {
 }
 
 // Tag holds tag data from the API.
-// See docs/design/vserver-network-writes-api.md.
+// See docs/design/network-endpoints-api.md.
 type Tag struct {
 	UUID         string `json:"uuid"`
 	Key          string `json:"tagKey"`

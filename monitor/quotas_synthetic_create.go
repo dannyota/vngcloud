@@ -17,11 +17,11 @@ import (
 
 // CreateSyntheticQuotaInput requires ClassID, PackageID and Quantity.
 type CreateSyntheticQuotaInput struct {
-	// ClassID is required.
+	// ClassID is required; use ASCII letters, digits, or hyphens.
 	ClassID string `vngcloud:"required"`
-	// PackageID is required.
+	// PackageID must identify a package in the selected class.
 	PackageID string `vngcloud:"required"`
-	// Quantity is required.
+	// Quantity must be positive and fit the selected package option.
 	Quantity int `vngcloud:"required"`
 	// MaxPrice bounds the create quote; QuoteCreateSyntheticQuota ignores it.
 	MaxPrice float64

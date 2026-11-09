@@ -18,7 +18,7 @@ var ErrPurgeCooldown = errors.New("cdn: purge cooldown")
 type PurgePathsInput struct {
 	// CDNDomain is required.
 	CDNDomain string `vngcloud:"required"`
-	// Paths is required.
+	// Paths must contain nonempty paths without asterisks.
 	Paths []string `vngcloud:"required"`
 }
 

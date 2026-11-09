@@ -13,9 +13,9 @@ import (
 type AttachS3KeyInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
 	Region string
-	// ProjectID is required.
+	// ProjectID is required; use ASCII letters, digits, or hyphens.
 	ProjectID string `vngcloud:"required"`
-	// UserKeyID is required.
+	// UserKeyID is required; use ASCII letters, digits, or hyphens.
 	UserKeyID string `vngcloud:"required"`
 	// ServiceAccountID is the IAM service account ID as the iam package
 	// returns it, with no "sa-" prefix.
@@ -94,9 +94,9 @@ func (c *Client) AttachS3Key(ctx context.Context, in *AttachS3KeyInput) (*Attach
 type DetachS3KeyInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
 	Region string
-	// ProjectID is required.
+	// ProjectID is required; use ASCII letters, digits, or hyphens.
 	ProjectID string `vngcloud:"required"`
-	// UserKeyID is required.
+	// UserKeyID is required; use ASCII letters, digits, or hyphens.
 	UserKeyID string `vngcloud:"required"`
 }
 

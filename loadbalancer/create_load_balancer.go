@@ -45,7 +45,7 @@ const (
 type CreateLoadBalancerInput struct {
 	// Name is required.
 	Name string `vngcloud:"required"`
-	// PackageID is required.
+	// PackageID is required; use ASCII letters, digits, or hyphens.
 	PackageID string `vngcloud:"required"`
 	// Type is TypeLayer4 or TypeLayer7.
 	Type string `vngcloud:"required"`
@@ -53,7 +53,7 @@ type CreateLoadBalancerInput struct {
 	// value, including one padded or cased differently, or an invented
 	// value such as "Public", is refused before any request.
 	Scheme string `vngcloud:"required"`
-	// SubnetID is required.
+	// SubnetID is required; use ASCII letters, digits, or hyphens.
 	SubnetID string `vngcloud:"required"`
 	// ZoneID is required.
 	ZoneID string `vngcloud:"required"`

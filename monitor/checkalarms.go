@@ -24,7 +24,7 @@ const (
 
 // GetCheckAlarmInput identifies the check whose current alarm state to read.
 type GetCheckAlarmInput struct {
-	// CheckID is required.
+	// CheckID is required; use ASCII letters, digits, or hyphens.
 	CheckID string `vngcloud:"required"`
 }
 
@@ -55,7 +55,7 @@ type CheckLocationAlarm struct {
 // ListCheckAlarmHistoryInput accepts RFC 3339 endpoints. End defaults to now;
 // Start defaults to 24 hours before the resolved End.
 type ListCheckAlarmHistoryInput struct {
-	// CheckID is required.
+	// CheckID is required; use ASCII letters, digits, or hyphens.
 	CheckID string `vngcloud:"required"`
 	// Start accepts RFC 3339 and defaults to 24 hours before End.
 	Start string

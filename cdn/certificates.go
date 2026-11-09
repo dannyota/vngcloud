@@ -62,7 +62,7 @@ func (c *Client) ListCertificates(ctx context.Context, in *ListCertificatesInput
 
 // GetCertificateInput identifies the certificate to read.
 type GetCertificateInput struct {
-	// CertificateID is required.
+	// CertificateID is required; use ASCII letters, digits, or hyphens.
 	CertificateID string `vngcloud:"required"`
 }
 

@@ -12,9 +12,9 @@ import (
 // to attach it to. The guard refuses, with no request sent, when the policy
 // is privileged or the target is protected; see guard.go.
 type AttachServiceAccountPolicyInput struct {
-	// PolicyID is required.
+	// PolicyID is required; use ASCII letters, digits, or hyphens.
 	PolicyID string `vngcloud:"required"`
-	// ServiceAccountID is required.
+	// ServiceAccountID is required; use ASCII letters, digits, or hyphens.
 	ServiceAccountID string `vngcloud:"required"`
 }
 
@@ -63,9 +63,9 @@ func (c *Client) AttachServiceAccountPolicy(ctx context.Context, in *AttachServi
 // to detach it from. The guard refuses, with no request sent, when the
 // policy is privileged or the target is protected; see guard.go.
 type DetachServiceAccountPolicyInput struct {
-	// PolicyID is required.
+	// PolicyID is required; use ASCII letters, digits, or hyphens.
 	PolicyID string `vngcloud:"required"`
-	// ServiceAccountID is required.
+	// ServiceAccountID is required; use ASCII letters, digits, or hyphens.
 	ServiceAccountID string `vngcloud:"required"`
 }
 

@@ -69,13 +69,13 @@ type createSecurityGroupRuleResponse struct {
 // not against a fixed value set, so a protocol the server adds later never
 // needs an SDK release.
 type CreateSecurityGroupRuleInput struct {
-	// SecurityGroupID is required.
+	// SecurityGroupID is required; use ASCII letters, digits, or hyphens.
 	SecurityGroupID string `vngcloud:"required"`
-	// Direction is required.
+	// Direction must be ingress or egress, in lowercase.
 	Direction string `vngcloud:"required"`
 	// Protocol is required.
 	Protocol string `vngcloud:"required"`
-	// RemoteIPPrefix is required.
+	// RemoteIPPrefix must be a valid IPv4 or IPv6 CIDR prefix.
 	RemoteIPPrefix string `vngcloud:"required"`
 
 	// EtherType defaults from RemoteIPPrefix and must match its address family.
@@ -243,9 +243,9 @@ func wrapAmbiguousSecurityGroupRuleCreateErr(op string, err error) error {
 // DeleteSecurityGroupRuleInput identifies the rule to delete, within the
 // group it must belong to.
 type DeleteSecurityGroupRuleInput struct {
-	// SecurityGroupID is required.
+	// SecurityGroupID is required; use ASCII letters, digits, or hyphens.
 	SecurityGroupID string `vngcloud:"required"`
-	// SecurityGroupRuleID is required.
+	// SecurityGroupRuleID is required; use ASCII letters, digits, or hyphens.
 	SecurityGroupRuleID string `vngcloud:"required"`
 }
 

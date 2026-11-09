@@ -10,7 +10,7 @@ type ListServersInput struct {
 
 // GetServerInput identifies a server to read.
 type GetServerInput struct {
-	// ServerID is required.
+	// ServerID is required; use ASCII letters, digits, or hyphens.
 	ServerID string `vngcloud:"required"`
 }
 
@@ -26,7 +26,7 @@ type ListSSHKeysInput struct {
 
 // GetSSHKeyInput identifies an SSH key to read.
 type GetSSHKeyInput struct {
-	// SSHKeyID is required.
+	// SSHKeyID is required; use ASCII letters, digits, or hyphens.
 	SSHKeyID string `vngcloud:"required"`
 }
 
@@ -43,7 +43,7 @@ type ListServerGroupsInput struct {
 
 // GetServerGroupInput identifies a server group to read.
 type GetServerGroupInput struct {
-	// ServerGroupID is required.
+	// ServerGroupID is required; use ASCII letters, digits, or hyphens.
 	ServerGroupID string `vngcloud:"required"`
 }
 

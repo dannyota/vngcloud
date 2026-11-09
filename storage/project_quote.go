@@ -21,9 +21,9 @@ type CreateProjectInput struct {
 	Region string
 	// Name names the project and is ignored by QuoteCreateProject.
 	Name string
-	// Type is required.
+	// Type must match a type in the resolved regional catalog.
 	Type string `vngcloud:"required"`
-	// QuotaGB is required.
+	// QuotaGB must be positive and match the selected catalog limits.
 	QuotaGB int64 `vngcloud:"required"`
 	// MaxPrice bounds the selected term's VND quote; QuoteCreateProject ignores it.
 	MaxPrice float64

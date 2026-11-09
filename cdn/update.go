@@ -53,7 +53,7 @@ type RuleActionInput struct {
 // NoWait returns after one read of the CDN instead of waiting for it to
 // settle.
 type UpdateWebAcceleratorInput struct {
-	// CDNID is required.
+	// CDNID is required; use ASCII letters, digits, or hyphens.
 	CDNID string `vngcloud:"required"`
 	// SetRuleActions adds or changes actions by name.
 	SetRuleActions []RuleActionInput

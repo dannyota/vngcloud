@@ -38,7 +38,7 @@ func (c *Client) ListChecks(ctx context.Context, in *ListChecksInput) (*ListChec
 
 // GetCheckInput identifies the check to read.
 type GetCheckInput struct {
-	// CheckID is required.
+	// CheckID is required; use ASCII letters, digits, or hyphens.
 	CheckID string `vngcloud:"required"`
 }
 

@@ -144,11 +144,11 @@ func checkRouteTarget(op, target string) error {
 
 // AddRouteInput adds one route to a route table.
 type AddRouteInput struct {
-	// RouteTableID is required.
+	// RouteTableID is required; use ASCII letters, digits, or hyphens.
 	RouteTableID string `vngcloud:"required"`
-	// DestinationCIDR is required.
+	// DestinationCIDR must be a CIDR prefix with no host bits set.
 	DestinationCIDR string `vngcloud:"required"`
-	// Target is required.
+	// Target must be an IP address without a zone.
 	Target string `vngcloud:"required"`
 
 	// NoWait skips the post-operation wait.
@@ -240,9 +240,9 @@ func (c *Client) AddRoute(ctx context.Context, in *AddRouteInput) (*AddRouteOutp
 // RemoveRouteInput removes one route, named by its destination, from a
 // route table.
 type RemoveRouteInput struct {
-	// RouteTableID is required.
+	// RouteTableID is required; use ASCII letters, digits, or hyphens.
 	RouteTableID string `vngcloud:"required"`
-	// DestinationCIDR is required.
+	// DestinationCIDR must be a CIDR prefix with no host bits set.
 	DestinationCIDR string `vngcloud:"required"`
 
 	// NoWait skips the post-operation wait.

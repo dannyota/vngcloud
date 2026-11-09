@@ -130,7 +130,7 @@ type ListInterconnectsOutput = core.PagedList[Interconnect]
 
 // GetVPCInput requires VPCID.
 type GetVPCInput struct {
-	// VPCID is required.
+	// VPCID is required; use ASCII letters, digits, or hyphens.
 	VPCID string `vngcloud:"required"`
 }
 
@@ -154,7 +154,7 @@ type ListDHCPOptionsOutput = core.PagedList[DHCPOptions]
 
 // GetDHCPOptionsInput requires DHCPOptionsID.
 type GetDHCPOptionsInput struct {
-	// DHCPOptionsID is required.
+	// DHCPOptionsID is required; use ASCII letters, digits, or hyphens.
 	DHCPOptionsID string `vngcloud:"required"`
 }
 
@@ -169,7 +169,7 @@ type GetDHCPOptionsOutput struct {
 type CreateDHCPOptionsInput struct {
 	// Name is required.
 	Name string `vngcloud:"required"`
-	// DNSServers is required.
+	// DNSServers must contain at least one IPv4 address; the server enforces the limit.
 	DNSServers []string `vngcloud:"required"`
 
 	// MTU is sent only when set; the server default is 1450.
@@ -183,7 +183,7 @@ type CreateDHCPOptionsOutput struct {
 
 // DeleteDHCPOptionsInput requires DHCPOptionsID.
 type DeleteDHCPOptionsInput struct {
-	// DHCPOptionsID is required.
+	// DHCPOptionsID is required; use ASCII letters, digits, or hyphens.
 	DHCPOptionsID string `vngcloud:"required"`
 }
 
@@ -195,9 +195,9 @@ type DeleteDHCPOptionsOutput struct{}
 // another one; see SetVPCDHCPOptions's doc comment for the guards the two
 // calls share.
 type SetVPCDHCPOptionsInput struct {
-	// VPCID is required.
+	// VPCID is required; use ASCII letters, digits, or hyphens.
 	VPCID string `vngcloud:"required"`
-	// DHCPOptionsID is required.
+	// DHCPOptionsID is required; use ASCII letters, digits, or hyphens.
 	DHCPOptionsID string `vngcloud:"required"`
 }
 
@@ -213,7 +213,7 @@ type SetVPCDHCPOptionsOutput struct {
 // none. See ClearVPCDHCPOptions's doc comment for the guards this refuses
 // on.
 type ClearVPCDHCPOptionsInput struct {
-	// VPCID is required.
+	// VPCID is required; use ASCII letters, digits, or hyphens.
 	VPCID string `vngcloud:"required"`
 }
 
@@ -227,9 +227,9 @@ type ClearVPCDHCPOptionsOutput struct {
 
 // GetSubnetInput requires VPCID and SubnetID.
 type GetSubnetInput struct {
-	// VPCID is required.
+	// VPCID is required; use ASCII letters, digits, or hyphens.
 	VPCID string `vngcloud:"required"`
-	// SubnetID is required.
+	// SubnetID is required; use ASCII letters, digits, or hyphens.
 	SubnetID string `vngcloud:"required"`
 }
 
@@ -246,7 +246,7 @@ type ListSubnetsOutput = core.List[Subnet]
 
 // ListSubnetsByVPCInput requires VPCID.
 type ListSubnetsByVPCInput struct {
-	// VPCID is required.
+	// VPCID is required; use ASCII letters, digits, or hyphens.
 	VPCID string `vngcloud:"required"`
 }
 
@@ -255,7 +255,7 @@ type ListSubnetsByVPCOutput = core.List[Subnet]
 
 // GetSecurityGroupInput requires SecurityGroupID.
 type GetSecurityGroupInput struct {
-	// SecurityGroupID is required.
+	// SecurityGroupID is required; use ASCII letters, digits, or hyphens.
 	SecurityGroupID string `vngcloud:"required"`
 }
 
@@ -266,7 +266,7 @@ type GetSecurityGroupOutput struct {
 
 // ListServersBySecurityGroupInput requires SecurityGroupID.
 type ListServersBySecurityGroupInput struct {
-	// SecurityGroupID is required.
+	// SecurityGroupID is required; use ASCII letters, digits, or hyphens.
 	SecurityGroupID string `vngcloud:"required"`
 }
 
@@ -276,7 +276,7 @@ type ListServersBySecurityGroupOutput = core.List[compute.Server]
 
 // ListSecurityGroupRulesInput requires SecurityGroupID.
 type ListSecurityGroupRulesInput struct {
-	// SecurityGroupID is required.
+	// SecurityGroupID is required; use ASCII letters, digits, or hyphens.
 	SecurityGroupID string `vngcloud:"required"`
 }
 
@@ -297,7 +297,7 @@ type ListRouteTableRoutesOutput = core.List[RouteTableRoute]
 
 // GetVirtualIPAddressInput requires VirtualIPAddressID.
 type GetVirtualIPAddressInput struct {
-	// VirtualIPAddressID is required.
+	// VirtualIPAddressID is required; use ASCII letters, digits, or hyphens.
 	VirtualIPAddressID string `vngcloud:"required"`
 }
 
@@ -308,7 +308,7 @@ type GetVirtualIPAddressOutput struct {
 
 // ListAddressPairsByVirtualIPAddressInput requires VirtualIPAddressID.
 type ListAddressPairsByVirtualIPAddressInput struct {
-	// VirtualIPAddressID is required.
+	// VirtualIPAddressID is required; use ASCII letters, digits, or hyphens.
 	VirtualIPAddressID string `vngcloud:"required"`
 }
 

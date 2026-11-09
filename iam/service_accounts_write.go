@@ -125,7 +125,7 @@ func wrapAmbiguousServiceAccountCreateErr(op, name string, err error) error {
 // must not be the caller and must not hold a privileged policy; see
 // guard.go.
 type UpdateServiceAccountInput struct {
-	// ServiceAccountID is required.
+	// ServiceAccountID is required; use ASCII letters, digits, or hyphens.
 	ServiceAccountID string `vngcloud:"required"`
 	// Description is sent only when non-nil.
 	Description *string
@@ -188,7 +188,7 @@ func (c *Client) UpdateServiceAccount(ctx context.Context, in *UpdateServiceAcco
 // must not be the caller and must not hold a privileged policy; see
 // guard.go.
 type DeleteServiceAccountInput struct {
-	// ServiceAccountID is required.
+	// ServiceAccountID is required; use ASCII letters, digits, or hyphens.
 	ServiceAccountID string `vngcloud:"required"`
 }
 
@@ -227,7 +227,7 @@ func (c *Client) DeleteServiceAccount(ctx context.Context, in *DeleteServiceAcco
 // client secret to reset. It must not be the caller and must not hold a
 // privileged policy; see guard.go.
 type ResetServiceAccountSecretInput struct {
-	// ServiceAccountID is required.
+	// ServiceAccountID is required; use ASCII letters, digits, or hyphens.
 	ServiceAccountID string `vngcloud:"required"`
 }
 

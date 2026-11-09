@@ -14,7 +14,7 @@ import (
 type EnsureServiceAccountPrincipalInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
 	Region string
-	// ProjectID is required.
+	// ProjectID is required; use ASCII letters, digits, or hyphens.
 	ProjectID string `vngcloud:"required"`
 	// ServiceAccountID is the IAM service account ID as the iam package
 	// returns it, with no "sa-" prefix.

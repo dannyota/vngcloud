@@ -18,9 +18,10 @@ import (
 type GetBucketPolicyInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
 	Region string
-	// ProjectID is required.
+	// ProjectID is required; use ASCII letters, digits, or hyphens.
 	ProjectID string `vngcloud:"required"`
-	// Bucket is required.
+	// Bucket must start with an ASCII letter or digit and use only
+	// letters, digits, periods, underscores, or hyphens, up to 255 bytes.
 	Bucket string `vngcloud:"required"`
 }
 
@@ -76,9 +77,10 @@ func (c *Client) GetBucketPolicy(ctx context.Context, in *GetBucketPolicyInput) 
 type PutBucketPolicyInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
 	Region string
-	// ProjectID is required.
+	// ProjectID is required; use ASCII letters, digits, or hyphens.
 	ProjectID string `vngcloud:"required"`
-	// Bucket is required.
+	// Bucket must start with an ASCII letter or digit and use only
+	// letters, digits, periods, underscores, or hyphens, up to 255 bytes.
 	Bucket string `vngcloud:"required"`
 	// Policy is the policy document as JSON text. It must be a JSON object
 	// whose Statement member is an array of complete statements; see
@@ -153,9 +155,10 @@ func (c *Client) PutBucketPolicy(ctx context.Context, in *PutBucketPolicyInput) 
 type DeleteBucketPolicyInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
 	Region string
-	// ProjectID is required.
+	// ProjectID is required; use ASCII letters, digits, or hyphens.
 	ProjectID string `vngcloud:"required"`
-	// Bucket is required.
+	// Bucket must start with an ASCII letter or digit and use only
+	// letters, digits, periods, underscores, or hyphens, up to 255 bytes.
 	Bucket string `vngcloud:"required"`
 }
 

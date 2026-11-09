@@ -91,7 +91,8 @@ type ListNATZonesOutput = core.List[NATAvailabilityZone]
 type ListNATPackagesInput struct {
 	// ZoneID selects the zone scope; empty discovers one.
 	ZoneID string
-	// AvailabilityZoneID is required.
+	// AvailabilityZoneID must identify one enabled availability zone and use
+	// only ASCII letters, digits, or hyphens.
 	AvailabilityZoneID string `vngcloud:"required"`
 }
 
@@ -110,7 +111,7 @@ type NATAvailabilityZone struct {
 }
 
 // NATOfferPrice holds nat offer price data from the API.
-// See docs/design/network-services-api.md.
+// See docs/design/network-writes-api.md.
 type NATOfferPrice struct {
 	OptimumPrice    float64 `json:"optimumPrice"`
 	OriginalPrice   float64 `json:"originalPrice"`
@@ -140,13 +141,14 @@ type NATPackageOffer struct {
 type CreateNATInstanceInput struct {
 	// Name is required.
 	Name string `vngcloud:"required"`
-	// ZoneID is required.
+	// ZoneID is required; use ASCII letters, digits, or hyphens.
 	ZoneID string `vngcloud:"required"`
-	// AvailabilityZoneID is required.
+	// AvailabilityZoneID is required; use ASCII letters, digits, or hyphens.
 	AvailabilityZoneID string `vngcloud:"required"`
-	// PackageID is required.
+	// PackageID must identify one package in the selected availability zone
+	// and use only ASCII letters, digits, or hyphens.
 	PackageID string `vngcloud:"required"`
-	// VPCID is required.
+	// VPCID is required; use ASCII letters, digits, or hyphens.
 	VPCID string `vngcloud:"required"`
 	// MaxPrice bounds the create quote; QuoteCreateNATInstance ignores it.
 	MaxPrice float64
@@ -164,11 +166,11 @@ type CreateNATInstanceOutput struct {
 
 // DeleteNATInstanceInput requires ZoneID, VPCID and NATID.
 type DeleteNATInstanceInput struct {
-	// ZoneID is required.
+	// ZoneID is required; use ASCII letters, digits, or hyphens.
 	ZoneID string `vngcloud:"required"`
-	// VPCID is required.
+	// VPCID is required; use ASCII letters, digits, or hyphens.
 	VPCID string `vngcloud:"required"`
-	// NATID is required.
+	// NATID is required; use ASCII letters, digits, or hyphens.
 	NATID string `vngcloud:"required"`
 	// NoWait skips the post-operation wait.
 	NoWait bool

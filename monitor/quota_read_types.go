@@ -117,7 +117,7 @@ type NotificationPackage struct {
 
 // ListNotificationPackagesInput requires Kind.
 type ListNotificationPackagesInput struct {
-	// Kind is required.
+	// Kind must be Email or SMS, ignoring case.
 	Kind string `vngcloud:"required"`
 }
 
@@ -141,7 +141,7 @@ type GetSyntheticQuotaUsageOutput struct{ Usage QuotaUsageDetail }
 
 // GetNotificationQuotaInput requires Kind.
 type GetNotificationQuotaInput struct {
-	// Kind is required.
+	// Kind must be Email or SMS, ignoring case.
 	Kind string `vngcloud:"required"`
 }
 
@@ -150,7 +150,7 @@ type GetNotificationQuotaOutput struct{ Quota Quota }
 
 // GetNotificationQuotaUsageInput requires Kind.
 type GetNotificationQuotaUsageInput struct {
-	// Kind is required.
+	// Kind must be Email; SMS usage reads are unsupported.
 	Kind string `vngcloud:"required"`
 }
 

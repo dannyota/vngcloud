@@ -175,7 +175,7 @@ func wrapAmbiguousSecurityGroupCreateErr(op string, err error) error {
 // caller leaves nil unchanged; the last writer wins, since the API has no
 // condition field.
 type UpdateSecurityGroupInput struct {
-	// SecurityGroupID is required.
+	// SecurityGroupID is required; use ASCII letters, digits, or hyphens.
 	SecurityGroupID string `vngcloud:"required"`
 
 	// Name leaves its current value unchanged when nil.
@@ -258,7 +258,7 @@ func (c *Client) UpdateSecurityGroup(ctx context.Context, in *UpdateSecurityGrou
 
 // DeleteSecurityGroupInput identifies the group to delete.
 type DeleteSecurityGroupInput struct {
-	// SecurityGroupID is required.
+	// SecurityGroupID is required; use ASCII letters, digits, or hyphens.
 	SecurityGroupID string `vngcloud:"required"`
 }
 

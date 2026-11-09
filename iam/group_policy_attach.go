@@ -12,9 +12,9 @@ import (
 // guard refuses, with no request sent, when the policy is privileged or the
 // target is protected; see group_guard.go.
 type AttachGroupPolicyInput struct {
-	// PolicyID is required.
+	// PolicyID is required; use ASCII letters, digits, or hyphens.
 	PolicyID string `vngcloud:"required"`
-	// GroupID is required.
+	// GroupID is required; use ASCII letters, digits, or hyphens.
 	GroupID string `vngcloud:"required"`
 }
 
@@ -63,9 +63,9 @@ func (c *Client) AttachGroupPolicy(ctx context.Context, in *AttachGroupPolicyInp
 // The guard refuses, with no request sent, when the policy is privileged or
 // the target is protected; see group_guard.go.
 type DetachGroupPolicyInput struct {
-	// PolicyID is required.
+	// PolicyID is required; use ASCII letters, digits, or hyphens.
 	PolicyID string `vngcloud:"required"`
-	// GroupID is required.
+	// GroupID is required; use ASCII letters, digits, or hyphens.
 	GroupID string `vngcloud:"required"`
 }
 

@@ -14,7 +14,7 @@ import (
 
 // SetNotificationQuotaAutoRenewInput requires Kind and Enabled.
 type SetNotificationQuotaAutoRenewInput struct {
-	// Kind is required.
+	// Kind must be Email or SMS, ignoring case.
 	Kind string `vngcloud:"required"`
 	// Enabled is required.
 	Enabled *bool `vngcloud:"required"`
@@ -52,7 +52,7 @@ type SetSyntheticQuotaAutoRenewOutput = SetQuotaAutoRenewOutput
 
 // DeleteNotificationQuotaInput requires Kind.
 type DeleteNotificationQuotaInput struct {
-	// Kind is required.
+	// Kind must be Email or SMS, ignoring case.
 	Kind string `vngcloud:"required"`
 	// Purge is refused because quota purge is not supported.
 	Purge bool
@@ -64,7 +64,7 @@ type DeleteNotificationQuotaInput struct {
 type DeleteSyntheticQuotaInput struct {
 	// Purge is refused because quota purge is not supported.
 	Purge bool
-	// ExpectedQuotaID is required.
+	// ExpectedQuotaID is required; use ASCII letters, digits, or hyphens.
 	ExpectedQuotaID string `vngcloud:"required"`
 }
 

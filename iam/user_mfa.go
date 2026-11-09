@@ -13,17 +13,17 @@ import (
 
 // EnableUserMFAInput requires UserID and Method.
 type EnableUserMFAInput struct {
-	// UserID is required.
+	// UserID is required; use ASCII letters, digits, or hyphens.
 	UserID string `vngcloud:"required"`
-	// Method is required.
+	// Method must be google.
 	Method string `vngcloud:"required"`
 }
 
 // DisableUserMFAInput requires UserID and Method.
 type DisableUserMFAInput struct {
-	// UserID is required.
+	// UserID is required; use ASCII letters, digits, or hyphens.
 	UserID string `vngcloud:"required"`
-	// Method is required.
+	// Method must be google.
 	Method string `vngcloud:"required"`
 }
 

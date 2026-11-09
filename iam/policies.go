@@ -55,7 +55,7 @@ func (c *Client) ListPolicies(ctx context.Context, in *ListPoliciesInput) (*List
 
 // GetPolicyInput requires PolicyID.
 type GetPolicyInput struct {
-	// PolicyID is required.
+	// PolicyID is required; use ASCII letters, digits, or hyphens.
 	PolicyID string `vngcloud:"required"`
 }
 
@@ -121,7 +121,7 @@ func (c *Client) getPolicy(ctx context.Context, in *GetPolicyInput, options ...u
 // ListPolicyAttachmentsInput identifies the policy whose attachments to
 // list.
 type ListPolicyAttachmentsInput struct {
-	// PolicyID is required.
+	// PolicyID is required; use ASCII letters, digits, or hyphens.
 	PolicyID string `vngcloud:"required"`
 }
 

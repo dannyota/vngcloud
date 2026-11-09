@@ -282,13 +282,13 @@ func (c *Client) poolPreWritePool(ctx context.Context, op, lbID, poolID string) 
 
 // AddPoolMemberInput adds one member to a pool.
 type AddPoolMemberInput struct {
-	// LoadBalancerID is required.
+	// LoadBalancerID is required; use ASCII letters, digits, or hyphens.
 	LoadBalancerID string `vngcloud:"required"`
-	// PoolID is required.
+	// PoolID is required; use ASCII letters, digits, or hyphens.
 	PoolID string `vngcloud:"required"`
-	// Address is required.
+	// Address must be an IPv4 address.
 	Address string `vngcloud:"required"`
-	// Port is required.
+	// Port must be between 1 and 65535.
 	Port int `vngcloud:"required"`
 
 	// Name is sent with the new member.
@@ -402,13 +402,13 @@ func (c *Client) AddPoolMember(ctx context.Context, in *AddPoolMemberInput) (*Ad
 // the member and cannot themselves be changed: remove it and add it again
 // under a new address or port.
 type UpdatePoolMemberInput struct {
-	// LoadBalancerID is required.
+	// LoadBalancerID is required; use ASCII letters, digits, or hyphens.
 	LoadBalancerID string `vngcloud:"required"`
-	// PoolID is required.
+	// PoolID is required; use ASCII letters, digits, or hyphens.
 	PoolID string `vngcloud:"required"`
-	// Address is required.
+	// Address must be an IPv4 address.
 	Address string `vngcloud:"required"`
-	// Port is required.
+	// Port must be between 1 and 65535.
 	Port int `vngcloud:"required"`
 
 	// Name leaves its current value unchanged when nil.
@@ -525,13 +525,13 @@ func (c *Client) UpdatePoolMember(ctx context.Context, in *UpdatePoolMemberInput
 // RemovePoolMemberInput identifies the member to remove by Address and
 // Port.
 type RemovePoolMemberInput struct {
-	// LoadBalancerID is required.
+	// LoadBalancerID is required; use ASCII letters, digits, or hyphens.
 	LoadBalancerID string `vngcloud:"required"`
-	// PoolID is required.
+	// PoolID is required; use ASCII letters, digits, or hyphens.
 	PoolID string `vngcloud:"required"`
-	// Address is required.
+	// Address must be an IPv4 address.
 	Address string `vngcloud:"required"`
-	// Port is required.
+	// Port must be between 1 and 65535.
 	Port int `vngcloud:"required"`
 
 	// NoWait skips the post-operation wait.

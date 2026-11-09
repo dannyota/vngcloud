@@ -50,13 +50,13 @@ type subnetWriteResponse struct {
 // it, in a zone the caller did not choose. list-zones (CLI) or the
 // equivalent portal read finds an enabled zone.
 type CreateSubnetInput struct {
-	// VPCID is required.
+	// VPCID is required; use ASCII letters, digits, or hyphens.
 	VPCID string `vngcloud:"required"`
 	// ZoneID is required.
 	ZoneID string `vngcloud:"required"`
 	// Name is required.
 	Name string `vngcloud:"required"`
-	// CIDR is required.
+	// CIDR must be an IPv4 CIDR prefix with no host bits set.
 	CIDR string `vngcloud:"required"`
 
 	// NoWait skips the post-operation wait.
@@ -157,9 +157,9 @@ func wrapAmbiguousSubnetCreateErr(op string, err error) error {
 
 // UpdateSubnetInput renames a subnet.
 type UpdateSubnetInput struct {
-	// VPCID is required.
+	// VPCID is required; use ASCII letters, digits, or hyphens.
 	VPCID string `vngcloud:"required"`
-	// SubnetID is required.
+	// SubnetID is required; use ASCII letters, digits, or hyphens.
 	SubnetID string `vngcloud:"required"`
 	// Name is required.
 	Name string `vngcloud:"required"`
@@ -236,9 +236,9 @@ func (c *Client) UpdateSubnet(ctx context.Context, in *UpdateSubnetInput) (*Upda
 // DeleteSubnetInput identifies the subnet to delete, within the VPC it must
 // belong to.
 type DeleteSubnetInput struct {
-	// VPCID is required.
+	// VPCID is required; use ASCII letters, digits, or hyphens.
 	VPCID string `vngcloud:"required"`
-	// SubnetID is required.
+	// SubnetID is required; use ASCII letters, digits, or hyphens.
 	SubnetID string `vngcloud:"required"`
 
 	// NoWait skips the post-operation wait.
@@ -559,7 +559,7 @@ func (c *Client) waitSubnetDeleted(ctx context.Context, op, vpcID, subnetID stri
 
 // ListServersBySubnetInput identifies the subnet to list servers in.
 type ListServersBySubnetInput struct {
-	// SubnetID is required.
+	// SubnetID is required; use ASCII letters, digits, or hyphens.
 	SubnetID string `vngcloud:"required"`
 }
 

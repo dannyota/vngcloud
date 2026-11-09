@@ -204,9 +204,9 @@ func newPolicyWriteBody(name, action string, f policyRedirectFields, rules []pol
 // fields its action carries. Rules needs at least one rule, and every rule
 // must set Type, CompareType, and Value.
 type CreatePolicyInput struct {
-	// LoadBalancerID is required.
+	// LoadBalancerID is required; use ASCII letters, digits, or hyphens.
 	LoadBalancerID string `vngcloud:"required"`
-	// ListenerID is required.
+	// ListenerID is required; use ASCII letters, digits, or hyphens.
 	ListenerID string `vngcloud:"required"`
 	// Name is required.
 	Name string `vngcloud:"required"`
@@ -340,11 +340,11 @@ func (c *Client) CreatePolicy(ctx context.Context, in *CreatePolicyInput) (*Crea
 // A set Rules replaces the whole rule list; an unset one resends the rules
 // read.
 type UpdatePolicyInput struct {
-	// LoadBalancerID is required.
+	// LoadBalancerID is required; use ASCII letters, digits, or hyphens.
 	LoadBalancerID string `vngcloud:"required"`
-	// ListenerID is required.
+	// ListenerID is required; use ASCII letters, digits, or hyphens.
 	ListenerID string `vngcloud:"required"`
-	// PolicyID is required.
+	// PolicyID is required; use ASCII letters, digits, or hyphens.
 	PolicyID string `vngcloud:"required"`
 
 	// Action leaves its current value unchanged when nil.
@@ -500,11 +500,11 @@ func (c *Client) UpdatePolicy(ctx context.Context, in *UpdatePolicyInput) (*Upda
 
 // DeletePolicyInput identifies the policy to delete.
 type DeletePolicyInput struct {
-	// LoadBalancerID is required.
+	// LoadBalancerID is required; use ASCII letters, digits, or hyphens.
 	LoadBalancerID string `vngcloud:"required"`
-	// ListenerID is required.
+	// ListenerID is required; use ASCII letters, digits, or hyphens.
 	ListenerID string `vngcloud:"required"`
-	// PolicyID is required.
+	// PolicyID is required; use ASCII letters, digits, or hyphens.
 	PolicyID string `vngcloud:"required"`
 
 	// NoWait skips the post-operation wait.

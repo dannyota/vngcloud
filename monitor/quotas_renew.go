@@ -16,7 +16,7 @@ import (
 
 // RenewSyntheticQuotaInput requires ExpectedEndTime.
 type RenewSyntheticQuotaInput struct {
-	// ExpectedEndTime is required.
+	// ExpectedEndTime is required and must be a nonzero RFC 3339 timestamp.
 	ExpectedEndTime string `vngcloud:"required"`
 	// MaxPrice bounds the renewal quote.
 	MaxPrice float64

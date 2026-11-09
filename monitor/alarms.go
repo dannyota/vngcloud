@@ -35,7 +35,7 @@ func (c *Client) alarmRoute(parts []string, q url.Values) string {
 // result; a non-positive value sends core.DefaultPage and
 // core.DefaultPageSize, as core.PageQuery does for other services.
 type ListAlarmsInput struct {
-	// Kind is required.
+	// Kind must select Metric or Log alarms.
 	Kind string `vngcloud:"required"`
 	// Name filters by name when nonempty.
 	Name string
@@ -116,7 +116,7 @@ type listAlarmsResponse struct {
 
 // GetAlarmInput identifies the alarm to read.
 type GetAlarmInput struct {
-	// AlarmID is required.
+	// AlarmID is required; use ASCII letters, digits, or hyphens.
 	AlarmID string `vngcloud:"required"`
 }
 
@@ -175,7 +175,7 @@ func (c *Client) getAlarm(ctx context.Context, op, id string) (*Alarm, error) {
 // leaves it empty); ListAlarms then overwrites it from its own Kind filter,
 // since a list is always filtered to one kind regardless of what the wire
 // sends. Nothing else is modeled until a live read confirms more.
-// See docs/design/monitor.md.
+// See docs/design/monitor-log-alarms.md.
 type Alarm struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`

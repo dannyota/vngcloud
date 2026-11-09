@@ -57,13 +57,14 @@ type createUserResponse struct {
 // set, must be at least 1. All of this is checked, and nothing sent, before
 // any request.
 type CreateUserInput struct {
-	// Name is required.
+	// Name must not exactly match an existing user name.
 	Name string `vngcloud:"required"`
 	// Description is sent as description in the create body.
 	Description string
 	// DurationDays must be at least one when set.
 	DurationDays *int
-	// Permissions is required.
+	// Permissions needs at least one entry, each with a path-safe repository ID
+	// and at least one action.
 	Permissions []UserPermission `vngcloud:"required"`
 }
 
@@ -323,7 +324,7 @@ func (c *Client) findCreatedUser(ctx context.Context, op, name string) (*User, e
 // DeleteUserInput identifies the user to delete: the robot account's own id
 // (User.ID, the "uuid" field), not its UserID field.
 type DeleteUserInput struct {
-	// UserID is required.
+	// UserID is required; use ASCII letters, digits, or hyphens.
 	UserID string `vngcloud:"required"`
 }
 

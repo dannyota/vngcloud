@@ -54,7 +54,7 @@ type createServerGroupBody struct {
 type CreateServerGroupInput struct {
 	// Name is required.
 	Name string `vngcloud:"required"`
-	// PolicyID is required.
+	// PolicyID is required; use ASCII letters, digits, or hyphens.
 	PolicyID string `vngcloud:"required"`
 
 	// Description is sent as description in the create body.
@@ -140,7 +140,7 @@ func wrapAmbiguousServerGroupCreateErr(op string, err error) error {
 // caller leaves nil unchanged; the last writer wins, since the API has no
 // condition field.
 type UpdateServerGroupInput struct {
-	// ServerGroupID is required.
+	// ServerGroupID is required; use ASCII letters, digits, or hyphens.
 	ServerGroupID string `vngcloud:"required"`
 
 	// Name leaves its current value unchanged when nil.
@@ -221,7 +221,7 @@ func (c *Client) UpdateServerGroup(ctx context.Context, in *UpdateServerGroupInp
 
 // DeleteServerGroupInput requires ServerGroupID.
 type DeleteServerGroupInput struct {
-	// ServerGroupID is required.
+	// ServerGroupID is required; use ASCII letters, digits, or hyphens.
 	ServerGroupID string `vngcloud:"required"`
 }
 

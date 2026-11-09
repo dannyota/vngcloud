@@ -270,15 +270,15 @@ func aclRulesEqual(rules []ACLRule, entries []aclRuleEntry) bool {
 // together is refused, since that pairing is never live-verified to mean a
 // single port rather than every port.
 type AddNetworkACLRuleInput struct {
-	// NetworkACLID is required.
+	// NetworkACLID is required; use ASCII letters, digits, or hyphens.
 	NetworkACLID string `vngcloud:"required"`
 	// Direction is required.
 	Direction string `vngcloud:"required"`
-	// Priority is required.
+	// Priority must be between 1 and 1999.
 	Priority int `vngcloud:"required"`
-	// Protocol is required.
+	// Protocol must be ANY, TCP, UDP, or ICMP, ignoring case.
 	Protocol string `vngcloud:"required"`
-	// CIDR is required.
+	// CIDR must be a CIDR prefix with no host bits set.
 	CIDR string `vngcloud:"required"`
 	// Action is required.
 	Action string `vngcloud:"required"`
@@ -401,7 +401,7 @@ func (c *Client) AddNetworkACLRule(ctx context.Context, in *AddNetworkACLRuleInp
 // isDefaultACLRule). A negative value, which no rule can ever hold, is
 // still refused before any request.
 type RemoveNetworkACLRuleInput struct {
-	// NetworkACLID is required.
+	// NetworkACLID is required; use ASCII letters, digits, or hyphens.
 	NetworkACLID string `vngcloud:"required"`
 	// Direction is required.
 	Direction string `vngcloud:"required"`

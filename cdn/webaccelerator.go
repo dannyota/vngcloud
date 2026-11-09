@@ -36,7 +36,7 @@ func (c *Client) ListWebAccelerators(ctx context.Context, in *ListWebAccelerator
 
 // GetWebAcceleratorInput identifies the CDN to read.
 type GetWebAcceleratorInput struct {
-	// CDNID is required.
+	// CDNID is required; use ASCII letters, digits, or hyphens.
 	CDNID string `vngcloud:"required"`
 }
 

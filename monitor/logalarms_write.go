@@ -29,11 +29,11 @@ import (
 // checks that the required fields are set and that IDs match
 // core.CheckPathID's pattern (ADR 0002 rule 5).
 type CreateLogAlarmInput struct {
-	// Name is required.
+	// Name must not exactly match an existing log alarm name.
 	Name string `vngcloud:"required"`
-	// LogProjectID is required.
+	// LogProjectID is required; use ASCII letters, digits, or hyphens.
 	LogProjectID string `vngcloud:"required"`
-	// ThresholdValue is required.
+	// ThresholdValue must be set and finite.
 	ThresholdValue *float64 `vngcloud:"required"`
 
 	// Description is sent in the create body.
@@ -222,7 +222,7 @@ func isLogAlarmCreateOKStatus(status int) bool {
 // for a match-all query); leaving both nil resends the read's exact
 // pairing unchanged, even if it was never valid to create.
 type UpdateLogAlarmInput struct {
-	// AlarmID is required.
+	// AlarmID is required; use ASCII letters, digits, or hyphens.
 	AlarmID string `vngcloud:"required"`
 	// NoWait skips the post-operation wait.
 	NoWait bool
@@ -501,7 +501,7 @@ func (c *Client) mergeLogAlarmFields(ctx context.Context, op string, in *UpdateL
 
 // DeleteLogAlarmInput identifies the log alarm to delete.
 type DeleteLogAlarmInput struct {
-	// AlarmID is required.
+	// AlarmID is required; use ASCII letters, digits, or hyphens.
 	AlarmID string `vngcloud:"required"`
 }
 

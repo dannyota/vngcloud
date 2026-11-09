@@ -266,7 +266,7 @@ func (c *Client) waitVirtualIPActive(ctx context.Context, op, virtualIPID string
 // call, so UpdateVirtualIPAddress reads the virtual IP first and resends
 // whichever field the caller leaves nil unchanged.
 type UpdateVirtualIPAddressInput struct {
-	// VirtualIPAddressID is required.
+	// VirtualIPAddressID is required; use ASCII letters, digits, or hyphens.
 	VirtualIPAddressID string `vngcloud:"required"`
 
 	// Name leaves its current value unchanged when nil.
@@ -360,7 +360,7 @@ func (c *Client) UpdateVirtualIPAddress(ctx context.Context, in *UpdateVirtualIP
 
 // DeleteVirtualIPAddressInput identifies the virtual IP to delete.
 type DeleteVirtualIPAddressInput struct {
-	// VirtualIPAddressID is required.
+	// VirtualIPAddressID is required; use ASCII letters, digits, or hyphens.
 	VirtualIPAddressID string `vngcloud:"required"`
 }
 

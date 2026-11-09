@@ -12,7 +12,7 @@ import (
 
 // GetServerConsoleLogInput requires ServerID.
 type GetServerConsoleLogInput struct {
-	// ServerID is required.
+	// ServerID is required; use ASCII letters, digits, or hyphens.
 	ServerID string `vngcloud:"required"`
 }
 

@@ -20,7 +20,7 @@ var ErrUnpriced = vngcloud.ErrUnpriced
 
 // CreateNotificationQuotaInput requires Kind.
 type CreateNotificationQuotaInput struct {
-	// Kind is required.
+	// Kind must be Email or SMS, ignoring case.
 	Kind string `vngcloud:"required"`
 	// PackageID selects a package when supplied.
 	PackageID string

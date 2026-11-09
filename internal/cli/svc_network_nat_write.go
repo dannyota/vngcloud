@@ -12,12 +12,18 @@ import (
 
 // A pointer distinguishes an explicit zero price cap from omitted consent.
 type networkCreateNATInput struct {
-	Name               string   `vngcloud:"required"`
-	ZoneID             string   `vngcloud:"required"`
-	AvailabilityZoneID string   `vngcloud:"required"`
-	PackageID          string   `vngcloud:"required"`
-	VPCID              string   `vngcloud:"required"`
-	MaxPrice           *float64 `vngcloud:"required"`
+	// Name names the NAT instance.
+	Name string `vngcloud:"required"`
+	// ZoneID identifies the vNetwork zone and must be a valid path ID.
+	ZoneID string `vngcloud:"required"`
+	// AvailabilityZoneID identifies the availability zone and must be a valid path ID.
+	AvailabilityZoneID string `vngcloud:"required"`
+	// PackageID identifies the package and must be a valid path ID.
+	PackageID string `vngcloud:"required"`
+	// VPCID identifies the VPC and must be a valid path ID.
+	VPCID string `vngcloud:"required"`
+	// MaxPrice must be present, finite, and nonnegative.
+	MaxPrice *float64 `vngcloud:"required"`
 }
 
 func createNetworkNATOp() Op[network.Client] {

@@ -147,16 +147,16 @@ type createListenerBody struct {
 // all being set, core.ErrInvalidInput before any request. The SDK never
 // reads the certificate itself; the server checks that it exists.
 type CreateListenerInput struct {
-	// LoadBalancerID is required.
+	// LoadBalancerID is required; use ASCII letters, digits, or hyphens.
 	LoadBalancerID string `vngcloud:"required"`
 	// Name is required.
 	Name string `vngcloud:"required"`
 	// Protocol is one of ProtocolHTTP, ProtocolHTTPS, ProtocolTCP, or
 	// ProtocolUDP.
 	Protocol string `vngcloud:"required"`
-	// Port is required.
+	// Port must be between 1 and 65535.
 	Port int `vngcloud:"required"`
-	// AllowedCIDRs is required.
+	// AllowedCIDRs must contain IPv4 prefixes without host bits.
 	AllowedCIDRs []string `vngcloud:"required"`
 
 	// DefaultPoolID is sent as the default pool ID.
@@ -323,9 +323,9 @@ func (c *Client) CreateListener(ctx context.Context, in *CreateListenerInput) (*
 // UpdateListenerInput changes a listener; a nil field keeps its current
 // value. Name, Protocol, and Port cannot change after create.
 type UpdateListenerInput struct {
-	// LoadBalancerID is required.
+	// LoadBalancerID is required; use ASCII letters, digits, or hyphens.
 	LoadBalancerID string `vngcloud:"required"`
-	// ListenerID is required.
+	// ListenerID is required; use ASCII letters, digits, or hyphens.
 	ListenerID string `vngcloud:"required"`
 
 	// DefaultPoolID leaves its current value unchanged when nil.
@@ -523,9 +523,9 @@ func (c *Client) UpdateListener(ctx context.Context, in *UpdateListenerInput) (*
 
 // DeleteListenerInput identifies the listener to delete.
 type DeleteListenerInput struct {
-	// LoadBalancerID is required.
+	// LoadBalancerID is required; use ASCII letters, digits, or hyphens.
 	LoadBalancerID string `vngcloud:"required"`
-	// ListenerID is required.
+	// ListenerID is required; use ASCII letters, digits, or hyphens.
 	ListenerID string `vngcloud:"required"`
 
 	// NoWait skips the post-operation wait.

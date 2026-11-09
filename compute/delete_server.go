@@ -19,7 +19,7 @@ type deleteServerBody struct {
 // volumes stay and keep being billed; with it true, they are deleted with
 // the server, data included.
 type DeleteServerInput struct {
-	// ServerID is required.
+	// ServerID is required; use ASCII letters, digits, or hyphens.
 	ServerID string `vngcloud:"required"`
 
 	// DeleteVolumes also deletes attached data volumes when true.

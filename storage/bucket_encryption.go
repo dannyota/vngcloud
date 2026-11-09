@@ -18,9 +18,10 @@ var ErrBucketEncryptionIncomplete = errors.New("storage: bucket encryption setup
 type GetBucketEncryptionInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
 	Region string
-	// ProjectID is required.
+	// ProjectID is required; use ASCII letters, digits, or hyphens.
 	ProjectID string `vngcloud:"required"`
-	// BucketName is required.
+	// BucketName must start with an ASCII letter or digit and use only
+	// letters, digits, periods, underscores, or hyphens, up to 255 bytes.
 	BucketName string `vngcloud:"required"`
 }
 
@@ -58,9 +59,10 @@ func (c *Client) GetBucketEncryption(ctx context.Context, in *GetBucketEncryptio
 type PutBucketEncryptionInput struct {
 	// Region is the vStorage region name; see ListBucketsInput.
 	Region string
-	// ProjectID is required.
+	// ProjectID is required; use ASCII letters, digits, or hyphens.
 	ProjectID string `vngcloud:"required"`
-	// BucketName is required.
+	// BucketName must start with an ASCII letter or digit and use only
+	// letters, digits, periods, underscores, or hyphens, up to 255 bytes.
 	BucketName string `vngcloud:"required"`
 	// Enabled is the complete target state. Its zero value disables encryption.
 	Enabled bool

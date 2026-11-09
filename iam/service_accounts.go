@@ -54,7 +54,7 @@ func (c *Client) ListServiceAccounts(ctx context.Context, in *ListServiceAccount
 
 // GetServiceAccountInput requires ServiceAccountID.
 type GetServiceAccountInput struct {
-	// ServiceAccountID is required.
+	// ServiceAccountID is required; use ASCII letters, digits, or hyphens.
 	ServiceAccountID string `vngcloud:"required"`
 }
 

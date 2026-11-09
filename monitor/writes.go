@@ -86,7 +86,7 @@ type CreateCheckInput struct {
 	Name string `vngcloud:"required"`
 	// URL is required.
 	URL string `vngcloud:"required"`
-	// Locations is required.
+	// Locations must contain at least one location.
 	Locations []string `vngcloud:"required"`
 
 	// Method defaults to GET when empty.
@@ -213,7 +213,7 @@ func (c *Client) CreateCheck(ctx context.Context, in *CreateCheckInput) (*Create
 
 // DeleteCheckInput identifies the check to delete.
 type DeleteCheckInput struct {
-	// CheckID is required.
+	// CheckID is required; use ASCII letters, digits, or hyphens.
 	CheckID string `vngcloud:"required"`
 }
 

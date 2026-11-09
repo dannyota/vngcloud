@@ -52,7 +52,7 @@ type Check struct {
 
 // CheckNotifications names, by ID, which Channels a check alerts on each
 // alarm transition. CreateCheck sends [] for every list left nil.
-// See docs/design/monitor.md.
+// See docs/design/monitor-alerts.md.
 type CheckNotifications struct {
 	InAlarm      []string `json:"In-alarm"`
 	Up           []string `json:"Up"`
@@ -163,7 +163,7 @@ const (
 // ChannelType is one kind of notification channel ListChannelTypes can
 // return, and the shape of the typeNotification object a Channel read
 // embeds.
-// See docs/design/monitor.md.
+// See docs/design/monitor-alerts.md.
 type ChannelType struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
@@ -172,7 +172,7 @@ type ChannelType struct {
 
 // ChannelHeader is one key/value pair a Webhook channel sends with every
 // notification.
-// See docs/design/monitor.md.
+// See docs/design/monitor-alerts.md.
 type ChannelHeader struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
@@ -185,7 +185,7 @@ type ChannelHeader struct {
 // hold a secret, such as a webhook URL or a header value carrying a token:
 // the SDK returns them unchanged, because UpdateChannel needs them to resend
 // the full body, and the CLI redacts them on print.
-// See docs/design/monitor.md.
+// See docs/design/monitor-alerts.md.
 type Channel struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`

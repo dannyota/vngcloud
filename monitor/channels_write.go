@@ -213,7 +213,7 @@ type createChannelResponse struct {
 type CreateChannelInput struct {
 	// Name is required.
 	Name string `vngcloud:"required"`
-	// Type is required.
+	// Type must be Email, Slack, SMS, Telegram, or Webhook.
 	Type string `vngcloud:"required"`
 	// Address is required.
 	Address string `vngcloud:"required"`
@@ -338,7 +338,7 @@ type updateChannelBody struct {
 // channel takes neither; UpdateChannel refuses one set for it once
 // GetChannel's read shows the channel's type, before validating anything.
 type UpdateChannelInput struct {
-	// ChannelID is required.
+	// ChannelID is required; use ASCII letters, digits, or hyphens.
 	ChannelID string `vngcloud:"required"`
 
 	// Name keeps the current name when nil.
@@ -494,7 +494,7 @@ func (c *Client) UpdateChannel(ctx context.Context, in *UpdateChannelInput) (*Up
 
 // DeleteChannelInput identifies the channel to delete.
 type DeleteChannelInput struct {
-	// ChannelID is required.
+	// ChannelID is required; use ASCII letters, digits, or hyphens.
 	ChannelID string `vngcloud:"required"`
 }
 

@@ -15,7 +15,7 @@ import (
 
 // ListSnapshotPoliciesInput requires BackendID.
 type ListSnapshotPoliciesInput struct {
-	// BackendID is required.
+	// BackendID is required; use ASCII letters, digits, or hyphens.
 	BackendID string `vngcloud:"required"`
 	// Page defaults to 1 when zero and must not be negative.
 	Page int

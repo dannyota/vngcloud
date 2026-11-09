@@ -10,7 +10,7 @@ import (
 
 // FlavorZone is one flavor group in a network zone, such as "General
 // Purpose". ListFlavors takes its ID to list the flavors it groups.
-// See docs/design/sdk-and-cli.md.
+// See docs/design/vserver-paid-writes-api.md.
 type FlavorZone struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`

@@ -23,7 +23,7 @@ const (
 // the SDK's paid-write convention that a quote is built from the write's
 // own code.
 type ResizeLoadBalancerInput struct {
-	// LoadBalancerID is required.
+	// LoadBalancerID is required; use ASCII letters, digits, or hyphens.
 	LoadBalancerID string `vngcloud:"required"`
 	// PackageID is the package to change to. Package IDs are zone-specific:
 	// take it from ListPackages with the load balancer's own ZoneID, or the

@@ -134,7 +134,7 @@ func boolOrFalse(b *bool) *bool {
 // or "1.1", since the server refuses the check without all four.
 // HealthCheckDomainName has no default and is sent only when set.
 type CreatePoolInput struct {
-	// LoadBalancerID is required.
+	// LoadBalancerID is required; use ASCII letters, digits, or hyphens.
 	LoadBalancerID string `vngcloud:"required"`
 	// Name is required.
 	Name string `vngcloud:"required"`
@@ -353,9 +353,9 @@ func (c *Client) CreatePool(ctx context.Context, in *CreatePoolInput) (*CreatePo
 // TLS encryption; a nil field keeps its current value. The health check
 // protocol cannot change after create, so there is no field for it here.
 type UpdatePoolInput struct {
-	// LoadBalancerID is required.
+	// LoadBalancerID is required; use ASCII letters, digits, or hyphens.
 	LoadBalancerID string `vngcloud:"required"`
-	// PoolID is required.
+	// PoolID is required; use ASCII letters, digits, or hyphens.
 	PoolID string `vngcloud:"required"`
 
 	// Algorithm leaves its current value unchanged when nil.
@@ -591,9 +591,9 @@ func poolBusyWaiter(c *Client, op, lbID, poolID string) func(ctx context.Context
 
 // DeletePoolInput identifies the pool to delete.
 type DeletePoolInput struct {
-	// LoadBalancerID is required.
+	// LoadBalancerID is required; use ASCII letters, digits, or hyphens.
 	LoadBalancerID string `vngcloud:"required"`
-	// PoolID is required.
+	// PoolID is required; use ASCII letters, digits, or hyphens.
 	PoolID string `vngcloud:"required"`
 
 	// NoWait skips the post-operation wait.

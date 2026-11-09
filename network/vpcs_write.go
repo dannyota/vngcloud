@@ -141,7 +141,7 @@ func is4xxAPIError(err error) bool {
 type CreateVPCInput struct {
 	// Name is required.
 	Name string `vngcloud:"required"`
-	// CIDR is required.
+	// CIDR must be an IPv4 CIDR prefix with no host bits set.
 	CIDR string `vngcloud:"required"`
 
 	// NoWait skips the post-operation wait.
@@ -238,7 +238,7 @@ func wrapAmbiguousVPCCreateErr(op string, err error) error {
 // PATCH, but a VPC has only this one editable field, so, unlike
 // UpdateSecurityGroup, there is no other field to preserve.
 type UpdateVPCInput struct {
-	// VPCID is required.
+	// VPCID is required; use ASCII letters, digits, or hyphens.
 	VPCID string `vngcloud:"required"`
 	// Name is required.
 	Name string `vngcloud:"required"`
@@ -297,7 +297,7 @@ func (c *Client) UpdateVPC(ctx context.Context, in *UpdateVPCInput) (*UpdateVPCO
 
 // DeleteVPCInput identifies the VPC to delete.
 type DeleteVPCInput struct {
-	// VPCID is required.
+	// VPCID is required; use ASCII letters, digits, or hyphens.
 	VPCID string `vngcloud:"required"`
 
 	// NoWait skips the post-operation wait.
@@ -463,7 +463,7 @@ func (c *Client) waitVPCDeleted(ctx context.Context, op, vpcID string) error {
 // EnableVPCPrivateDNSInput identifies the VPC to enable Private DNS on.
 // There is no matching disable call; see EnableVPCPrivateDNS's doc comment.
 type EnableVPCPrivateDNSInput struct {
-	// VPCID is required.
+	// VPCID is required; use ASCII letters, digits, or hyphens.
 	VPCID string `vngcloud:"required"`
 
 	// NoWait skips the post-operation wait.

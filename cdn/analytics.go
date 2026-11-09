@@ -24,10 +24,14 @@ var periods = []string{"30m", "1h", "3h", "6h", "12h", "24h", "3d", "7d", "14d",
 // 3d, 7d, 14d, 30d, 90d, 180d, or 360d. From and To are calendar dates as
 // YYYY-MM-DD, read in UTC+7 from 00:00 on From to the end of To.
 type Range struct {
+	// CDNDomains names generated CDN domains, not customer domains.
 	CDNDomains []string `vngcloud:"required"`
-	Period     string
-	From       string
-	To         string
+	// Period selects a supported relative range; leave From and To empty.
+	Period string
+	// From is a YYYY-MM-DD date in UTC+7 and must be paired with To.
+	From string
+	// To is a YYYY-MM-DD date in UTC+7 and must be paired with From.
+	To string
 }
 
 type (
@@ -102,11 +106,11 @@ func (c *Client) GetHTTPCodes(ctx context.Context, in *GetHTTPCodesInput) (*GetH
 // GetTrafficReportInput selects CDNs and a date window. The report takes no
 // Period.
 type GetTrafficReportInput struct {
-	// CDNDomains is required.
+	// CDNDomains must contain nonempty generated CDN domain names.
 	CDNDomains []string `vngcloud:"required"`
-	// From is required.
+	// From must be a YYYY-MM-DD date, no later than To.
 	From string `vngcloud:"required"`
-	// To is required.
+	// To must be a YYYY-MM-DD date, no earlier than From.
 	To string `vngcloud:"required"`
 }
 

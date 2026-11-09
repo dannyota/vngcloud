@@ -49,7 +49,7 @@ func (c *Client) logBillingRouteV1(parts []string) string {
 // order response carries none of these fields; it is confirmed live to
 // hold only amount, orderId, and paymentUrl (see CreateLogProject's doc
 // comment).
-// See docs/design/monitor.md.
+// See docs/design/monitor-alerts.md.
 type LogProject struct {
 	ID                 string `json:"id"`
 	ProjectName        string `json:"name"`
@@ -167,7 +167,7 @@ func logProjectPageQuery(page, size int) url.Values {
 
 // GetLogProjectInput identifies the log project to read.
 type GetLogProjectInput struct {
-	// LogProjectID is required.
+	// LogProjectID is required; use ASCII letters, digits, or hyphens.
 	LogProjectID string `vngcloud:"required"`
 }
 
@@ -260,7 +260,7 @@ type LogProjectClass struct {
 // its nested config.retentions list. The API also sends a per-option
 // priority and status, seen live always matching the parent class's; the
 // SDK drops them.
-// See docs/design/monitor.md.
+// See docs/design/monitor-alerts.md.
 type LogProjectRetention struct {
 	Amount    int    `json:"amount"`
 	MinSize   int    `json:"minSize"`

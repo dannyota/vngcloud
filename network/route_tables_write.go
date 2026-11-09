@@ -66,7 +66,7 @@ var (
 
 // GetRouteTableInput identifies the route table to read.
 type GetRouteTableInput struct {
-	// RouteTableID is required.
+	// RouteTableID is required; use ASCII letters, digits, or hyphens.
 	RouteTableID string `vngcloud:"required"`
 }
 
@@ -212,7 +212,7 @@ func wrapAmbiguousRouteTableCreateErr(op string, err error) error {
 
 // DeleteRouteTableInput identifies the route table to delete.
 type DeleteRouteTableInput struct {
-	// RouteTableID is required.
+	// RouteTableID is required; use ASCII letters, digits, or hyphens.
 	RouteTableID string `vngcloud:"required"`
 
 	// NoWait skips the post-operation wait.

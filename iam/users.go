@@ -19,7 +19,7 @@ const (
 
 // GetUserInput requires UserID.
 type GetUserInput struct {
-	// UserID is required.
+	// UserID is required; use ASCII letters, digits, or hyphens.
 	UserID string `vngcloud:"required"`
 }
 

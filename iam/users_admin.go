@@ -13,7 +13,7 @@ import (
 
 // ResetUserPasswordInput requires UserID.
 type ResetUserPasswordInput struct {
-	// UserID is required.
+	// UserID is required; use ASCII letters, digits, or hyphens.
 	UserID string `vngcloud:"required"`
 	// Password is used when set; empty generates a password.
 	Password vngcloud.Secret

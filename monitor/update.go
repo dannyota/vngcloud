@@ -21,7 +21,7 @@ import (
 // job alone. UpdateCheck accepts a check in any status, including
 // StatusDisabled, and never touches it.
 type UpdateCheckInput struct {
-	// CheckID is required.
+	// CheckID is required; use ASCII letters, digits, or hyphens.
 	CheckID string `vngcloud:"required"`
 
 	// Name leaves its current value unchanged when nil.

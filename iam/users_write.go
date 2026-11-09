@@ -17,7 +17,7 @@ const userWriteWithheld = "IAM user request failed; response withheld"
 
 // CreateUserInput requires Username.
 type CreateUserInput struct {
-	// Username is required.
+	// Username must be valid UTF-8, at most 4096 bytes, without whitespace or controls.
 	Username string `vngcloud:"required"`
 	// Password is used when set; empty generates a password.
 	Password vngcloud.Secret
@@ -142,7 +142,7 @@ func userCreateUncertain(cause error) error {
 
 // DeleteUserInput requires UserID.
 type DeleteUserInput struct {
-	// UserID is required.
+	// UserID is required; use ASCII letters, digits, or hyphens.
 	UserID string `vngcloud:"required"`
 }
 

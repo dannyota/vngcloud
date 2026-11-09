@@ -25,29 +25,29 @@ const createServerWithheldMessage = "server message withheld: it may quote user 
 // set, and sends encryptionVolume true when either encryption type is set,
 // as the console's price request does: the other fields do not change the
 // price and never reach the billing gateway. A quote still checks the shape of every field that is set. Every
-// ID below, in a path or a body, is checked with core.CheckPathID before
-// any request, including the quote.
+// IDs checked by checkServerShape are validated before requests, including
+// quotes. ZoneID is required but is not checked by that helper.
 type CreateServerInput struct {
 	// Name must not match an existing server's name exactly.
 	Name string `vngcloud:"required"`
 	// ZoneID is required.
 	ZoneID string `vngcloud:"required"`
-	// FlavorID is required.
+	// FlavorID is required; use ASCII letters, digits, or hyphens.
 	FlavorID string `vngcloud:"required"`
-	// ImageID is required.
+	// ImageID is required; use ASCII letters, digits, or hyphens.
 	ImageID string `vngcloud:"required"`
 	// VPCID is sent as networkId.
 	VPCID string `vngcloud:"required"`
-	// SubnetID is required.
+	// SubnetID is required; use ASCII letters, digits, or hyphens.
 	SubnetID string `vngcloud:"required"`
 	// SecurityGroupIDs must hold at least one ID; the SDK picks no default.
 	SecurityGroupIDs []string `vngcloud:"required"`
 	// SSHKeyID sets up key login. CreateServer requires exactly one of
 	// SSHKeyID or UserData that installs authorized keys.
 	SSHKeyID string
-	// RootDiskSize is required.
+	// RootDiskSize must be positive for a create or quote.
 	RootDiskSize int `vngcloud:"required"`
-	// RootDiskTypeID is required.
+	// RootDiskTypeID is required; use ASCII letters, digits, or hyphens.
 	RootDiskTypeID string `vngcloud:"required"`
 	// RootDiskEncryptionTypeID, optional, is an ID from
 	// volume.ListEncryptionTypes. It encrypts the root disk, sends

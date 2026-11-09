@@ -21,9 +21,9 @@ type CreateVolumeInput struct {
 	Name string `vngcloud:"required"`
 	// ZoneID is required.
 	ZoneID string `vngcloud:"required"`
-	// Size is required.
+	// Size must be positive for a create or quote.
 	Size int `vngcloud:"required"`
-	// VolumeTypeID is required.
+	// VolumeTypeID is required; use ASCII letters, digits, or hyphens.
 	VolumeTypeID string `vngcloud:"required"`
 
 	// EncryptionTypeID, optional, is an ID from ListEncryptionTypes. It is

@@ -13,7 +13,7 @@ import (
 // DeleteVolumeInput identifies the volume to delete. Delete destroys the
 // volume's data; there is no undo.
 type DeleteVolumeInput struct {
-	// VolumeID is required.
+	// VolumeID is required; use ASCII letters, digits, or hyphens.
 	VolumeID string `vngcloud:"required"`
 
 	// NoWait skips the post-operation wait.

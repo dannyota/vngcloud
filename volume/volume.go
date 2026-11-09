@@ -91,7 +91,7 @@ func (c *Client) ListVolumes(ctx context.Context, in *ListVolumesInput) (*ListVo
 
 // GetVolumeInput requires VolumeID.
 type GetVolumeInput struct {
-	// VolumeID is required.
+	// VolumeID is required; use ASCII letters, digits, or hyphens.
 	VolumeID string `vngcloud:"required"`
 }
 
@@ -163,7 +163,7 @@ func (c *Client) GetUnderlyingVolume(ctx context.Context, in *GetUnderlyingVolum
 
 // ListVolumesByServerInput requires ServerID.
 type ListVolumesByServerInput struct {
-	// ServerID is required.
+	// ServerID is required; use ASCII letters, digits, or hyphens.
 	ServerID string `vngcloud:"required"`
 }
 
@@ -312,7 +312,7 @@ func (c *Client) ListEncryptionTypes(ctx context.Context, _ *ListEncryptionTypes
 
 // ListSnapshotsInput requires VolumeID.
 type ListSnapshotsInput struct {
-	// VolumeID is required.
+	// VolumeID is required; use ASCII letters, digits, or hyphens.
 	VolumeID string `vngcloud:"required"`
 	// Page uses the default when not positive.
 	Page int
@@ -495,7 +495,7 @@ func encryptionTypesFromStrings(values []string) []EncryptionType {
 }
 
 // Volume holds volume data from the API.
-// See docs/design/sdk-and-cli.md.
+// See docs/design/cli-reads.md.
 type Volume struct {
 	UUID               string   `json:"uuid"`
 	ID                 string   `json:"id"`
@@ -531,7 +531,7 @@ type Volume struct {
 }
 
 // Zone holds zone data from the API.
-// See docs/design/sdk-and-cli.md.
+// See docs/design/cli-reads.md.
 type Zone struct {
 	UUID          string   `json:"uuid"`
 	Name          string   `json:"name,omitempty"`
@@ -546,7 +546,7 @@ type Zone struct {
 }
 
 // VolumeType holds volume type data from the API.
-// See docs/design/sdk-and-cli.md.
+// See docs/design/pricing-discovery-api.md.
 type VolumeType struct {
 	ID               string `json:"id"`
 	VolumeTypeID     string `json:"volumeTypeId"`
@@ -570,7 +570,7 @@ type VolumeTypeZone struct {
 }
 
 // EncryptionType holds encryption type data from the API.
-// See docs/design/sdk-and-cli.md.
+// See docs/design/encrypted-volumes.md.
 type EncryptionType struct {
 	ID          string `json:"id,omitempty"`
 	Name        string `json:"name,omitempty"`
@@ -581,7 +581,7 @@ type EncryptionType struct {
 }
 
 // Snapshot holds snapshot data from the API.
-// See docs/design/sdk-and-cli.md.
+// See docs/design/cli-reads.md.
 type Snapshot struct {
 	ID               string `json:"id"`
 	UUID             string `json:"uuid"`

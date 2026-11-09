@@ -19,7 +19,7 @@ import (
 
 // GetProjectAutoRenewInput requires ProjectID.
 type GetProjectAutoRenewInput struct {
-	// ProjectID is required.
+	// ProjectID is required; use ASCII letters, digits, or hyphens.
 	ProjectID string `vngcloud:"required"`
 	// Region selects the storage region using normal region resolution.
 	Region string
@@ -32,7 +32,7 @@ type GetProjectAutoRenewOutput struct{ State *ProjectAutoRenew }
 
 // PutProjectAutoRenewInput requires ProjectID and Enabled.
 type PutProjectAutoRenewInput struct {
-	// ProjectID is required.
+	// ProjectID is required; use ASCII letters, digits, or hyphens.
 	ProjectID string `vngcloud:"required"`
 	// Region selects the storage region using normal region resolution.
 	Region string

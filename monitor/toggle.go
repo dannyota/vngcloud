@@ -55,7 +55,7 @@ func contextSleep(ctx context.Context, d time.Duration) error {
 
 // PauseCheckInput identifies the check to pause.
 type PauseCheckInput struct {
-	// CheckID is required.
+	// CheckID is required; use ASCII letters, digits, or hyphens.
 	CheckID string `vngcloud:"required"`
 }
 
@@ -89,7 +89,7 @@ func (c *Client) PauseCheck(ctx context.Context, in *PauseCheckInput) (*PauseChe
 
 // ResumeCheckInput identifies the check to resume.
 type ResumeCheckInput struct {
-	// CheckID is required.
+	// CheckID is required; use ASCII letters, digits, or hyphens.
 	CheckID string `vngcloud:"required"`
 }
 

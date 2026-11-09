@@ -21,7 +21,7 @@ const projectDeleteRecovery = "List projects in the same region and inspect bill
 type DeleteProjectInput struct {
 	// Region selects the storage region using normal region resolution.
 	Region string
-	// ProjectID is required.
+	// ProjectID is required; use ASCII letters, digits, or hyphens.
 	ProjectID string `vngcloud:"required"`
 	// NoWait skips the post-operation wait.
 	NoWait bool

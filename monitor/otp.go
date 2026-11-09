@@ -39,7 +39,7 @@ type sendOTPBody struct {
 // same way CreateChannel and UpdateChannel encode theirs, so the caller
 // passes the same value to both calls.
 type SendChannelOTPInput struct {
-	// Type is required.
+	// Type must be Email, Slack, SMS, or Telegram.
 	Type string `vngcloud:"required"`
 	// Address is required.
 	Address string `vngcloud:"required"`

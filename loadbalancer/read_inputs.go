@@ -12,7 +12,7 @@ type ListLoadBalancersInput struct {
 
 // GetLoadBalancerInput identifies a load balancer to read.
 type GetLoadBalancerInput struct {
-	// LoadBalancerID is required.
+	// LoadBalancerID is required; use ASCII letters, digits, or hyphens.
 	LoadBalancerID string `vngcloud:"required"`
 }
 
@@ -34,74 +34,74 @@ type ListCertificatesInput struct {
 
 // ListListenersInput identifies the load balancer whose listeners to read.
 type ListListenersInput struct {
-	// LoadBalancerID is required.
+	// LoadBalancerID is required; use ASCII letters, digits, or hyphens.
 	LoadBalancerID string `vngcloud:"required"`
 }
 
 // GetListenerInput identifies a listener to read.
 type GetListenerInput struct {
-	// LoadBalancerID is required.
+	// LoadBalancerID is required; use ASCII letters, digits, or hyphens.
 	LoadBalancerID string `vngcloud:"required"`
-	// ListenerID is required.
+	// ListenerID is required; use ASCII letters, digits, or hyphens.
 	ListenerID string `vngcloud:"required"`
 }
 
 // ListPoolsInput identifies the load balancer whose pools to read.
 type ListPoolsInput struct {
-	// LoadBalancerID is required.
+	// LoadBalancerID is required; use ASCII letters, digits, or hyphens.
 	LoadBalancerID string `vngcloud:"required"`
 }
 
 // GetPoolInput identifies a pool to read.
 type GetPoolInput struct {
-	// LoadBalancerID is required.
+	// LoadBalancerID is required; use ASCII letters, digits, or hyphens.
 	LoadBalancerID string `vngcloud:"required"`
-	// PoolID is required.
+	// PoolID is required; use ASCII letters, digits, or hyphens.
 	PoolID string `vngcloud:"required"`
 }
 
 // GetPoolHealthMonitorInput identifies the pool whose health monitor to read.
 type GetPoolHealthMonitorInput struct {
-	// LoadBalancerID is required.
+	// LoadBalancerID is required; use ASCII letters, digits, or hyphens.
 	LoadBalancerID string `vngcloud:"required"`
-	// PoolID is required.
+	// PoolID is required; use ASCII letters, digits, or hyphens.
 	PoolID string `vngcloud:"required"`
 }
 
 // ListPoolMembersInput identifies the pool whose members to read.
 type ListPoolMembersInput struct {
-	// LoadBalancerID is required.
+	// LoadBalancerID is required; use ASCII letters, digits, or hyphens.
 	LoadBalancerID string `vngcloud:"required"`
-	// PoolID is required.
+	// PoolID is required; use ASCII letters, digits, or hyphens.
 	PoolID string `vngcloud:"required"`
 }
 
 // ListPoliciesInput identifies the listener whose policies to read.
 type ListPoliciesInput struct {
-	// LoadBalancerID is required.
+	// LoadBalancerID is required; use ASCII letters, digits, or hyphens.
 	LoadBalancerID string `vngcloud:"required"`
-	// ListenerID is required.
+	// ListenerID is required; use ASCII letters, digits, or hyphens.
 	ListenerID string `vngcloud:"required"`
 }
 
 // GetPolicyInput identifies a listener policy to read.
 type GetPolicyInput struct {
-	// LoadBalancerID is required.
+	// LoadBalancerID is required; use ASCII letters, digits, or hyphens.
 	LoadBalancerID string `vngcloud:"required"`
-	// ListenerID is required.
+	// ListenerID is required; use ASCII letters, digits, or hyphens.
 	ListenerID string `vngcloud:"required"`
-	// PolicyID is required.
+	// PolicyID is required; use ASCII letters, digits, or hyphens.
 	PolicyID string `vngcloud:"required"`
 }
 
 // ListTagsInput identifies the load balancer whose tags to read.
 type ListTagsInput struct {
-	// LoadBalancerID is required.
+	// LoadBalancerID is required; use ASCII letters, digits, or hyphens.
 	LoadBalancerID string `vngcloud:"required"`
 }
 
 // GetCertificateInput identifies a certificate to read.
 type GetCertificateInput struct {
-	// CertificateID is required.
+	// CertificateID is required; use ASCII letters, digits, or hyphens.
 	CertificateID string `vngcloud:"required"`
 }

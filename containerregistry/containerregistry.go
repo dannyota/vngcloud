@@ -105,7 +105,7 @@ func (c *Client) ListUsers(ctx context.Context, in *ListUsersInput) (*ListUsersO
 
 // ListRepositoryUsersInput identifies the repository whose users are listed.
 type ListRepositoryUsersInput struct {
-	// RepositoryID is required.
+	// RepositoryID is required; use ASCII letters, digits, or hyphens.
 	RepositoryID string `vngcloud:"required"`
 	// Name is sent as the name query parameter.
 	Name string

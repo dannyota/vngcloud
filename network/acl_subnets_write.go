@@ -11,9 +11,9 @@ import (
 
 // AssociateNetworkACLSubnetInput associates a subnet with a network ACL.
 type AssociateNetworkACLSubnetInput struct {
-	// NetworkACLID is required.
+	// NetworkACLID is required; use ASCII letters, digits, or hyphens.
 	NetworkACLID string `vngcloud:"required"`
-	// SubnetID is required.
+	// SubnetID is required; use ASCII letters, digits, or hyphens.
 	SubnetID string `vngcloud:"required"`
 
 	// NoWait skips the post-operation wait.
@@ -105,9 +105,9 @@ func (c *Client) AssociateNetworkACLSubnet(ctx context.Context, in *AssociateNet
 // DisassociateNetworkACLSubnetInput removes a subnet's association with a
 // network ACL.
 type DisassociateNetworkACLSubnetInput struct {
-	// NetworkACLID is required.
+	// NetworkACLID is required; use ASCII letters, digits, or hyphens.
 	NetworkACLID string `vngcloud:"required"`
-	// SubnetID is required.
+	// SubnetID is required; use ASCII letters, digits, or hyphens.
 	SubnetID string `vngcloud:"required"`
 
 	// NoWait skips the post-operation wait.
