@@ -1,5 +1,16 @@
 # Release Notes
 
+## v0.93.2 - Cost explorer overview fix
+
+- `billing get-cost-overview` (SDK `GetCostOverview`) showed every
+  breakdown cost as 0 and empty series, because the live API sends
+  `value` and `percent` in each breakdown row and groups series by key
+  with `x`/`y` points. `Summary.Breakdown[].Cost` now reads `value` and
+  gains `Percent`; the new `GroupedSeries` holds one series per group with
+  its points. Responses in the old flat shape still fill `Series`.
+- The API refuses `--interval hourly` and `--group-by resourceId` with HTTP
+  400; the wiki notes this.
+
 ## v0.93.1 - Quote response safety
 
 - `pricing get-quote` (SDK `pricing.GetQuote`) and every command that
