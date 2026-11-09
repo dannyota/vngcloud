@@ -1,12 +1,11 @@
 # vServer Floating IPs Design
 
-Status: [Owner decisions](#owner-decisions) accepted; evidence gates open.
+Status: Base [decisions](#owner-decisions) accepted; pricing revision proposed.
 
-Public addresses are an explicit opt-in, off by default. Keep explicit
-security groups, a quote covering the whole monthly price, `MaxPrice`
-defaulting to zero, and `--yes` on disconnects and deletes. This design
-adds a derived server address, public server creation, and floating IP
-management. It grants no live-run, purchase, or cleanup authority.
+Public addresses are opt-in, off by default. Require explicit security
+groups, a conservative monthly quote, `MaxPrice` defaulting to zero, and
+`--yes` on disconnects/deletes. This design adds derived server addresses,
+public create, and IP management, without purchase or cleanup authority.
 
 [Paid writes](vserver-paid-writes.md),
 [ADR 0002](../adr/0002-write-api-conventions.md), and
@@ -18,11 +17,9 @@ All new behavior below is unimplemented and subject to independent review.
 ## Terms
 
 Use "floating IP" for new operations; retain `network.WANIP`/`ListWANIPs`.
-The address is NAT on an internal interface. External Interfaces are a
-separate product. `PublicIP` covers only the floating address, not every
-possible public network configuration.
-The [record mapping](vserver-floating-ips-api.md#terms-and-records) is
-published or supported by first-party code, not populated live evidence.
+`PublicIP` covers internal-interface NAT, excluding External Interfaces.
+[Mapping](vserver-floating-ips-api.md#terms-and-records) rests on published
+schema/first-party code, not populated live evidence.
 
 ## Non-goals
 
@@ -33,17 +30,22 @@ Auto-allocation after create has a separate [release gate](#releases).
 
 ## Cost
 
-Use live quotes, never a hard-coded IP price. The recorded example is
-347,800 VND for a small server plus 120,000 for an IP, totaling 467,800.
-The server quote alone ignores `attachFloating`; see
-[prices](vserver-paid-writes-api.md#prices). Detach does not establish
-that billing stopped. The exact IP charge, reservation effects, and
-refund remain [evidence gates](vserver-floating-ips-api.md#billing).
+Use live quotes, never hard-coded prices. Two hypotheses: `attachFloating`
+includes the IP with no extra charge, or adds an Elastic IP charge.
+[Console/ledger evidence](vserver-floating-ips-api.md#billing) supports
+inclusion; the standalone quote does not decide the create charge.
 
-`MaxPrice` guards the quoted monthly total, not the final bill: the API
-accepts neither a price cap nor a quote token on the order. A price can
-change between quote and send. Disclose this limit; never claim the SDK
-can enforce a server-side spending ceiling or guaranteed refund.
+Recommended owner decision: keep the server-plus-IP sum until the
+[credit-history decision](vserver-floating-ips-api.md#credit-history-decision-procedure).
+Label the IP line provisional. This may refuse a cheaper create but avoids
+omitting a possible charge. Server-only pricing risks understatement;
+blocking implementation adds no evidence. Manager approval is delegated.
+
+The 347,800 + 120,000 = 467,800 VND example is a conservative reference,
+not an expected debit. Keep that gross quote cap even if prices rise.
+`MaxPrice` guards the quoted monthly estimate, not the final bill: the API
+accepts no price cap or quote token. Prices can change before send. Detach
+is not proof billing stopped; no guaranteed refund or spending ceiling.
 
 ## R1: public address on server reads
 
@@ -65,41 +67,36 @@ and every write response or wait that decodes a `Server`. Clear a stale
 value on repeated unmarshal. External interface fields never supply it.
 `192.0.2.0/24` addresses remain valid synthetic fixture values.
 
-The CLI renders `Server.PublicIP` and `Items[].PublicIP` using Go field
-names; `--query Server.PublicIP --output text` selects the bare address.
-Standard `encoding/json` marshaling omits it. No new read command is
-needed. This is additive for keyed struct literals and CLI output;
-strict JSON consumers and unkeyed external struct literals may need
-updates. Do not claim universal source or byte compatibility.
+The CLI renders `Server.PublicIP` and `Items[].PublicIP` using Go names;
+`--query Server.PublicIP --output text` selects the address. Standard JSON
+marshaling omits it; no new read command is needed. Keyed literals remain
+compatible; strict CLI JSON consumers and unkeyed literals may need updates.
+Do not claim universal source or byte compatibility.
 
-R1 needs no paid resource. Published schema and clearly labeled synthetic
-positive cases support it; no fixture claims a populated live address.
-Bound the reused server reads under [limits](#identifiers-and-retries).
+R1 needs no paid resource; schema/synthetic cases claim no populated live
+address. Bound reused reads under [limits](#identifiers-and-retries).
 
 ## R2: floating IP on create
 
 ### Input and body
 
-Add `AttachFloatingIP bool` and `AllowOpenLogin bool` to
-`compute.CreateServerInput`; both default false. Send `attachFloating`
-explicitly with its bool value. Never send `AllowOpenLogin` to the API.
-Reject `AllowOpenLogin` without `AttachFloatingIP` before requests.
-All existing create validation, key or secret user data choice, explicit
-security groups, duplicate checks, and auto-renew default still apply.
+Add default-false `AttachFloatingIP bool` and `AllowOpenLogin bool` to
+`compute.CreateServerInput`. Send `attachFloating` explicitly, never the
+override. Reject override without opt-in before requests. Keep create
+validation, key/secret user data choice, explicit groups, duplicate checks,
+and auto-renew default.
 
-`QuoteCreateServer` still takes `*CreateServerInput` and requires only
-priced fields. Validate every supplied ID and optional field shape; do
-not require a name, key, VPC, subnet, or security group for a quote.
-Quotes ignore `MaxPrice`, `NoWait`, and the exposure override and perform
-no exposure reads. Actual create applies [login exposure](#login-exposure)
-in the SDK, including for callers who do not use the CLI.
+`QuoteCreateServer` takes `*CreateServerInput`, requiring only priced fields.
+Validate supplied IDs/optional shapes; name/key/VPC/subnet/groups are optional.
+Ignore `MaxPrice`, `NoWait`, and exposure override; do no exposure reads.
+Actual create applies [login exposure](#login-exposure) in the SDK for all
+callers, including those outside the CLI.
 
 ### Quote and price guard
 
-When `AttachFloatingIP` is false, retain the current single request and
-`pricing.GetQuoteOutput` values. When true, send the server quote then
-an `elastic-ip` quote using the same selected zone. The exact IP builder
-is gated on the [probe](vserver-floating-ips-api.md#elastic-ip-quote).
+With `AttachFloatingIP:false`, retain the single request and quote values.
+With true, quote server then `elastic-ip` in the same zone using the
+[observed body](vserver-floating-ips-api.md#elastic-ip-quote).
 One private helper shared by `compute` and `network` builds this quote;
 never import `network` into `compute` or add an SDK dependency.
 
@@ -112,47 +109,51 @@ non-negative; overflow or inconsistent original/discount totals is an
 Missing or null `optimumPrice` is also invalid; non-positive component
 prices return `vngcloud.ErrUnpriced`. An error gives no partial quote.
 
-Preserve server properties followed by IP properties. If IP properties
-are absent, append `pricing.PriceProperty{Name: "FLOATING IP"}` with
-`OptimumPrice` and `MonthlyPrice` equal to its quoted optimum,
-`DiscountPercent` equal to its quote, `CurrentPrice` nil, and a fixed
-description identifying a derived monthly subtotal. Never invent fields
-that `PriceProperty` does not have or double-count a subtotal as a charge.
-The probe must establish compatible monthly units and discount meanings.
+Preserve server properties then IP properties and their numeric values.
+Prefix each IP property's name with `FLOATING IP: ` and set its description
+to `Conservative Elastic IP estimate; extra create charge unconfirmed`.
+With no IP properties, append one `FLOATING IP` property with that same
+description, optimum/monthly equal to the IP optimum, its discount percent,
+and nil current price. Never append a second subtotal to populated lines.
 
-Create compares only the sum to `MaxPrice`, then sends one order with
-`Once` and no redirects. `CreateServerOutput.MonthlyPrice` is that sum;
-the type stays unchanged. User data never enters either quote. Shape
-validation precedes every request; exposure checks run before quoting
-and are refreshed immediately before the order as specified below.
+Create compares the sum to `MaxPrice` and sends one `Once` order without
+redirects. `MonthlyPrice` is the guarded estimate, not a confirmed debit;
+its type stays unchanged. No user data reaches quotes. Shape validation
+precedes requests; exposure checks precede quotes and refresh before send.
+
+If the manager accepts inclusion, an independently reviewed pre-tag fix
+removes the IP request/contribution from totals, `MaxPrice`, and
+`MonthlyPrice`. Keep a zero `FLOATING IP` line, nil current price, and
+`Included in server order for the verified configuration` description.
+This is an SDK annotation; preserve `ErrUnpriced`. The follow-up defines
+proven terms; others retain the conservative path. Separate charging keeps
+the sum with a confirmed-charge description; ambiguity blocks tagging.
+Update tests/help/wiki/generated docs together. No runtime ledger lookup or
+auto-switch; reservation/retention stays gated.
 
 ### Wait
 
-Keep the existing 15 min server-create wait. After `ACTIVE`, allow up to
-2 min more for one valid internal address and its path-safe floating ID.
-Poll every 5 s with a child deadline covering requests and sleeps, always
-bounded by the caller's context. `ERROR` returns `compute.ErrFailed`.
-A bound or failed confirmation returns the last safe Output and
-`compute.ErrNotSettled`; preserve the cause and say to inspect
-`get-server` and `list-servers`, never repeat a create automatically.
-`NoWait` returns the existing UUID/name fallback and summed price;
-empty address fields then mean unobserved, not allocation failure.
+Keep the 15 min create wait. After `ACTIVE`, allow 2 min for a valid internal
+address and path-safe IP ID. Poll every 5 s; child deadlines cover requests
+and sleeps, bounded by caller context. `ERROR` returns `compute.ErrFailed`.
+Failed confirmation/bound returns safe Output and `compute.ErrNotSettled`,
+preserving cause and advising `get-server`/`list-servers`, never auto-recreate.
+`NoWait` returns UUID/name and guarded price; empty address means unobserved,
+not allocation failure.
 
 ### CLI
 
 Add `--attach-floating-ip` and `--allow-open-login` to create; expose the
 priced opt-in on quote. The quote does not need the override flag.
-Help explains the summed monthly quote, extra charge, exposed ports,
+Help explains the conservative monthly estimate, uncertain IP charge, ports,
 read-before-write limits, and cleanup through the console until R3.
-A public create needs no `--yes`; its finite `--max-price` is consent.
+Public create needs no `--yes`; finite `--max-price` is consent.
 
 ## R3: floating IP management
 
-Keep public service methods in `network`, which already imports
-`compute` (`network/types.go:4`). Construct its compute client from the
-same configuration, preserving authentication, endpoint, and context.
-Shared quote and rule-reading internals must not import either service.
-The CLI calls only public SDK operations.
+Keep methods in `network`, already importing `compute`
+(`network/types.go:4`), reusing configuration and context. Shared
+quote/rule internals import neither service; CLI uses only public SDK.
 
 For each new method use `func (c *Client) Name(ctx context.Context,
 in *NameInput) (*NameOutput, error)`. Required fields carry
@@ -178,10 +179,9 @@ in *NameInput) (*NameOutput, error)`. Required fields carry
   `DeleteFloatingIPOutput`: `FloatingIPID string`, `Deleted bool`, and
   `BillingContinues *bool`, with the same meanings.
 
-`Changed` means this invocation received acceptance or confirmed its
-requested mutation. False alongside an error does not prove no change.
-Partial outputs retain known IDs and safe observations, never fabricate
-settlement. A no-op has `Changed` false and a nil error.
+`Changed` means acceptance or confirmed mutation; false with an error does
+not prove no change. Partial outputs keep known IDs and safe observations,
+never invented settlement. No-op returns `Changed` false and nil error.
 
 ### List and get
 
@@ -229,12 +229,10 @@ success. API-side conflict checks remain necessary after the pre-read.
 
 ### Detach and delete
 
-Detach locates the unique internal interface holding both IP fields.
-No fields on any interface is a no-op; incomplete or conflicting fields
-refuse. Bind all subsequent work to that IP ID and interface, not the
-first row or just `PublicIP`. After the 204, confirm the captured ID is
-absent from the server and the WAN row is explicitly unattached or gone.
-A different replacement IP does not become this call's deletion target.
+Detach finds the unique interface holding both IP fields. All absent is a
+no-op; incomplete/conflicting fields refuse. Bind work to that ID/interface,
+not row order or `PublicIP`. After 204, confirm the ID absent from the
+server and WAN explicitly unattached or gone. Never delete a replacement.
 
 Default detach keeps the IP, names it in Output, and reports ongoing
 billing. With `Delete`, proceed only after detach returns nil and confirms.
@@ -268,10 +266,9 @@ Do not resend. Confirmation never authorizes another paid allocation.
 
 Validate every caller ID before any request and every returned ID before
 reuse with `core.CheckPathID`; reject the reserved caller IP ID `auto`.
-Apply `MaxBody` before capture or decode: 8 MiB for server, WAN, group,
-and mutation responses; retain 1 MiB for each server or IP quote response.
-`pricing.GetQuote` enforces the existing
-[quote bound](vserver-paid-writes-api.md#quote-decoding-and-bounds).
+Apply `MaxBody` before capture/decode: 8 MiB for server/WAN/group/mutation
+responses; retain each quote's enforced 1 MiB
+[bound](vserver-paid-writes-api.md#quote-decoding-and-bounds).
 
 Reads/quotes keep the finite configured retry count: default three
 retries per send phase and at most one 401 recovery, all inside the
@@ -355,17 +352,17 @@ with `make gen-docs`: `CLI-Compute.md`, `CLI-Network.md`,
 
 ## Releases
 
-R1 ships the free derived field and bounded reads with schema/synthetic
-checks. R2 depends on R1, the exact quote probe, the accepted guard, and
-the create portion of [L4](vserver-floating-ips-checks.md#live-run).
+R1 ships free bounded reads with schema/synthetic checks. R2 needs R1,
+quote fixtures, pricing approval, the guard, and create/billing/cleanup
+evidence from [L4](vserver-floating-ips-checks.md#live-run), then the
+price correction above if inclusion is confirmed, before its tag.
 R2 can ship before R3 only with a verified, manager-approved console cleanup
 route and wiki instructions; otherwise it stays gated, not quietly
 coupled to unshipped SDK management methods.
 
-R3 depends on R2 and the management portion of L4: existing-IP attach,
-detach, delete, get, and populated WAN models. Each release gets its own
-unit checks, independent review, and authorized evidence. A standalone
-R3 run needs a new approval; no release inherits permission to buy.
+R3 needs R2 and management L4: existing-IP attach/detach/delete/get and
+populated WAN models. Each release needs unit checks, independent review,
+and authorized evidence; standalone R3 needs new purchase approval.
 
 Defer empty-ID auto-allocation and `QuoteAttachFloatingIP` to a gated
 extension. Its intended quote takes `*AttachFloatingIPInput`, needs
@@ -376,7 +373,7 @@ its quote, charge, orphan behavior, and separate live run are established.
 
 ## Owner decisions
 
-Decided by the manager under delegated owner authority:
+Base decisions accepted by the manager under delegated owner authority:
 
 1. Use derived `Server.PublicIP` for list and query use; External
    Interface addresses stay outside it to keep the mapping evidence-based.
@@ -386,15 +383,18 @@ Decided by the manager under delegated owner authority:
    address; `--delete` performs detach-then-delete.
 4. Use floating IP names in `network`, keeping existing WAN APIs
    unchanged to preserve callers and service ownership.
-5. Keep the existing quote Output with checked sums and labeled fallback
-   properties to preserve its type and explain the full monthly price.
+5. Keep the existing quote Output type, checked sums, and labeled fallback
+   properties. The proposed price interpretation is in [Cost](#cost).
 6. Use one-IP L4 with a 467,800 VND gross quote cap; defer auto-allocation
    to avoid another purchase. Evidence gates and manager run-time approval
    naming account, region, cleanup method, and mode still apply.
 
+Proposed: approve [Cost](#cost) and its
+[pre-tag correction](#quote-and-price-guard). Manager acceptance and
+independent design/plan review remain required, without run authority.
+
 ## Evidence gates
 
-The [missing evidence](vserver-floating-ips-api.md#missing-evidence)
-remains blocking per operation. Schemas, provider code, synthetic tests,
-and owner approval never substitute for raw billing or IAM evidence.
-Keep the SDK standard-library only, with existing public import paths.
+[Missing evidence](vserver-floating-ips-api.md#missing-evidence) blocks each
+dependent operation. Schemas/code/tests/approval cannot replace raw billing
+or IAM evidence. Keep standard-library-only SDK and public import paths.
