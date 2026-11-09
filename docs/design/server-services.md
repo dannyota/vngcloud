@@ -1,6 +1,6 @@
 # Server Service Reads
 
-Status: Accepted (2026-10-10) for snapshot backend and policy reads.
+Status: Accepted for snapshot backend and policy reads.
 Snapshot history and scheduled operations stay draft; their discovery
 remains open.
 
@@ -16,7 +16,7 @@ unverified. This draft does not authorize guessed endpoints or models.
 
 ## Snapshot policy reads
 
-The HCM-03 console capture on 2026-10-10 returned a populated policy list with
+The recorded HCM-03 console capture returned a populated policy list with
 HTTP 200 without service activation or purchase. The verified route is:
 
 ```text
@@ -136,6 +136,14 @@ release once a populated raw response or official schema verifies its model.
 An empty history list can verify a route and envelope but cannot establish
 row fields. Snapshot writes and Backup Center remain outside this design.
 
+## Public address on server reads
+
+The accepted `compute.Server.PublicIP` design derives floating addresses
+from internal interfaces. External Interface addresses remain outside
+that field. `get-server` and `list-servers` expose the derived field;
+[floating IPs](vserver-floating-ips.md#r1-public-address-on-server-reads)
+owns the rule and the floating IP writes.
+
 ## Scheduled operations: evidence and scope
 
 The current HCM-03 sidebar capture exposes no Scheduled O&M or Operations
@@ -149,14 +157,14 @@ directly or through tags and belongs to one region, HCM-03 or HAN-01. An
 execution records aggregate and per-VM results. The scheduler resolves tag
 targets when the task runs.
 
-The [July 2026 digest][digest], published on August 3, states that activation
+The [product digest][digest] states that activation
 creates a dedicated Service Account and that the default account quota is 20
 tasks. It also describes task updates, duplication, disabling, deletion, and
 manual execution. These are product capabilities, not verified API contracts.
 
-Source review date: 2026-10-10. The official
-[Go SDK source tree][official-sdk] has no paths named for scheduled operations
-or maintenance. That filename check does not prove the absence of an API.
+The recorded filename inspection of the official
+[Go SDK source tree][official-sdk] found no scheduled-operation or
+maintenance paths. That filename check does not prove the absence of an API.
 
 Existing immediate server operations remain under
 [vServer paid writes](vserver-paid-writes.md). Resource tags use the existing
@@ -334,8 +342,8 @@ activation.
 SDK ownership covers `compute/scheduled_tasks*.go`,
 `compute/scheduled_task_executions*.go`, matching tests,
 `testdata/compute/`, `examples/basic/`, `livetest/live_test.go`, and the
-compute SDK wiki pages. The SDK worker owns any necessary shared route or endpoint
-changes, including their tests, through an explicit manager brief.
+compute SDK wiki pages. Shared route or endpoint changes need an explicit
+manager brief, including their tests.
 
 CLI ownership covers the compute operation table, CLI tests, generated
 `docs/wiki/CLI-Compute.md`, and compute-specific help notes. CLI work starts

@@ -4,7 +4,8 @@ Status follows [vServer paid writes](vserver-paid-writes.md).
 
 The tests, free checks, live runs, and security review for
 [vServer paid writes](vserver-paid-writes.md). Terms and sentinels are
-defined there.
+defined there. The accepted floating IP extension has separate
+[checks and live approval](vserver-floating-ips-checks.md).
 
 ## Unit tests
 
@@ -45,7 +46,7 @@ real API.
   infinities directly at the validator too. Both signed zeros decode;
   tiny and maximum finite negative numbers preserve their values only
   for resize. Test the body bound and cancellation in
-  [threats](#resize-credit-threats).
+  [threats](vserver-paid-writes-resize.md#resize-credit-threats).
 - Service isolation: `QuoteResizeServer`, `QuoteResizeVolume`, and
   `QuoteResizeLoadBalancer` return signed values. Volume quote tests
   supply a valid current volume and larger target. Negative create quotes
@@ -74,7 +75,7 @@ real API.
 - CLI goldens use the captured quote for JSON, table, and text and retain
   its minus sign. Generic `pricing get-quote --action resize` succeeds;
   create with that body exits 1, `RequestFailed`. Quote commands run in
-  read-only mode. The proposed resize write requires `--yes`, defaults
+  read-only mode. The resize write requires `--yes`, defaults
   `--max-price` to 0, and exits 0 only on successful SDK completion;
   read-only or missing consent exits 2 before any request. Golden tests
   may use explicitly synthetic inputs before check 7; release decode
@@ -88,6 +89,9 @@ real API.
   the same flavor, shrink and equal size, delete of an `IN-USE` volume,
   attach already done, detach of the boot volume, detach from an `ACTIVE`
   server without `AllowRunning`, detach of a volume not on that server.
+- Public create: check the summed server/IP quote and shared exposure
+  guard under [floating IP checks](vserver-floating-ips-checks.md#r2) and
+  [exposure cases](vserver-floating-ips-checks.md#exposure-guard).
 - Create bodies: every field in the create table and nothing from the
   [non-goals](vserver-paid-writes.md#non-goals), `encryptionVolume` false
   with no encryption field set,
@@ -243,6 +247,13 @@ credits; stop if billed cost exceeds it.
 [Billing evidence](vserver-paid-writes-api.md#billing-model) does not
 authorize relying on a refund to fund another write.
 
+The listed L3 gross quotes total 1,391,187 VND, above its 1,100,000 cap.
+That run stays blocked until its budget is reconciled with the owner;
+this design does not raise an approved cap or rely on refunds to fit it.
+Server and volume refund observations do not establish an IP refund.
+The floating IP run uses its own one-purchase
+[cap and cleanup rules](vserver-floating-ips-checks.md#live-run).
+
 Recorded live evidence (`hcm-3`; cleanup was reported complete):
 
 - L1: the 10 GB SSD volume quoted 32,000 VND; create settled in 15 s at
@@ -355,8 +366,9 @@ checks: no paid write without a quote at or below `MaxPrice`; default 0;
 NaN, infinite, and negative `MaxPrice` refused; the quote and the write
 built from one body; `userData` absent from the quote, captures, logs,
 errors, and argv; no create resend after any failure; `Once` on resize,
-start, stop, and reboot; every guard sends nothing; no `attachFloating`,
-password, or default security group; auto-renew off by default;
+start, stop, and reboot; every guard sends nothing; `attachFloating` true
+only under the accepted [floating IP guards](vserver-floating-ips.md);
+no password fields or default security group; auto-renew off by default;
 `--yes` on every command the CLI table marks; `--delete-volumes` required
 to delete volumes with a server; path ID checks on every ID; read-only
 refusal of every write; and the live tests' cap check runs before any
@@ -365,63 +377,5 @@ write. The resize credit release adds: a negative quote is kept only when
 credit's size drives no decision; and `ResizeVolume` refuses a quote at
 or below 0.
 
-### Resize credit threats
-
-These are design obligations, not an independent review verdict. Proposed
-paths are unimplemented. Existing protections must survive the change.
-
-- Leaked tokens, high impact: an echoed credential can escape through an
-  HTTP/decode error, debug output, capture, or quote property text. Existing
-  `internal/transport/transport.go:593` redacts captured bodies and skips
-  sensitive captures; `:612` logs method/path/status/time only;
-  `internal/transport/body.go:19` sanitizes decode errors. The numeric
-  refusal at `pricing/pricing.go:172` contains only the price. Invariant:
-  add no credential-bearing output or raw-response error. Check echoed
-  synthetic tokens in success metadata, errors, debug, and captures;
-  retain nested-escape limits from security instructions. Typed success
-  metadata is not proved redacted by error/capture tests. Any leak found
-  needs a scoped fix before release. Sanitize account data separately.
-- Hostile peer, high impact: `pricing/pricing.go:121` sets no `MaxBody`,
-  so `internal/transport/transport.go:560` reads without a size bound.
-  Invariant: bound the response before decoding or capture and return no
-  partial quote. Implement the proposed
-  [body limit](vserver-paid-writes-api.md#quote-decoding-and-bounds).
-  Check cap and cap+1, HTTP error identity, no partial capture or write,
-  malformed types, finite extremes, and cancellation. A forged finite
-  credit can still pass
-  the proposed guard: TLS authenticates the peer, not billing accuracy.
-- Redirect or endpoint tampering, high impact: credentials attach at
-  `internal/transport/transport.go:470`; `redirect.go:11` checks host and
-  scheme before and after caller hooks; `transport.go:433` refuses all
-  resize redirects under `Once`. Defaults use HTTPS at
-  `internal/endpoints/endpoints.go:98`. Caller HTTP clients/transports
-  and endpoint overrides remain trusted configuration
-  (`internal/core/client.go:376`, `client_options.go:123`), not a host
-  allowlist. Invariant: no new endpoint or TLS bypass; no redirect may
-  forward credentials cross-origin. Check foreign host, downgrade,
-  hook mutation, and 307/308 without a second send. Do not treat a
-  malicious initial endpoint or caller transport as protected by redirects.
-- Local tampering, high impact: CLI configuration selects the account and
-  consent policy before SDK calls (`internal/cli/op.go:419`); credential
-  loading checks private file modes (`internal/core/load.go:163`). Cache keys
-  bind profile, user, and auth endpoints (`internal/tokencache/cache.go:30`);
-  `:169` rejects stale/empty tokens, `:199` writes mode 0600, and `:242`
-  requires a mode 0700 directory on Unix. Invariant: reuse only the
-  selected identity's token and preserve credential-file permissions.
-  A same-user attacker can edit a profile or token; file modes are not
-  cryptographic integrity. Check malformed/wrong-profile/stale caches,
-  insecure directories, and credential writes at 0600. The credit path
-  adds no file access; quote probes must not copy profiles into fixtures.
-- Concurrent or repeated writes, high impact: the concrete sign-reversal
-  race is in [API evidence](vserver-paid-writes-api.md#resize-credits).
-  `compute/resize_server.go:120` reads before quoting; `:157` sets `Once`;
-  neither locks a resource against another actor. Invariant: at most one
-  resize per call, explicit CLI consent, no automatic retry or cleanup
-  after uncertainty. Decision 20 explicitly accepts the residual
-  quote-to-send risk.
-  Check a deterministic peer changing the old flavor after the quote,
-  unchanged target body, one send, and read-only recovery. This test
-  exposes the residual risk; it must not assert a guaranteed zero charge.
-  Check partial signed Output and context/error identity after send;
-  wait remains 5-second polls within 15 minutes, honoring cancellation.
-  Live cleanup still requires the run's existing explicit authority.
+Resize credit threat traces and required checks are in
+[resize](vserver-paid-writes-resize.md#resize-credit-threats).

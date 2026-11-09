@@ -1,11 +1,15 @@
 # vServer Paid Writes Design
 
-Status: Accepted, including decisions 19 and 20.
+Status: Accepted, including decisions 19 and 20; the refusal probe is
+declined. Floating IP decisions are accepted; implementation stays gated
+under [their design](vserver-floating-ips.md).
 
 This design covers the vServer writes that cost money: servers in
 `compute` and volumes in `volume`. Every paid create and resize quotes
 first and compares the quote with `MaxPrice`, which defaults to 0.
-The API does not enforce that cap on the eventual charge.
+The API does not enforce that cap on the eventual charge. Base operations
+are implemented. Live verification needs separate account, resource,
+permission, and cost approval.
 
 It follows [vServer free writes](vserver-writes.md) for the gateway,
 create retries, and delete guards,
@@ -20,8 +24,7 @@ runs, and the security review are in
 
 ## Non-goals
 
-- Public IPs: `attachFloating` on create, and floating IP writes. An
-  elastic IP costs 120,000 VND a month and exposes the server.
+- Floating IPs: [vServer floating IPs](vserver-floating-ips.md) owns them.
 - Password login and Windows images: `userName`, `userPassword`,
   `osLicence`, and `expirePassword`.
 - Multi-attach volumes, volume type change, and host groups. Encryption
@@ -68,8 +71,11 @@ the write's own Input (ADR 0002 rule 8):
 - The quote's Output is `pricing.GetQuoteOutput`. For a create,
   `OptimumPrice` is VND a month. For a resize it reports the signed quote
   for the remaining period. A negative value denotes an expected credit,
-  not a confirmed refund ([resize credits](#resize-credits)).
-- `pricing.GetQuoteInput.Action` defaults to `create` when empty.
+  not a confirmed refund
+  ([resize credits](vserver-paid-writes-resize.md#resize-credits)).
+- `pricing.GetQuoteInput.Action` defaults to `create` when empty, preserving
+  existing callers. One internal quote helper serves `pricing`, `compute`,
+  and `volume`.
 
 The paid write runs these steps, in order, and stops at the first failure:
 
@@ -91,7 +97,7 @@ The paid write runs these steps, in order, and stops at the first failure:
 quoted adjustment for resizes. `MonthlyPrice` retains its existing name
 and holds that quote, not the charged or refunded amount. The order has
 no price condition; see [race
-limits](vserver-paid-writes-api.md#resize-credits).
+limits](vserver-paid-writes-resize.md#evidence).
 
 `vngcloud.ErrPriceAboveMax` is in the root package (from
 `internal/core`). `monitor.ErrPriceAboveMax` is the same value, so
@@ -149,6 +155,7 @@ All methods live in `compute`. "(r)" marks `vngcloud:"required"`.
 | `ServerGroupID` | Optional |
 | `UserData` | Cloud-init text; the SDK base64-encodes it and sets `userDataBase64Encoded` |
 | `AutoRenew` | Sent as `isEnableAutoRenew`, false by default |
+| `AttachFloatingIP`, `AllowOpenLogin` | Accepted additions; [floating IPs](vserver-floating-ips.md#r2-floating-ip-on-create) owns body, quote, and shared SDK exposure checks |
 | `MaxPrice` | VND a month; default 0 |
 | `NoWait` | Skip the wait |
 
@@ -157,12 +164,14 @@ All methods live in `compute`. "(r)" marks `vngcloud:"required"`.
 - The duplicate-name check lists servers and matches the name exactly,
   since list filters match substrings. It runs before the quote. A rerun
   after an unclear failure then finds the first server by name instead of
-  ordering a second one when that match is visible.
+  ordering a second one when that match is visible. Eventual visibility
+  and concurrent callers can still permit duplicates.
 - The project's default security group allows SSH, RDP, HTTP, HTTPS, and
   ICMP from anywhere
   ([free writes](vserver-writes.md#server-rules-from-the-product-docs)).
   The SDK never picks it; a caller who names it gets it, and the wiki says
-  what it opens.
+  what it opens. Public create also follows the accepted
+  [exposure check](vserver-floating-ips.md#login-exposure).
 - `UserData` can hold secrets. When it is set, the create is `Sensitive`,
   so no response capture holds it, and no error or log quotes it. It is
   never sent to the quote.
@@ -176,8 +185,8 @@ All methods live in `compute`. "(r)" marks `vngcloud:"required"`.
   `ListVolumesByServer` first. It sends `deleteAllVolume` equal to
   `DeleteVolumes`.
 - With `DeleteVolumes` false, attached data volumes stay and keep being
-  billed. The boot volume is always deleted with the server (recorded live
-  evidence). After the wait the SDK reads each volume it listed, and
+  billed. The recorded run deletes the boot volume with the server.
+  After the wait the SDK reads each volume it listed, and
   `KeptVolumeIDs` names those that still exist, so the caller sees what
   still costs money. With `NoWait` it names every listed data volume.
 - With `DeleteVolumes` true, every attached volume is deleted with the
@@ -200,50 +209,8 @@ by reading, as ADR 0003 does for toggles:
   failure after the send returns `ErrNotSettled`; the recovery is to run
   the same operation again, because it reads first.
 
-### Resize and rename
-
-- `ResizeServer` reads the server. The same flavor is `ErrInvalidInput`;
-  a status other than `ACTIVE` or `STOPPED` is `ErrUnexpectedStatus`. Both
-  send nothing. Then it quotes and guards as above, sends `flavorId` and
-  `serverId` with `Once`, and waits until the flavor read back is the new
-  one.
-- `RenameServer` sends `newName` and returns the server from the
-  response. Rename is free and keeps the transport's `PUT` retries.
-- The root disk grows through `volume.ResizeVolume` on the server's
-  `BootVolumeID`.
-
-### Resize credits
-
-The signed quote is an expected adjustment, with the evidence limits in
-[resize credits](vserver-paid-writes-api.md#resize-credits).
-
-- `pricing.GetQuote` accepts a finite negative `optimumPrice` only when
-  the effective `Action` is exactly `resize`. Empty means `create`;
-  `create`, unknown actions, whitespace, and case variants still refuse
-  negatives as `*APIError`. Do not add action validation or normalization.
-- All resource types share that read rule, including arbitrary strings.
-  `QuoteResizeServer`, `QuoteResizeVolume`, `QuoteResizeLoadBalancer`, and
-  `pricing get-quote --action resize` return signed quotes. This neither
-  proves support for a resource nor authorizes any write.
-- Missing, null, malformed, NaN, and infinite prices remain `*APIError`,
-  with nil Output. Zero remains a valid quote read, including negative zero.
-- The accepted `ResizeServer` policy permits a finite credit at every
-  valid `MaxPrice`, rejects either signed zero with
-  `ErrUnpriced`, and compares positive prices normally. Keep this policy
-  local to server resize; do not relax `core.CheckPriceAboveMax` for
-  creates or volume growth. `ResizeVolume` refuses nonpositive quotes
-  with `ErrUnpriced` naming the amount; its quote read remains signed.
-- No field, type, import path, or dependency changes. The SDK stays
-  standard-library only; CLI calls use public SDK operations. Signed
-  `float64` fields preserve JSON shape and minus signs in all renderers.
-  Callers that assumed nonnegative values must update their handling.
-- The proposed write still requires the same-flavor and status guards,
-  `Once`, and CLI `--yes`. Failure before send returns nil Output. After
-  an ambiguous send or failed wait, retain the signed quote and last server
-  in Output; preserve `ErrNotSettled`/`ErrFailed`, underlying `*APIError`
-  via `errors.As`, and context errors via `errors.Is`. Read `GetServer`
-  to reconcile; never retry or clean up automatically. `NoWait` returns
-  the pre-write server with the quote, not confirmation of a credit.
+Resize and rename rules, including signed quotes, are in
+[resize](vserver-paid-writes-resize.md).
 
 ## Volumes
 
@@ -299,9 +266,8 @@ states, poll spacing, bounds, and failure results are in the
   check, so a bad ID fails before a quote.
 - Creates are never resent. After a 5xx or a network error the error says
   the resource may exist and names `list-servers` or `list-volumes` with
-  the exact name. The duplicate-name check reduces accidental repeat creates; it
-  is not
-  atomic against concurrent callers.
+  the exact name. The duplicate-name check reduces accidental repeat
+  creates; it is not atomic against concurrent callers.
 - Resize, start, stop, and reboot use `Once`. Rename, attach, detach, and
   deletes keep the transport's retries; a retried delete that finds the
   resource gone returns `NotFound`. The CLI never retries a write.
@@ -364,16 +330,22 @@ states, poll spacing, bounds, and failure results are in the
 | Quota, billing refusal, flavor or image mismatch | The server's `*APIError` | 1 |
 | 5xx or network error on a create | The error; the message names the list | 1 |
 
-Service sentinels in the table preserve `errors.Is` identity;
+Service sentinels are `compute.ErrFailed`, `compute.ErrUnexpectedStatus`,
+`compute.ErrNotSettled`, `volume.ErrNotSettled`, `volume.ErrFailed`,
+`volume.ErrVolumeInUse`, `volume.ErrBootVolume`, `volume.ErrServerRunning`,
+and `volume.ErrUnexpectedStatus`. They preserve `errors.Is` identity;
 [CLI error mapping](cli.md#errors-and-exit-codes) preserves existing codes.
 
 ## Security
 
 The guards above are the security design: a quote at or below `MaxPrice`
 (default 0) before any paid write, a negative quote kept only for a
-resize, no resent order, key login only, no public IP or default security
-group, auto-renew off, and `--yes` plus a guard on every write that can
-lose data. The review that checks them is in
+resize, no resent order, no password fields sent, no public IP unless
+`AttachFloatingIP` asks and the summed quote covers it, no default
+security group, auto-renew off, and `--yes` plus a guard on every write
+that can lose data. Public create also requires the shared SDK
+[exposure guard](vserver-floating-ips.md#login-exposure). The review that
+checks them is in
 [checks](vserver-paid-writes-checks.md#security-review). IDs, names, IPs,
 and user data are account data; fixtures use `<id>`, `<name>`, `<ip>`, and
 `<secret>`.
@@ -382,7 +354,7 @@ and user data are account data; fixtures use `<id>`, `<name>`, `<ip>`, and
 
 | Release | Content | Tag |
 |-|-|-|
-| P1 | `ListFlavorZones`, `ListFlavors`, `ListVolumesByServer`, `GetDefaultVolumeType` zone, `QuoteCreateServer`, `QuoteCreateVolume`, `pricing.GetQuoteInput.Action`, `vngcloud.ErrPriceAboveMax`, path ID checks on the reads; CLI | Now |
+| P1 | `ListFlavorZones`, `ListFlavors`, `ListVolumesByServer`, `GetDefaultVolumeType` zone, `QuoteCreateServer`, `QuoteCreateVolume`, `pricing.GetQuoteInput.Action`, `vngcloud.ErrPriceAboveMax`, path ID checks on the reads; CLI | Free read checks |
 | P2 | `CreateVolume`, `DeleteVolume`, volume waits; CLI | After run L1 |
 | P3 | `CreateServer`, `DeleteServer`, `StartServer`, `StopServer`, `RebootServer`, `RenameServer`, server waits, `[]string` flags, `--user-data-file`; CLI | After run L2 |
 | P4 | `AttachVolume`, `DetachVolume` and their guards; CLI | After run L2 |
@@ -409,7 +381,10 @@ results and the quote-to-charge race. No new dependency or CLI bypass is needed.
 4. `MaxPrice`: VND for the quote, default 0, not a whole-run budget.
    Creates quote a month; resizes quote an adjustment.
 5. Login: require `SSHKeyID` or key-installing `UserData`, never both.
-6. Public IP on create: excluded; it adds cost and internet exposure.
+   Put login keys in cloud-config for user data. This does not prove
+   the image disables password authentication.
+6. Public IP on create: opt-in `AttachFloatingIP`, default off, priced
+   and guarded under [floating IPs](vserver-floating-ips.md).
 7. Security groups: at least one explicit ID, no project default.
 8. Duplicate names: refuse exact matches before quoting servers or
    volumes. This reduces repeat creates; it is not an atomic uniqueness

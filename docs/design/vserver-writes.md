@@ -1,11 +1,11 @@
 # vServer Free Writes Design
 
-Status: Accepted (2026-09-27).
+Status: Accepted.
 
 This design adds the vServer writes that cost nothing: security groups and
-their rules in `network`, and SSH keys in `compute`. The test account has no
-credit, so these are the first vServer writes that can be verified live.
-Servers, volumes, and floating IPs stay read-only.
+their rules in `network`, and SSH keys in `compute`.
+[Servers and volumes](vserver-paid-writes.md) and the evidence-gated
+[floating IP operations](vserver-floating-ips.md) have separate designs.
 
 It builds on [SDK and CLI](sdk-and-cli.md) and [CLI](cli.md). Writes follow
 [ADR 0002](../adr/0002-write-api-conventions.md). The private key of a
@@ -89,8 +89,10 @@ would fail.
 - A new group holds default egress rules that allow all outbound traffic,
   and no ingress rule, so all inbound traffic is denied. Rules only allow;
   there is no deny rule. Groups are stateful.
-- Each project has a system `default` group (`isSystem`) with allow-all
-  egress and ingress on SSH, RDP, HTTP, HTTPS, and ICMP from anywhere.
+- The [security-group guide][group-guide] describes the default group
+  with ingress from all addresses on SSH 234 and RDP 3490. The
+  [wizard guide][wizard-guide] also lists ICMP. These published defaults
+  do not prove the rules of a current account or HTTP/HTTPS exposure.
 - Group names are unique per project: a repeat name fails with
   `name of security group already exist`.
 - A duplicate rule fails with `SecurityGroupRuleExists`.
@@ -129,8 +131,6 @@ next day's bill must show no vServer line.
   to such a group drifts from its state.
 
 ## Security groups and rules
-
-All methods live in `network`, next to the existing group and rule reads.
 
 ```go
 func (c *Client) CreateSecurityGroup(ctx context.Context, in *CreateSecurityGroupInput) (*CreateSecurityGroupOutput, error)
@@ -190,9 +190,8 @@ release. The shape checks, all before any request, each `ErrInvalidInput`:
 
 Safe defaults:
 
-- `RemoteIPPrefix` is required. The SDK never defaults it to
-  `0.0.0.0/0`; opening to the world must be written out.
-- `Protocol` is required. The SDK never defaults it to `any`.
+- `RemoteIPPrefix` is required; world-open access must be explicit.
+- `Protocol` is required. There is no `any` default.
 - A new group admits no inbound traffic until a rule allows it. The SDK
   keeps the server's default egress rules; `delete-security-group-rule`
   removes them.
@@ -235,8 +234,6 @@ A 404 during the wait keeps polling, since a new group may not be readable
 at once. No other write waits unless the live checks show it must.
 
 ## SSH keys
-
-All methods live in `compute`, next to `ListSSHKeys`.
 
 ```go
 func (c *Client) GetSSHKey(ctx context.Context, in *GetSSHKeyInput) (*GetSSHKeyOutput, error)
@@ -281,7 +278,7 @@ GreenNode generated the key and saw it.
 - Every operation that puts an ID in a path checks it with
   `core.CheckPathID` (`^[A-Za-z0-9-]+$`) before any request, including
   `GetSecurityGroup`, `ListServersBySecurityGroup`,
-  `ListSecurityGroupRules`, and `GetSSHKey`, which today send any value.
+  `ListSecurityGroupRules`, and `GetSSHKey`.
 - Creates are `POST`: the transport retries only after a 429 or a failed
   dial (ADR 0002 rule 2). After a 5xx or a network error the resource may
   exist, and the error says how to check:
@@ -393,8 +390,7 @@ prints the Output on stdout, as for vDNS.
 
 ## Testing and live checks
 
-Unit tests and the live checks that must pass before code merges are in
-[vServer free writes: checks](vserver-writes-checks.md).
+See [free-write checks](vserver-writes-checks.md) for verification gates.
 
 ## Releases
 
@@ -403,14 +399,13 @@ Unit tests and the live checks that must pass before code merges are in
 | V1 | `network` group create, update, and delete with the group wait; rule create and delete with the rule-in-group check; path ID checks on the group and rule reads; CLI commands and world-open `--yes` |
 | V2 | `compute` `GetSSHKey`, `ImportSSHKey`, `CreateSSHKey`, `DeleteSSHKey`; `SSHKey.PrivateKey` removed (breaking); `vngcloud.Secret`, `Sensitive`, and `--secret-file` if vStorage has not shipped them; CLI commands |
 
-Each is numbered when it ships. V1 changes no existing method, except that
-the group and rule reads reject a malformed ID. V2 breaks callers that
-read `SSHKey.PrivateKey`. The `Network` and `Compute` wiki pages gain the
-writes, the retry advice, and the OpenTofu drift warning.
+Group and rule reads reject malformed IDs. Removing `SSHKey.PrivateKey`
+breaks callers using it. The `Network` and `Compute` wiki pages document
+the writes, retry advice, and OpenTofu drift warning.
 
 ## Owner decisions
 
-The owner approved each recommendation below.
+The owner approved these recommendations:
 
 1. Package ownership. Settled by [SDK and CLI](sdk-and-cli.md): groups and
    rules in `network`, SSH keys in `compute`.
@@ -448,3 +443,6 @@ The owner approved each recommendation below.
 - The encoding of "all ports" and ICMP type and code.
 - The status of the in-use refusal.
 - Whether a rule delete ignores the group ID in its path.
+
+[group-guide]: https://docs.greennode.ai/vserver/compute-hcm03-1a/security/security-groups.md
+[wizard-guide]: https://docs.greennode.ai/vserver/compute-hcm03-1a/instance/create-an-instance-by-using-the-wizard.md

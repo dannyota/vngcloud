@@ -1,6 +1,8 @@
 # vServer Paid Writes: API
 
-Status follows [vServer paid writes](vserver-paid-writes.md).
+Status follows [vServer paid writes](vserver-paid-writes.md). The accepted
+floating IP extension is owned by
+[floating IP API](vserver-floating-ips-api.md).
 
 The API shapes, billing model, and prices behind
 [vServer paid writes](vserver-paid-writes.md).
@@ -19,7 +21,8 @@ The API shapes, billing model, and prices behind
   request each create and resize form sends.
 - GreenNode's billing docs on `docs.greennode.ai`: prepaid and postpaid
   users, and the create, resize, delete, and auto-renew pages. Evidence
-  for resize pricing is qualified under [resize credits](#resize-credits).
+  for resize pricing is qualified under
+  [resize credits](vserver-paid-writes-resize.md#evidence).
 - Read-only probes on the test account in `hcm-3`: flavor
   zones, flavors, images, volume types, quotas, and price quotes. No write
   was sent.
@@ -78,11 +81,13 @@ them; the SDK sends `zoneId` only on creates.
   `rootDiskSize` (GB), `rootDiskTypeId`, `encryptionVolume` (required by
   the reference), and optionally `dataDiskName`, `dataDiskSize`,
   `dataDiskTypeId`, `serverGroupId`, `userData`, `userDataBase64Encoded`,
-  and `isEnableAutoRenew`. The reference also lists `attachFloating`,
-  `userName`, `userPassword`, `osLicence`, `isPoc`, `hostGroupId`,
-  `poolName`, `networks`, `createdFrom`, backup and snapshot restore
-  fields, and the encryption types; the SDK never sends them. The API
-  takes one data disk. Encryption keys are in
+  and `isEnableAutoRenew`. Current code omits `attachFloating`; the
+  accepted [floating IP body](vserver-floating-ips-api.md#bodies) sends
+  `attachFloating` explicitly with `AttachFloatingIP`'s value. The
+  reference also lists `userName`, `userPassword`, `osLicence`, `isPoc`,
+  `hostGroupId`, `poolName`, `networks`, `createdFrom`, backup and
+  snapshot restore fields, and the encryption types; the SDK never sends
+  them. The API takes one data disk. Encryption keys are in
   [encrypted volumes](encrypted-volumes.md#body-keys).
 - Server delete: `deleteAllVolume` (bool). Terraform sends `false`.
 - Server resize: `flavorId`, `serverId` (the path ID), and an optional
@@ -118,16 +123,17 @@ them; the SDK sends `zoneId` only on creates.
   currency field; every price in this design, and every guard compared
   against `MaxPrice`, assumes VND, matching the account's own region and
   the console's own display. Credit evidence and unknown field signs are
-  listed under [resize credits](#resize-credits).
+  listed under [resize credits](vserver-paid-writes-resize.md#evidence).
 
 ## Quote decoding and bounds
 
-Proposed for `pricing.GetQuote`: cap each response at 1 MiB using
+`pricing.GetQuote` caps each response at 1 MiB using
 `transport.Request.MaxBody`; this is an SDK limit, not a published API
 limit. No pagination applies. Oversized success returns `*APIError`, nil
 Output, and no partial capture. Oversized HTTP errors retain the existing
 status mapping. Reject malformed or absent prices before returning any
-Output; use the [signed reader rule](vserver-paid-writes.md#resize-credits).
+Output; use the
+[signed reader rule](vserver-paid-writes-resize.md#resize-credits).
 Keep context cancellation and configured retries (default three retries,
 with at most one authentication refresh) in the transport, without a new
 service retry loop. The probe must verify the raw fixture fits the cap.
@@ -225,11 +231,13 @@ From GreenNode's billing docs and the console.
 
 - New accounts are prepaid; postpaid needs a request to Sales. The test
   probes used a prepaid account; its current balance is not evidence here.
+  The manager must read it before an approved run.
 - A prepaid user pays a resource's period price from the GreenNode credit
   wallet when it is created. The console's price request for a server or
   volume always sends `period: 1`, one month. The server create body has
-  no period field; that the direct API charges one month is an
-  [open question](#open-questions).
+  no period field. The recorded server create charge matches its monthly
+  quote; the general direct API billing rule remains an
+  [open question](#open-questions). Floating IP charge evidence is separate.
 - vServer has no hourly rate. A create quote is a monthly price: `period` 1, 3,
   and 12 all returned the same `optimumPrice` (live). `period` 0 returns
   400 `period: From must be greater than zero`; no `period` returns 500.
@@ -240,7 +248,7 @@ From GreenNode's billing docs and the console.
 - Resize quotes can be signed. The negative CLI observation supports a
   credit interpretation; neither it nor the positive live quote totals
   establishes the gateway's exact arithmetic.
-  See [resize credits](#resize-credits).
+  See [resize credits](vserver-paid-writes-resize.md#evidence).
 - Auto-renew renews one month, 3 days before the end, from credit. When
   renewal fails the resource expires, and the user must recover it. A
   resource without auto-renew also expires at the end of its period.
@@ -254,64 +262,10 @@ direct call; an IAM user has no payment page.
 
 ## Resize credits
 
-Evidence behind the [credit rules](vserver-paid-writes.md#resize-credits):
-
-- Published text: the [billing resize page][resize-billing] describes a
-  prepaid configuration-change payment flow and minute-level unused
-  value calculations, with service-specific refund exclusions. Its price
-  formula is an image hosted on `1985221522-files.gitbook.io`, outside
-  the permitted source hosts. The exact arithmetic and worked examples
-  are unverified here. The page does not document `v1/price` fields or
-  guarantee the direct IAM API uses the displayed payment calculation.
-- Observation: the manager-supplied CLI error supports a negative server
-  resize `optimumPrice`. The [vLB evidence](lb-writes-api.md#price-quotes)
-  separately records negative load balancer resize quotes. Neither proves
-  a server refund completed.
-- Inference: a prepaid adjustment can represent new value minus unused
-  old value over remaining time. If both rates and resource state stay
-  fixed, elapsed time can reduce a credit toward zero. This conditional
-  model is not a guarantee across price, discount, renewal, or state changes.
-- Live capture (free check 7, `hcm-3`): a downsize quote from
-  `s2-general-2x4` to `s2-general-1x2` on a server with volume
-  encryption returned HTTP 200 with `optimumPrice` -372,552,
-  `originalPrice` 368,940, `discountPrice` 0, `discountPercent` 0,
-  `originalCurrentPrice` 737,880, `originalNewPrice` 85,140, and
-  `artifactPrices` null. Each `propertiesPrice` row carries
-  `optimumPrice` and `monthlyPrice` (the new configuration) and
-  `currentPrice` (the old): instance 283,800 against 567,600, and `CES`
-  85,140 against 170,280. The sanitized body is
-  `testdata/pricing/GetQuoteServerResizeCredit.json`.
-- Missing evidence: the formula behind `optimumPrice`, which is not the
-  plain difference of the new and old totals, and the meaning of
-  `originalCurrentPrice`, `originalNewPrice`, and `discountPercent` on
-  credits. Preserve unknown fields in the fixture; do not infer their
-  sign or recompute `optimumPrice`.
-
-No documented bound relates the credit to one month's list price. A longer
-prepaid term could exceed such a bound, and the quote contains neither
-unused paid value nor an authoritative period end. Finite-only acceptance
-is a representation policy, not verification of billing accuracy. Do not
-round, take absolute values, add credits to budgets, or use credit size to
-permit another operation. Only the sign and positive-price comparison
-control the proposed guard.
-
-The [resize API][vserver-api] documents target IDs but no quote ID, price
-cap, expected old flavor, or conditional version. If A quotes a downsize
-from an expensive flavor to a medium one and B moves the server to a
-cheaper flavor before A sends, A's target can become an upgrade. `Once`
-prevents a resend within A's call; it neither serializes callers nor makes
-the quote atomic. A price or discount change can also reverse the sign.
-The actual charge can exceed `MaxPrice`, including 0. Another pre-read
-only narrows the gap. [Decision 20](vserver-paid-writes.md#owner-decisions)
-explicitly accepts this residual risk.
-
-Volume growth retains its nonpositive-price refusal as SDK policy; the
-published text does not prove a grow can never quote a credit. Generic
-resize quotes remain reads for all resource types. Creates cannot select
-resize semantics through a caller-controlled action.
+See [resize evidence](vserver-paid-writes-resize.md#evidence) for captured
+fields, billing limits, and the accepted quote-to-send race.
 
 [vserver-api]: https://docs.api.greennode.ai/service-docs/vserver.html
-[resize-billing]: https://docs.greennode.ai/billing-management/experience-with-billing-and-payment/resource-lifecycle-management/resize-resource-configuration
 
 ## Quote requests
 
@@ -369,7 +323,7 @@ The account had no discount. Prices are public list prices.
 | SSD volume, 3,000 IOPS | 3,200 a GB |
 | Volume encryption (`CES`), 1x2 flavor | 85,140 |
 | Volume encryption on a separate volume | 0 |
-| Elastic IP | 120,000 |
+| Elastic IP (`resourceType` `elastic-ip`; its `resourceInfo` is not recorded, see [floating IPs](vserver-floating-ips-api.md#elastic-ip-quote)) | 120,000 |
 | Snapshot service quote | 5,040 |
 
 | Probe | `optimumPrice` |
@@ -406,6 +360,9 @@ named `Volume`. The smallest server above costs about 11,600 VND a day, or
 
 ## Open questions
 
+- Floating IP price and cleanup gates belong to
+  [floating IPs](vserver-floating-ips-api.md#missing-evidence); base server
+  charge evidence stays in [billing](#billing-model).
 - Whether the direct create charges one month at once.
 - Whether `deleteAllVolume` false keeps attached data volumes.
 - What happens when a period ends without renewal, and after how long an
@@ -416,4 +373,4 @@ named `Volume`. The smallest server above costs about 11,600 VND a day, or
 - Whether a stop is graceful, and whether a reboot shows `REBOOTING`.
 - The smallest volume the SSD type accepts: 1 GB or 10 GB.
 - Raw server credit fields and their meanings, as listed under
-  [resize credits](#resize-credits).
+  [resize credits](vserver-paid-writes-resize.md#evidence).

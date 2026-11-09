@@ -65,11 +65,11 @@ cheapest package quotes 400,000 VND a month. A create quote uses
 quoted adjustment for the remaining period, negative for a downsize.
 The API does not bind the quote to the write: another actor or price
 change can turn a credit into a charge. See the shared
-[race limits](vserver-paid-writes-api.md#resize-credits).
+[race limits](vserver-paid-writes-resize.md#evidence).
 
 `QuoteResizeLoadBalancer` uses `pricing.GetQuote` with `ActionResize`
 and returns signed `OptimumPrice` under the
-[shared reader rule](vserver-paid-writes.md#resize-credits). Create quote
+[shared reader rule](vserver-paid-writes-resize.md#resize-credits). Create quote
 reads still reject negatives. The private write reader already accepts
 resize credits and rejects nonpositive creates; this policy is unchanged.
 

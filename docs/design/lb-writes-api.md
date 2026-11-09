@@ -225,7 +225,7 @@ Recorded create quotes, `period` 1, the same in all four
   resize quote on a real load balancer is negative for a downsize. This
   records the sign, not proof of the exact server resize formula. The
   public `QuoteResizeLoadBalancer` uses the
-  [signed pricing reader](vserver-paid-writes.md#resize-credits); the
+  [signed pricing reader](vserver-paid-writes-resize.md#resize-credits); the
   private write reader independently accepts credits. Neither a signed
   quote nor `QuotedPrice` confirms an actual refund.
 

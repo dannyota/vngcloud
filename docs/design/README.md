@@ -32,6 +32,8 @@ code starts. Decisions with lasting trade-offs also get an
 | [vCR writes](vcr-writes.md) | Accepted |
 | [vLB writes](lb-writes.md) | Accepted |
 | [vServer paid writes](vserver-paid-writes.md) | Accepted |
+| [vServer resize](vserver-paid-writes-resize.md) | Accepted signed-credit rules, evidence, and threat checks |
+| [vServer floating IPs][floating] | Decisions accepted; free read, gated public create and existing-IP management; auto-allocation deferred |
 | [IAM writes](iam-writes.md) | Accepted |
 | [IAM users](iam-users.md) | Accepted; base operations implemented |
 | [IAM user administration][user-admin] | Reset and Google MFA implemented; [evidence and limits][mfa-gate] |
@@ -61,3 +63,5 @@ Approval grants no live-run or policy authority.
 
 [user-admin]: iam-users-admin.md
 [mfa-gate]: iam-users-admin-api.md#probes
+
+[floating]: vserver-floating-ips.md#releases
