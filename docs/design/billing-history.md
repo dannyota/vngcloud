@@ -289,16 +289,21 @@ access. Add CLI error documentation. No generated wiki edits occur here.
 
 Separate briefs own these changes; none is implied implementation scope:
 
-1. Bound existing billing reads with `MaxBody`; `billing/cost.go:86` and
-   `billing/budgets.go` currently omit it. Preserve existing output shapes
-   and test the new limit. This is an observable hardening change.
+1. Bound all eight existing billing GETs in `billing/cost.go` and
+   `billing/budgets.go` with `MaxBody: 8 << 20`, a client limit. An
+   oversized success returns fixed-text `APIError` code `InvalidResponse`
+   with the observed status; an oversized error keeps status-based
+   classification. Preserve existing output shapes. This is an observable
+   hardening change.
 2. Explain query roots in all billing help and generated wiki examples.
 3. Add compact budget and balance tables; show absent balances as `none`.
 4. List exported enum values in budget and threshold flag help. Runtime
    enum rejection needs its own approval under ADR 0002's server-owned
    value-validation rule, so do not add it incidentally.
-5. Render resource epoch milliseconds as offset-bearing times in tables;
-   keep JSON numbers unchanged.
+5. Render resource epoch milliseconds in tables as
+   `time.UnixMilli(v).UTC()` formatted with `time.RFC3339Nano`; show nil as
+   `none` and epoch zero as a real time. JSON, text, and explicit-query
+   output keep the numbers.
 
 ### After the cost explorer fix
 
