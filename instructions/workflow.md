@@ -48,7 +48,9 @@ A worker's worktree must never contain `.env` or other credentials. Only the man
 
 ## Reviews
 
-Review each design and plan independently before implementation. Review completed code once per plan or release after the last code task, then confirm fixes. Match review depth to risk; do not invent extra gates. Every review and fix confirmation runs as a separate job from the author on the reviewer model that [routing](../AGENTS.md#ai-agent-definitions-and-routing) assigns; a worker's self-review never counts.
+Review each design and plan independently before implementation. Review completed code once per plan or release after the last code task, then confirm fixes. Match review depth to risk; do not invent extra gates.
+
+Low-risk slices touch no paid write, auth, credential, token, or release-workflow path: reads, decoding fixes, help, tables, and docs. For them, a Fable design goes straight to independent review without the Astra improvement pass; code gets one review round; fixes for low findings land without a separate fix confirmation, while medium or higher findings still need one. When review keeps finding variants of one edge-case class, close the class with one fail-closed rule instead of patching each variant. Evidence probes record unexpected response shapes and stop only on errors and their stated stop conditions. Every review and fix confirmation runs as a separate job from the author on the reviewer model that [routing](../AGENTS.md#ai-agent-definitions-and-routing) assigns; a worker's self-review never counts.
 
 Auth, token handling, credential storage, every write API, and release workflows require adversarial review before landing or release. Follow the [security review scope](security.md#adversarial-review). Name confirmed invariants. Rank each finding by severity with a concrete failure scenario, `path:line`, and fix direction. State checks and what was not checked. A reviewer never reviews its own work or implements fixes to reviewed files.
 

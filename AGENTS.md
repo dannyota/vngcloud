@@ -47,7 +47,7 @@ Definitions live in [.claude/agents/](.claude/agents/) (the Fable `designer`) an
 
 |Work|Model and effort|
 |-|-|
-|Design|Fable high through `designer`, then `gpt-6-astra` high through the Codex `designer` role reviews and improves the same documents; when Fable is unavailable, Astra high writes the design. Astra otherwise only reviews complex code jobs, below.|
+|Design|Fable high through `designer`, then `gpt-6-astra` high through the Codex `designer` role reviews and improves the same documents, except for [low-risk slices](instructions/workflow.md#reviews); when Fable is unavailable, Astra high writes the design. Astra otherwise only reviews complex code jobs, below.|
 |Planning and coordination workers|`gpt-6.1-sol` medium|
 |Simple, bounded code, scripts, workflows, and small code edits|The latest Terra, now `gpt-6.1-terra`, xhigh through `implementer`|
 |Complex code jobs: spanning components, or touching a public contract, a migration, or a security-relevant path such as auth, credentials, or a write API; the manager decides which jobs count|The latest Sol, now `gpt-6.1-sol`, xhigh through `implementer`|

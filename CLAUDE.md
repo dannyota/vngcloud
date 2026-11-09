@@ -2,7 +2,7 @@
 
 ## Claude routing and invocation
 
-Claude designs, researches, and coordinates only. Design runs on Fable high through `designer`, then the Codex `designer` role (`gpt-6-astra` high) reviews and improves the same documents; when Fable is unavailable, Astra high writes the design. Astra never runs through a Claude subagent. No implementation, troubleshooting, or review runs on a Claude model. Follow [shared routing](AGENTS.md#ai-agent-definitions-and-routing) and [shared duties](instructions/workflow.md#duties), with explicit model and effort on every dispatch.
+Claude designs, researches, and coordinates only. Design runs on Fable high through `designer`, then the Codex `designer` role (`gpt-6-astra` high) reviews and improves the same documents, except for [low-risk slices](instructions/workflow.md#reviews); when Fable is unavailable, Astra high writes the design. Astra never runs through a Claude subagent. No implementation, troubleshooting, or review runs on a Claude model. Follow [shared routing](AGENTS.md#ai-agent-definitions-and-routing) and [shared duties](instructions/workflow.md#duties), with explicit model and effort on every dispatch.
 
 The Sonnet/Opus restriction applies only to workers and subagents. The owner chooses the main Claude Code session model without this restriction.
 
