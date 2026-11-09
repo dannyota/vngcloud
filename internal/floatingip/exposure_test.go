@@ -1,11 +1,19 @@
 package floatingip
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
+
+	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/internal/core"
 )
 
 func syntheticRule(direction, ether, protocol string, minPort, maxPort int, prefix string) json.RawMessage {
@@ -30,8 +38,8 @@ func TestExposureUnionAndObservedEncodings(t *testing.T) {
 		{"egress", []json.RawMessage{syntheticRule("egress", "IPv4", "any", 0, 65535, "0.0.0.0/0")}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := openLogin(tc.rules); got != tc.open {
-				t.Fatalf("open=%v, want %v", got, tc.open)
+			if got := checkLoginExposure(tc.rules); errors.Is(got, ErrOpenLogin) != tc.open {
+				t.Fatalf("err=%v, want open=%v", got, tc.open)
 			}
 		})
 	}
@@ -46,7 +54,7 @@ func TestExposureRejectsUnobservedAndMalformedShapes(t *testing.T) {
 		{`"192.0.2.0/24"`, `null`}, {`"192.0.2.0/24"`, `""`}, {`"192.0.2.0/24"`, `"bad"`},
 		{`"portRangeMin":80,`, ``}, {`"remoteGroupId":"sg-1"`, `"remoteGroupId":null`},
 	} {
-		if !openLogin([]json.RawMessage{json.RawMessage(strings.Replace(good, pair[0], pair[1], 1))}) {
+		if !errors.Is(checkLoginExposure([]json.RawMessage{json.RawMessage(strings.Replace(good, pair[0], pair[1], 1))}), ErrOpenLogin) {
 			t.Fatalf("accepted %v", pair)
 		}
 	}
@@ -63,13 +71,65 @@ func TestSyntheticRuleFixtureRetainsObservedShapes(t *testing.T) {
 	if err := json.Unmarshal(raw, &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if len(envelope.Data) != 7 || !openLogin(envelope.Data) {
+	if len(envelope.Data) != 7 || !errors.Is(checkLoginExposure(envelope.Data), ErrOpenLogin) {
 		t.Fatalf("fixture failed: %d rules", len(envelope.Data))
 	}
 }
 
 func TestExposureRefusesUnobservedAnyPortCombination(t *testing.T) {
-	if !openLogin([]json.RawMessage{syntheticRule("ingress", "IPv4", "any", 80, 80, "0.0.0.0/0")}) {
+	if !errors.Is(checkLoginExposure([]json.RawMessage{syntheticRule("ingress", "IPv4", "any", 80, 80, "0.0.0.0/0")}), ErrOpenLogin) {
 		t.Fatal("unobserved any-protocol port semantics treated as restricted")
+	}
+}
+
+type exposureReasonCredentials struct {
+	calls    atomic.Int32
+	futureAt int32
+}
+
+func (s *exposureReasonCredentials) Token(context.Context) (vngcloud.Token, error) {
+	value := "initialToken"
+	if s.calls.Add(1) >= s.futureAt {
+		value = "futureToken"
+	}
+	return vngcloud.Token{AccessToken: value}, nil
+}
+func (*exposureReasonCredentials) Invalidate(string) {}
+
+func TestExposureReasonWithholdsCurrentAndLaterCredentials(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		futureAt int32
+	}{{"current", 1}, {"later", 3}} {
+		for _, allow := range []bool{false, true} {
+			t.Run(fmt.Sprint(tc.name, allow), func(t *testing.T) {
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					switch r.URL.Path {
+					case "/v2/project-1/secgroups/sg-1":
+						_, _ = w.Write([]byte(`{"data":{"id":"sg-1"}}`))
+					case "/v2/project-1/secgroups/sg-2":
+						_, _ = w.Write([]byte(`{"data":{"id":"sg-2"}}`))
+					case "/v2/project-1/secgroups/sg-1/secGroupRules":
+						_, _ = fmt.Fprintf(w, `{"data":[%s]}`, syntheticRule("ingress", "IPv4", "futureToken", 80, 80, "192.0.2.0/24"))
+					case "/v2/project-1/secgroups/sg-2/secGroupRules":
+						_, _ = w.Write([]byte(`{"data":[]}`))
+					default:
+						t.Error("unexpected route")
+						w.WriteHeader(500)
+					}
+				}))
+				defer srv.Close()
+				cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("hcm-3"), vngcloud.WithProjectID("project-1"), vngcloud.WithCredentialsProvider(&exposureReasonCredentials{futureAt: tc.futureAt}), vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{VServer: srv.URL}))
+				if err != nil {
+					t.Fatal(err)
+				}
+				ctx, unsafe, cancel := ResponseContext(context.Background())
+				defer cancel()
+				_, err = Exposure(ctx, core.ClientOf(cfg), []string{"sg-1", "sg-2"}, allow, unsafe)
+				if err == nil || strings.Contains(err.Error(), "futureToken") {
+					t.Fatalf("credential escaped or failure missing: %v", err)
+				}
+			})
+		}
 	}
 }

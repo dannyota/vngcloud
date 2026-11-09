@@ -276,6 +276,9 @@ It case-folds TCP and `any`, reads integer port ranges, and treats 0-65535
 as all ports. A populated `remoteGroupId` does not narrow a CIDR grant.
 Null/empty prefixes, null ports, and unproven encodings cannot establish
 restricted access. `compute.ErrOpenLogin` maps to CLI `OpenLogin`, exit 1.
+The error distinguishes unsupported rule encodings from a port open to the
+internet. Only short safe protocol names may appear; IDs, CIDRs, and
+descriptions stay out of the reason.
 `AllowOpenLogin` or `--allow-open-login` bypasses exposure evaluation only;
 it requires public opt-in and never bypasses permissions, limits, identity,
 price, or snapshot checks. The quote has no override flag.

@@ -122,8 +122,15 @@ func Exposure(ctx context.Context, c *core.Client, ids []string, allow bool, uns
 	if err := ctx.Err(); err != nil {
 		return zero, err
 	}
-	if !allow && openLogin(rules) {
-		return zero, ErrOpenLogin
+	for _, rule := range rules {
+		if unsafe(rule) {
+			return zero, InvalidResponse(op, nil)
+		}
+	}
+	if !allow {
+		if err := checkLoginExposure(rules); err != nil {
+			return zero, err
+		}
 	}
 	var digest [32]byte
 	copy(digest[:], snapshot.Sum(nil))
@@ -142,30 +149,31 @@ type ingressRule struct {
 
 type interval struct{ first, last netip.Addr }
 
-func openLogin(rawRules []json.RawMessage) bool {
+func checkLoginExposure(rawRules []json.RawMessage) error {
+	unsupported := unsupportedRuleEncoding("")
 	coverage := make(map[string][]interval)
 	for _, raw := range rawRules {
 		var r ingressRule
 		if json.Unmarshal(raw, &r) != nil || r.Direction == nil || r.EtherType == nil || r.Protocol == nil || r.Min == nil || r.Max == nil || r.Prefix == nil || r.RemoteGroup == nil || *r.RemoteGroup == "" {
-			return true
+			return unsupported
 		}
 		if (*r.Direction != "ingress" && *r.Direction != "egress") || (*r.EtherType != "IPv4" && *r.EtherType != "IPv6") {
-			return true
+			return unsupported
 		}
 		protocol := strings.ToLower(*r.Protocol)
 		if protocol == "any" && (*r.Min != 0 || *r.Max != 65535) {
-			return true
+			return unsupported
 		}
 		// Only the observed any/TCP encodings establish the meaning of ports.
 		if protocol != "tcp" && protocol != "any" {
-			return true
+			return unsupportedRuleEncoding(*r.Protocol)
 		}
 		if *r.Min < 0 || *r.Max > 65535 || *r.Min > *r.Max || (*r.Min == 0 && *r.Max != 65535) {
-			return true
+			return unsupported
 		}
 		prefix, err := netip.ParsePrefix(*r.Prefix)
 		if err != nil || prefix.Addr().Is4In6() || ((*r.EtherType == "IPv4") != prefix.Addr().Is4()) {
-			return true
+			return unsupported
 		}
 		if *r.Direction == "egress" {
 			continue
@@ -180,10 +188,10 @@ func openLogin(rawRules []json.RawMessage) bool {
 	}
 	for _, spans := range coverage {
 		if coversAll(spans) {
-			return true
+			return fmt.Errorf("%w: port open to the internet", ErrOpenLogin)
 		}
 	}
-	return false
+	return nil
 }
 
 func prefixInterval(prefix netip.Prefix) interval {
@@ -197,7 +205,11 @@ func prefixInterval(prefix netip.Prefix) interval {
 	for bit := start; bit < 128; bit++ {
 		last[bit/8] |= 1 << uint(7-bit%8)
 	}
-	return interval{first, netip.AddrFrom16(last).Unmap()}
+	lastAddr := netip.AddrFrom16(last)
+	if first.Is4() {
+		lastAddr = lastAddr.Unmap()
+	}
+	return interval{first, lastAddr}
 }
 
 func coversAll(spans []interval) bool {
