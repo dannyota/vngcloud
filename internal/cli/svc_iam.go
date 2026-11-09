@@ -93,9 +93,9 @@ var iamOps = []Op[iam.Client]{
 	Write[iam.Client, iam.DeletePolicyInput, iam.DeletePolicyOutput](
 		kebab("DeletePolicy"), (*iam.Client).DeletePolicy, Destructive()),
 	Write[iam.Client, iam.AttachServiceAccountPolicyInput, iam.AttachServiceAccountPolicyOutput](
-		kebab("AttachServiceAccountPolicy"), (*iam.Client).AttachServiceAccountPolicy, Destructive()),
+		kebab("AttachServiceAccountPolicy"), (*iam.Client).AttachServiceAccountPolicy, Destructive(), ConfirmationReason("grants permissions")),
 	Write[iam.Client, iam.DetachServiceAccountPolicyInput, iam.DetachServiceAccountPolicyOutput](
-		kebab("DetachServiceAccountPolicy"), (*iam.Client).DetachServiceAccountPolicy, Destructive()),
+		kebab("DetachServiceAccountPolicy"), (*iam.Client).DetachServiceAccountPolicy, Destructive(), ConfirmationReason("removes permissions")),
 	Write[iam.Client, iam.CreateGroupInput, iam.CreateGroupOutput](
 		kebab("CreateGroup"), (*iam.Client).CreateGroup),
 	Write[iam.Client, iam.UpdateGroupInput, iam.UpdateGroupOutput](
@@ -103,21 +103,28 @@ var iamOps = []Op[iam.Client]{
 	Write[iam.Client, iam.DeleteGroupInput, iam.DeleteGroupOutput](
 		kebab("DeleteGroup"), (*iam.Client).DeleteGroup, Destructive()),
 	Write[iam.Client, iam.AddUserToGroupInput, iam.AddUserToGroupOutput](
-		kebab("AddUserToGroup"), (*iam.Client).AddUserToGroup, Destructive()),
+		kebab("AddUserToGroup"), (*iam.Client).AddUserToGroup, Destructive(), ConfirmationReason("grants permissions")),
 	Write[iam.Client, iam.RemoveUserFromGroupInput, iam.RemoveUserFromGroupOutput](
-		kebab("RemoveUserFromGroup"), (*iam.Client).RemoveUserFromGroup, Destructive()),
+		kebab("RemoveUserFromGroup"), (*iam.Client).RemoveUserFromGroup, Destructive(), ConfirmationReason("removes permissions")),
 	Write[iam.Client, iam.AttachGroupPolicyInput, iam.AttachGroupPolicyOutput](
-		kebab("AttachGroupPolicy"), (*iam.Client).AttachGroupPolicy, Destructive()),
+		kebab("AttachGroupPolicy"), (*iam.Client).AttachGroupPolicy, Destructive(), ConfirmationReason("grants permissions")),
 	Write[iam.Client, iam.DetachGroupPolicyInput, iam.DetachGroupPolicyOutput](
-		kebab("DetachGroupPolicy"), (*iam.Client).DetachGroupPolicy, Destructive()),
+		kebab("DetachGroupPolicy"), (*iam.Client).DetachGroupPolicy, Destructive(), ConfirmationReason("removes permissions")),
 	Write[iam.Client, iam.AttachUserPolicyInput, iam.AttachUserPolicyOutput](
-		kebab("AttachUserPolicy"), (*iam.Client).AttachUserPolicy, Destructive()),
+		kebab("AttachUserPolicy"), (*iam.Client).AttachUserPolicy, Destructive(), ConfirmationReason("grants permissions")),
 	Write[iam.Client, iam.DetachUserPolicyInput, iam.DetachUserPolicyOutput](
-		kebab("DetachUserPolicy"), (*iam.Client).DetachUserPolicy, Destructive()),
+		kebab("DetachUserPolicy"), (*iam.Client).DetachUserPolicy, Destructive(), ConfirmationReason("removes permissions")),
 }
 
 func newIAMCmd(e *env) *cobra.Command {
-	return Service(e, "iam", "Callers, users, service accounts, groups, and policies", iam.New, iamOps...)
+	cmd := Service(e, "iam", "Callers, users, service accounts, groups, and policies", iam.New, iamOps...)
+	for _, child := range cmd.Commands() {
+		switch child.Name() {
+		case "get-service-account", "list-service-accounts", "get-user", "list-users":
+			child.Long = docOpNotes["iam "+child.Name()]
+		}
+	}
+	return cmd
 }
 
 // createServiceAccountOutput is create-service-account's own JSON shape:

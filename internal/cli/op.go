@@ -38,16 +38,17 @@ const (
 // differing Input and Output types side by side, while the compiler still
 // rejects an Op built from another client type's method.
 type Op[C any] struct {
-	discovery   bool
-	name        string
-	short       string
-	render      func(io.Writer, string, string, any) error
-	methodName  string
-	kind        opKind
-	destructive bool
-	guard       func(cmd *cobra.Command, in any) error
-	beforeInput func(cmd *cobra.Command) error
-	noFlag      map[string]bool
+	discovery     bool
+	name          string
+	short         string
+	render        func(io.Writer, string, string, any) error
+	methodName    string
+	kind          opKind
+	destructive   bool
+	confirmReason string
+	guard         func(cmd *cobra.Command, in any) error
+	beforeInput   func(cmd *cobra.Command) error
+	noFlag        map[string]bool
 	// optional holds Input fields whose vngcloud:"required" tag the CLI
 	// does not enforce for this op; see Optional.
 	optional map[string]bool
@@ -64,14 +65,13 @@ type Op[C any] struct {
 	extraFlags func(cmd *cobra.Command)
 }
 
-// writeOption configures a Write operation. Destructive, Guard, WriteRedact,
-// WriteNoFlag, and WriteGlobalProjectID are the five today; cli.WaitFor (for an asynchronous
-// write) is undefined until the first such write needs it.
+// writeOption configures a Write operation.
 type writeOption struct {
-	destructive bool
-	guard       func(cmd *cobra.Command, in any) error
-	redact      func(out any)
-	noFlag      map[string]bool
+	destructive   bool
+	confirmReason string
+	guard         func(cmd *cobra.Command, in any) error
+	redact        func(out any)
+	noFlag        map[string]bool
 	// globalProject is set by WriteGlobalProjectID.
 	globalProject string
 }
@@ -79,6 +79,9 @@ type writeOption struct {
 // Destructive marks a Write operation as not undoable by one more command:
 // it fails with exit code 2 and names --yes unless --yes is given.
 func Destructive() writeOption { return writeOption{destructive: true} }
+
+// ConfirmationReason changes the refusal text for a confirmed write.
+func ConfirmationReason(reason string) writeOption { return writeOption{confirmReason: reason} }
 
 // Guard adds a check that runs on a Write operation's merged Input, after
 // --cli-input-json and every flag are applied but before any request: fn
@@ -253,6 +256,9 @@ func Write[C, In, Out any](name string, method func(*C, context.Context, *In) (*
 	for _, o := range opts {
 		if o.destructive {
 			op.destructive = true
+		}
+		if o.confirmReason != "" {
+			op.confirmReason = o.confirmReason
 		}
 		if o.guard != nil {
 			op.guard = o.guard
@@ -454,7 +460,11 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 
 	if op.kind == kindWrite {
 		if op.destructive && !e.flags.yes {
-			return newUsageError("%s %s is destructive; pass --yes to confirm", serviceName, op.name)
+			reason := op.confirmReason
+			if reason == "" {
+				reason = "is destructive"
+			}
+			return newUsageError("%s %s %s; pass --yes to confirm", serviceName, op.name, reason)
 		}
 	}
 

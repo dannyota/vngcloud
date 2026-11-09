@@ -190,7 +190,7 @@ from either place. Cobra itself marks no flag required.
 | `--profile`, `--region`, `--project-id` | Override config |
 | `--output json\|table\|text` | Output format; default from the profile's `output`, else `json` |
 | `--query <jmespath>` | Filter output |
-| `--yes` | Confirm a destructive operation |
+| `--yes` | Confirm a destructive or permission-changing operation |
 | `--read-only` | Refuse every write command (see [Read-only](#read-only)) |
 | `--debug` | Log requests to stderr (see [Debug](#debug)) |
 

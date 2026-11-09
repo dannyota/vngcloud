@@ -262,4 +262,11 @@ func init() {
 	docOpNotes["iam get-user"] = "Returns nullable MFA factor state under User.MFA, with Email and " +
 		"GoogleAuthenticator factors and nullable Verified and Enabled booleans. Missing or null means unknown, " +
 		"not false. Contact details and factor secrets are omitted. See [IAM](IAM.md#google-mfa)."
+	serviceAccountLookup := "Use list-service-account-policies --service-account-id <id> to see attached policies."
+	docOpNotes["iam get-service-account"] = serviceAccountLookup
+	docOpNotes["iam list-service-accounts"] = serviceAccountLookup
+	userLookup := " Use list-user-policies --user-id <id> and list-user-groups --user-id <id> to see " +
+		"attached policies and group memberships."
+	docOpNotes["iam get-user"] += userLookup
+	docOpNotes["iam list-users"] += userLookup
 }

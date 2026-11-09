@@ -304,6 +304,8 @@ vngcloud iam get-policy --policy-id <policy-id> --query Policy
 
 Kind: Read.
 
+Use list-service-account-policies --service-account-id <id> to see attached policies.
+
 | Flag | Type | Required |
 |-|-|-|
 | `--service-account-id` | `string` | yes |
@@ -316,7 +318,7 @@ vngcloud iam get-service-account --service-account-id <service-account-id> --que
 
 Kind: Read.
 
-Returns nullable MFA factor state under User.MFA, with Email and GoogleAuthenticator factors and nullable Verified and Enabled booleans. Missing or null means unknown, not false. Contact details and factor secrets are omitted. See [IAM](IAM.md#google-mfa).
+Returns nullable MFA factor state under User.MFA, with Email and GoogleAuthenticator factors and nullable Verified and Enabled booleans. Missing or null means unknown, not false. Contact details and factor secrets are omitted. See [IAM](IAM.md#google-mfa). Use list-user-policies --user-id <id> and list-user-groups --user-id <id> to see attached policies and group memberships.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -404,6 +406,8 @@ vngcloud iam list-service-account-policies --service-account-id <service-account
 
 Kind: Read.
 
+Use list-service-account-policies --service-account-id <id> to see attached policies.
+
 | Flag | Type | Required |
 |-|-|-|
 | `--name` | `string` |  |
@@ -444,7 +448,7 @@ vngcloud iam list-user-policies --user-id <user-id>
 
 Kind: Read.
 
---name adds the server's observed case-insensitive substring filter; compare exact usernames and IDs before reconciliation. A name match proves current state only, never ownership of a create or its password. Paging remains one zero-based page, with default size 10000.
+--name adds the server's observed case-insensitive substring filter; compare exact usernames and IDs before reconciliation. A name match proves current state only, never ownership of a create or its password. Paging remains one zero-based page, with default size 10000. Use list-user-policies --user-id <id> and list-user-groups --user-id <id> to see attached policies and group memberships.
 
 | Flag | Type | Required |
 |-|-|-|

@@ -67,7 +67,7 @@ func newRootCmd(stdin io.Reader, stdout, stderr io.Writer) *cobra.Command {
 	root.PersistentFlags().StringVar(&flags.projectID, "project-id", "", "project id to use")
 	root.PersistentFlags().StringVar(&flags.output, "output", "", "output format: json, table, or text (default from the profile, else json)")
 	root.PersistentFlags().StringVar(&flags.query, "query", "", "JMESPath query to filter output")
-	root.PersistentFlags().BoolVar(&flags.yes, "yes", false, "confirm a destructive operation")
+	root.PersistentFlags().BoolVar(&flags.yes, "yes", false, "confirm a destructive or permission-changing operation")
 	root.PersistentFlags().BoolVar(&flags.debug, "debug", false, "log requests to stderr")
 	root.PersistentFlags().BoolVar(&flags.readOnly, "read-only", false, "refuse every write command")
 
