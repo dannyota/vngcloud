@@ -328,7 +328,10 @@ The check also covers decoded numbers, including exponent notation and
 rounding, before returning a quote or formatting an invalid-price error.
 The check includes unknown fields and returns nil Output with
 `*vngcloud.APIError`. Routine SDK response captures are suppressed for quotes,
-including failed responses. Unknown raw fields such as `artifactPrices`,
+including failed responses. A sent credential with numeric syntax, after
+trimming whitespace, fails with nil Output and `*vngcloud.APIError` with
+`Code: "InvalidResponse"` before any quote or price-bearing error is returned.
+Unknown raw fields such as `artifactPrices`,
 `originalCurrentPrice`, and `originalNewPrice` have no public model; keep
 authorized raw evidence separately from decoded SDK output. Missing or null
 `originalPrice`, `discountPrice`, and `discountPercent` retain their existing

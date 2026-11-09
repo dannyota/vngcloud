@@ -146,7 +146,11 @@ func (c *Client) GetQuote(ctx context.Context, in *GetQuoteInput) (*GetQuoteOutp
 		Sensitive:       true,
 		SentCredentials: &sentCredentials,
 	}
-	if err := c.c.DoJSON(ctx, req, &raw); err != nil {
+	err := c.c.DoJSON(ctx, req, &raw)
+	if quoteHasNumericCredential(sentCredentials) {
+		return nil, invalidQuoteResponse(op)
+	}
+	if err != nil {
 		if errors.Is(err, transport.ErrBodyTooLarge) {
 			return nil, &core.APIError{Operation: op, Message: "quote response exceeds 1 MiB", Err: err}
 		}

@@ -5,12 +5,27 @@ import (
 	"encoding/json"
 	"io"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/transport"
 )
+
+var numericQuoteCredential = regexp.MustCompile(`^[+-]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][+-]?[0-9]+)?$`)
+
+// Numeric credentials cannot be protected from every price formatter.
+// Real IAM and service-account bearers are long opaque strings, so this
+// refusal does not affect real authentication.
+func quoteHasNumericCredential(credentials []string) bool {
+	for _, credential := range credentials {
+		if numericQuoteCredential.MatchString(strings.TrimSpace(credential)) {
+			return true
+		}
+	}
+	return false
+}
 
 // Keep unknown fields until credential checks finish, including JSON keys
 // and values that typed decoding would discard or overwrite.
