@@ -9,6 +9,7 @@ code starts. Decisions with lasting trade-offs also get an
 | [SDK and CLI](sdk-and-cli.md) | Approved |
 | [CLI](cli.md) | Approved |
 | [Billing and pricing](billing.md) | Approved |
+| [Billing history](billing-history.md) | Proposed; wallet transactions, payments, and spend summary; [page size, date bound, and access evidence](billing-history-api.md#open-evidence) gated |
 | [CDN IP ranges](cdn.md) | Approved |
 | [vCDN API](cdn-api.md) | Accepted |
 | [vCDN CLI and releases](cdn-cli.md) | Accepted |

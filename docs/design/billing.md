@@ -24,8 +24,8 @@ model.
 
 Each of these gets its own design when needed:
 
-- Payments, invoices (`/v1/billings`), transactions, and credits. Credits
-  return 403 to IAM Users.
+- Invoices (`/v1/billings`) and credits (`/v1/credits`, 403 to IAM Users).
+  Wallet transactions and payments: [billing history](billing-history.md).
 - Orders. A quote never places an order.
 - Price quotes for existing resources: renew, recover, and match-end-time.
   They need resource IDs and belong with the design for each resource's
