@@ -64,6 +64,16 @@ def parse(text):
     return json.loads(result.stdout)
 
 
+def workflow_paths():
+    paths = sorted(path for pattern in ("*.yml", "*.yaml")
+                   for path in (ROOT / ".github/workflows").glob(pattern))
+    actual = {path.name for path in paths}
+    expected = {f"{name}.yml" for name in FILES}
+    assert actual == expected, ("workflow inventory differs from reviewed files: "
+                                f"unexpected {sorted(actual - expected)}; missing {sorted(expected - actual)}")
+    return paths
+
+
 def shell(script, **env):
     return subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail",
                            "-c", script], capture_output=True, text=True,
@@ -205,8 +215,7 @@ class WorkflowTests(unittest.TestCase):
     def setUpClass(cls):
         global YAML_PYTHON
         YAML_PYTHON = parser_python()
-        cls.texts = {name: (ROOT / f".github/workflows/{name}.yml").read_text()
-                     for name in FILES if (ROOT / f".github/workflows/{name}.yml").is_file()}
+        cls.texts = {path.stem: path.read_text() for path in workflow_paths()}
         cls.workflows = {name: parse(text) for name, text in cls.texts.items()}
 
     def rejected(self, policy, original, mutate):
@@ -325,7 +334,50 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotEqual(shell(script, NEEDS_JSON="{", EXPECTED_SHA="head").returncode, 0)
 
     def test_workflow_inventory(self):
-        self.assertEqual({p.stem for p in (ROOT / ".github/workflows").glob("*.yml")}, set(FILES))
+        self.assertEqual({path.name for path in workflow_paths()}, {f"{name}.yml" for name in FILES})
+
+    def test_unreviewed_workflows_are_rejected(self):
+        unsafe = """name: Unsafe
+on: pull_request_target
+permissions: write-all
+jobs:
+  unsafe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@main
+"""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            scripts = root / "scripts"
+            scripts.mkdir()
+            workflows = root / ".github/workflows"
+            workflows.mkdir(parents=True)
+            for name in ("check-workflow-pins.py", "test-ci-workflows.py"):
+                (scripts / name).write_text((ROOT / "scripts" / name).read_text())
+            for name, text in self.texts.items():
+                (workflows / f"{name}.yml").write_text(text)
+            commands = (("check-workflow-pins.py",),
+                        ("check-workflow-pins.py", "--list"),
+                        ("test-ci-workflows.py", "WorkflowTests.test_workflow_inventory"))
+            for command in commands:
+                result = subprocess.run([sys.executable, str(scripts / command[0]), *command[1:]],
+                                        cwd=root, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            for name, text in (("unsafe.yaml", unsafe), ("unsafe.yml", unsafe),
+                               ("ci.yaml", self.texts["ci"]), ("extra.yml", self.texts["wiki"])):
+                path = workflows / name
+                path.write_text(text)
+                try:
+                    for command in commands:
+                        with self.subTest(workflow=name, command=command):
+                            result = subprocess.run(
+                                [sys.executable, str(scripts / command[0]), *command[1:]],
+                                cwd=root, capture_output=True, text=True)
+                            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                            self.assertIn("inventory", result.stderr.lower())
+                            self.assertIn(name, result.stderr)
+                finally:
+                    path.unlink()
 
     def test_codeql_controls_and_mutations(self):
         self.assertIn("codeql", self.workflows, "Missing CodeQL workflow")
