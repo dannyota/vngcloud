@@ -1,6 +1,6 @@
 # vServer Floating IPs Design
 
-Status: [Owner decisions](#owner-decisions) accepted; evidence/review gates open.
+Status: [Owner decisions](#owner-decisions) accepted; review gates open.
 
 Public addresses are opt-in, off by default. Require explicit security
 groups, a conservative monthly quote, `MaxPrice` defaulting to zero, and
