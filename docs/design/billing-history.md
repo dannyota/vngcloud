@@ -145,10 +145,12 @@ empty slice. Validate metadata, content, and rows using the recorded
    API order. Aggregate metadata is `Page=1`, `TotalPage=1`, and
    `PageSize=TotalItem=len(Items)`, including zero for an empty walk.
 
-Limits: 100 pages, 8 MiB per response, and 32 MiB cumulative successful raw
-response bodies per walk. Count bytes before retaining decoded rows; the
-row limit is also at most 100 times the verified size. Do not preallocate
-that product. The whole invocation, including authentication and retries,
+Limits: 100 pages, 8 MiB per response, and 32 MiB cumulative successful
+response bodies per walk. Count each body as the length of its JSON value
+decoded into `json.RawMessage`, before decoding rows; whitespace around the
+value is not retained, so it is not counted, and shared transport needs no
+raw byte counter. The row limit is also at most 100 times the verified
+size. Do not preallocate that product. The whole invocation, including authentication and retries,
 has a two-minute context deadline or the caller's earlier deadline. Check
 cancellation before requests and during row processing and aggregation.
 
