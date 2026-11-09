@@ -1,8 +1,15 @@
 package compute
 
-import "errors"
+import (
+	"errors"
+
+	"danny.vn/vngcloud/internal/floatingip"
+)
 
 var (
+	// ErrOpenLogin means public create could expose login or its rules are unproven.
+	ErrOpenLogin = floatingip.ErrOpenLogin
+
 	// ErrFailed means a wait observed a server reach ERROR.
 	ErrFailed = errors.New("compute: resource reached ERROR")
 

@@ -1,0 +1,32 @@
+{
+  "OptimumPrice": 467800,
+  "OriginalPrice": 467800,
+  "DiscountPrice": 0,
+  "DiscountPercent": 0,
+  "Properties": [
+    {
+      "Name": "INSTANCE TYPE",
+      "Description": "",
+      "OptimumPrice": 283800,
+      "MonthlyPrice": 283800,
+      "CurrentPrice": null,
+      "DiscountPercent": 0
+    },
+    {
+      "Name": "ROOT DISK",
+      "Description": "",
+      "OptimumPrice": 64000,
+      "MonthlyPrice": 64000,
+      "CurrentPrice": null,
+      "DiscountPercent": 0
+    },
+    {
+      "Name": "FLOATING IP: Elastic IP",
+      "Description": "Conservative Elastic IP estimate; extra create charge unconfirmed",
+      "OptimumPrice": 120000,
+      "MonthlyPrice": 120000,
+      "CurrentPrice": null,
+      "DiscountPercent": 0
+    }
+  ]
+}

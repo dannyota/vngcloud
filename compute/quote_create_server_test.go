@@ -265,6 +265,8 @@ func TestServerQuoteBodyKeysMatchCreateBody(t *testing.T) {
 		UserData:                 "#!/bin/sh\necho hi",
 		MaxPrice:                 1,
 		NoWait:                   true,
+		AttachFloatingIP:         true,
+		AllowOpenLogin:           true,
 	}
 	testutil.RequireAllFieldsSet(t, in)
 	info, err := buildServerQuoteInfo("op", in)

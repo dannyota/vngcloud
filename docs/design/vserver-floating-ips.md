@@ -298,13 +298,13 @@ security-group endpoints. `compute.ErrOpenLogin` and
 2. Evaluate the union of ingress grants on TCP ports 22, 234, 3389,
    and 3490, separately for IPv4 and IPv6. Parse and mask CIDRs, merging
    bounded address intervals so two `/1` rules cannot bypass a `/0`
-   check. Check all groups together. Ignore only known egress rules
-   and known UDP/ICMP protocols for this TCP test.
-3. Empty/any protocol covers TCP. Unknown protocol, direction, ether
-   type, invalid/missing ports, or remote-group grants cannot establish
-   safety: return `ErrOpenLogin`. For TCP, zero/absent ranges cover all
-   ports; valid integer inclusive ranges cover their stated ports.
-   Missing/invalid CIDRs also fail closed. Do not ignore inactive-looking
+   check. Check all groups together. Ignore only known egress rules.
+3. Observed protocols are `any` and `TCP` in either case; `any` covers
+   TCP only with ports 0 to 65535. TCP integer ranges cover their stated
+   ports. The guard reads `remoteIpPrefix`; `remoteGroupId` is set on
+   every observed rule, so it never narrows exposure. Other protocols,
+   direction, or ether type, null or absent ports, and null, empty, or
+   invalid prefixes return `ErrOpenLogin`. Do not ignore inactive-looking
    rules without evidence that their status prevents application.
 4. Full address-space coverage for any listed port/family returns
    `ErrOpenLogin`. Narrow prefixes pass this particular check, but are

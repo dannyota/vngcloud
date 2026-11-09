@@ -330,6 +330,9 @@ func classify(err error) errorEnvelope {
 		errors.Is(err, tagging.ErrNotSettled) || errors.Is(err, loadbalancer.ErrNotSettled) || errors.Is(err, storage.ErrNotSettled) {
 		return errorEnvelope{Code: "NotSettled", Message: err.Error()}
 	}
+	if errors.Is(err, compute.ErrOpenLogin) {
+		return errorEnvelope{Code: "OpenLogin", Message: err.Error()}
+	}
 	// volume.ErrVolumeInUse is always returned bare, from DeleteVolume's own
 	// pre-delete read, never wrapping a server response; it joins this early
 	// group anyway for the same reason containerregistry.ErrRepositoryNotEmpty
@@ -577,7 +580,7 @@ func fillEnvelopeFromAPIError(env *errorEnvelope, err error, apiErr *vngcloud.AP
 // credentials and every login failure exit 3. A not-found result exits 4.
 // Every remaining usage or config problem exits 2. Anything else exits 1.
 func exitCode(err error) int {
-	if errors.Is(err, monitor.ErrQuotaStatusIncomplete) {
+	if errors.Is(err, compute.ErrOpenLogin) || errors.Is(err, monitor.ErrQuotaStatusIncomplete) {
 		return 1
 	}
 	var resetFileErr resetPasswordFileError

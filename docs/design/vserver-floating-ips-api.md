@@ -6,8 +6,8 @@ See [vServer floating IPs](vserver-floating-ips.md).
 Published means first-party schema/product docs. First-party code proves
 client expectations, not SDK verification. Recorded live means repository
 or manager-supplied sanitized evidence; console/ledger observations are not
-published contracts. This pass reads no captures or cloud API. Reported
-means unverified external experience. Missing/inferred contracts stay gated.
+published contracts. Reported means unverified external experience.
+Missing/inferred contracts stay gated.
 
 ## Sources
 
@@ -22,18 +22,17 @@ means unverified external experience. Missing/inferred contracts stay gated.
   auto-allocates when enabled, and detaches then deletes when disabled.
 - First-party Go SDK [server methods][sdk-server] and [URL builder][sdk-url]:
   auto-attach and detach routes, with expected status 204.
-- [Paid-write prices](vserver-paid-writes-api.md#prices) and
-  [quote requests](vserver-paid-writes-api.md#quote-requests): recorded
-  server quote exclusion of `attachFloating`. The exact IP quote bodies
-  and manager-supplied observations are recorded below.
+- [Paid-write prices](vserver-paid-writes-api.md#prices) and [quote
+  requests](vserver-paid-writes-api.md#quote-requests): server quotes
+  exclude `attachFloating`; IP quote bodies are recorded below.
 - `testdata/server/instance.json` has empty `externalInterfaces` and
   empty internal `floatingIp`/`floatingIpId` fields. It does not prove
   populated floating IP behavior. `testdata/network/list_wan_ips.json`
   has no recorded raw-response provenance and differs from `WanIpDto`.
 
-Provider and SDK links pin the inspected source revisions. The manager
-supplied sanitized quote, console, and ledger evidence; no account identity,
-private capture path, or ledger row belongs in this document.
+Provider and SDK links pin the inspected revisions. Manager-supplied
+quote, console, and ledger evidence is sanitized; no account identity,
+capture path, or ledger row belongs here.
 
 ## Terms and records
 
@@ -48,9 +47,8 @@ allocation, package, target, and public-subnet fields. Whether
 `GET elastic-ips` lists the same addresses is unknown. Do not model that
 endpoint as a synonym or infer a separate allocation capability from it.
 
-External Interfaces attach a public interface visible inside the OS.
-They cannot coexist with a floating IP under the product rules. An empty
-external list in one fixture does not prove all servers have none.
+External Interfaces attach a public interface visible inside the OS and
+cannot coexist with a floating IP; one empty fixture list proves nothing.
 
 ## Calls
 
@@ -343,6 +341,12 @@ The delegated manager records the outcome: inclusion needs the reviewed
 pre-tag correction; separate charging needs matching evidence/guidance.
 Other results block tagging. Preserve detach warnings and refund gates.
 
+## Security group rules
+
+The [fixture note](../../testdata/network/security-group-rules-floating-ip-provenance.md)
+records the rule encodings the guard relies on, observed by a read-only
+diagnostic of one account's groups.
+
 ## Published behavior
 
 The [wizard][wizard], [group page][groups], and [FAQ][faq] document SSH on
@@ -357,25 +361,21 @@ password login is disabled for key-only API creates. The Ubuntu image's
 actual sshd policy is unverified. Never describe the SDK as guaranteeing
 key-only guest access merely because it sends no password fields.
 
-The [provider resource][provider] explicitly detaches then deletes when
-`attach_floating` is disabled. That proves provider behavior; it does not
-prove that the detach API itself deletes an IP. The SDK's explicit
-`Delete` option preserves that distinction.
+The [provider resource][provider] detaches then deletes when
+`attach_floating` is disabled; that does not prove detach itself deletes
+an IP, so the SDK keeps an explicit `Delete` option.
 
 ## Reported behavior
 
 An external project reports that its Ubuntu 24.04 image permits password
 login on port 234, its default group is world-open, and provider detach
-loses the IP. These reports justify caution, not fixture provenance or
-an API contract. Do not expose that project's account data in this design.
+loses the IP. That justifies caution, not fixtures or an API contract.
 
 ## Missing evidence
 
-- R2: raw quote fixtures decoded through SDK; independent fix confirmation;
-  created-IP billing attribution, reservation scope, and nonzero discounts;
-  IAM public create compatibility; populated server fields; settlement
-  timing; a usable cleanup route and its permissions. The quote-body
-  probe is complete, not the create-charge or fixture gate.
+- R2: created-IP billing attribution, reservation scope, nonzero
+  discounts, IAM public create compatibility, populated server fields,
+  settlement timing, and a usable cleanup route and its permissions.
 - R3: populated WAN list envelope and attached/unattached rows, stable
   identity and zone fields, empty-list encoding, IAM attach/detach/delete
   acknowledgements, existing-IP attachment charge, and final conflict

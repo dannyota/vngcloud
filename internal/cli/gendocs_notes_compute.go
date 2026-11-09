@@ -78,3 +78,23 @@ const computeGetServerPublicIPNote = computePublicIPNote + "\n\n" +
 
 const computeListServerPublicIPNote = computePublicIPNote + "\n\n" +
 	"Select addresses with `--query 'Items[].PublicIP'`."
+
+// computeFloatingIPNote describes the conservative public-create safeguards.
+const computeFloatingIPNote = "--attach-floating-ip adds a conservative Elastic IP reference to the server\n" +
+	"quote, MaxPrice, and MonthlyPrice. The extra create charge is unconfirmed;\n" +
+	"347800 + 120000 = 467800 VND is a reference estimate, not a confirmed debit.\n" +
+	"The quote makes no exposure reads and has no override flag. The default\n" +
+	"create explicitly sends attachFloating false. Prices can change before send;\n" +
+	"MaxPrice cannot lock the final bill.\n\n" +
+	"Public create checks all named groups before quoting and again before send.\n" +
+	"Union coverage from anywhere on TCP 22, 234, 3389, or 3490, or unproven rule\n" +
+	"encodings, returns OpenLogin. Reads allow 1 to 64 groups, 4096 rules total,\n" +
+	"8 MiB per response, and 30 s for the guard. --allow-open-login on create\n" +
+	"bypasses only exposure evaluation and requires public opt-in. Permissions,\n" +
+	"identity, limits, changed snapshots, and price guards still refuse.\n\n" +
+	"Use narrow source prefixes and consider disabling guest passwords through\n" +
+	"user data or guest configuration. A later rule change can open access after\n" +
+	"the final read. Public create waits up to 2 min more after ACTIVE for an\n" +
+	"internal address and IP ID; --no-wait leaves settlement unobserved. Verify\n" +
+	"console detach/release controls and permissions before a live create; IP\n" +
+	"management commands are unavailable and server delete does not prove release."

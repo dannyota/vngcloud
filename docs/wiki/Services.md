@@ -148,6 +148,12 @@ partial data. Empty values do not prove that no IP is allocated. See
 [Public address](Compute-Servers.md#public-address) for derivation,
 credential protection, and strict-output/unkeyed-literal compatibility.
 
+`CreateServerInput.AttachFloatingIP` opts into public create and a conservative
+server-plus-IP quote. The SDK sends `attachFloating:false` otherwise. The
+shared exposure sentinel is `compute.ErrOpenLogin` / `network.ErrOpenLogin`.
+See [Floating IP create](Compute-Servers.md#floating-ip-create) for guards,
+waits, unconfirmed charge attribution, and console cleanup requirements.
+
 SSH key writes (`ImportSSHKey`, `CreateSSHKey`, `DeleteSSHKey`) and the
 `vngcloud.Secret` a create returns are on the [Compute](Compute.md) page.
 Server writes (`CreateServer`, `DeleteServer`, `StartServer`,

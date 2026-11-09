@@ -15,9 +15,13 @@ import (
 	"danny.vn/vngcloud/compute"
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/endpoints"
+	"danny.vn/vngcloud/internal/floatingip"
 	"danny.vn/vngcloud/internal/routes"
 	"danny.vn/vngcloud/internal/transport"
 )
+
+// ErrOpenLogin means floating IP login exposure cannot be established as restricted.
+var ErrOpenLogin = floatingip.ErrOpenLogin
 
 // Client is the network service client.
 type Client struct {
@@ -169,7 +173,10 @@ func (c *Client) ListNetworkInterfaces(ctx context.Context, in *ListNetworkInter
 }
 
 // ListSecurityGroups reads security groups.
-func (c *Client) ListSecurityGroups(ctx context.Context, in *ListSecurityGroupsInput) (*ListSecurityGroupsOutput, error) {
+func (c *Client) ListSecurityGroups(ctx context.Context, in *ListSecurityGroupsInput) (out *ListSecurityGroupsOutput, err error) {
+	ctx, _, cancel := floatingip.ResponseContext(ctx)
+	defer cancel()
+	defer func() { values, _ := floatingip.Credentials(ctx); err = sanitizeServerError(err, values) }()
 	name, page, size := "", 0, 0
 	if in != nil {
 		name, page, size = in.Name, in.Page, in.Size
@@ -182,7 +189,10 @@ func (c *Client) ListSecurityGroups(ctx context.Context, in *ListSecurityGroupsI
 }
 
 // GetSecurityGroup reads security group.
-func (c *Client) GetSecurityGroup(ctx context.Context, in *GetSecurityGroupInput) (*GetSecurityGroupOutput, error) {
+func (c *Client) GetSecurityGroup(ctx context.Context, in *GetSecurityGroupInput) (out *GetSecurityGroupOutput, err error) {
+	ctx, unsafe, cancel := floatingip.ResponseContext(ctx)
+	defer cancel()
+	defer func() { values, _ := floatingip.Credentials(ctx); err = sanitizeServerError(err, values) }()
 	if err := core.CheckRequired("network.GetSecurityGroup", in); err != nil {
 		return nil, err
 	}
@@ -196,12 +206,12 @@ func (c *Client) GetSecurityGroup(ctx context.Context, in *GetSecurityGroupInput
 	var resp struct {
 		Data SecurityGroup `json:"data"`
 	}
-	if err := c.c.DoJSON(ctx, transport.Request{
+	if err := floatingip.ReadJSON(ctx, c.c, transport.Request{
 		Operation: "network.GetSecurityGroup",
 		Method:    "GET",
 		URL:       c.networkURL([]string{projectID, "secgroups", in.SecurityGroupID}, nil),
 		OK:        []int{200},
-	}, &resp); err != nil {
+	}, &resp, unsafe); err != nil {
 		return nil, err
 	}
 	return &GetSecurityGroupOutput{SecurityGroup: resp.Data}, nil
@@ -318,7 +328,10 @@ func (c *Client) ListNetworkACLs(ctx context.Context, in *ListNetworkACLsInput) 
 }
 
 // ListSecurityGroupRules reads security group rules.
-func (c *Client) ListSecurityGroupRules(ctx context.Context, in *ListSecurityGroupRulesInput) (*ListSecurityGroupRulesOutput, error) {
+func (c *Client) ListSecurityGroupRules(ctx context.Context, in *ListSecurityGroupRulesInput) (out *ListSecurityGroupRulesOutput, err error) {
+	ctx, unsafe, cancel := floatingip.ResponseContext(ctx)
+	defer cancel()
+	defer func() { values, _ := floatingip.Credentials(ctx); err = sanitizeServerError(err, values) }()
 	if err := core.CheckRequired("network.ListSecurityGroupRules", in); err != nil {
 		return nil, err
 	}
@@ -332,12 +345,12 @@ func (c *Client) ListSecurityGroupRules(ctx context.Context, in *ListSecurityGro
 	var resp struct {
 		Data []SecurityGroupRule `json:"data"`
 	}
-	if err := c.c.DoJSON(ctx, transport.Request{
+	if err := floatingip.ReadJSON(ctx, c.c, transport.Request{
 		Operation: "network.ListSecurityGroupRules",
 		Method:    "GET",
 		URL:       c.networkURL([]string{projectID, "secgroups", in.SecurityGroupID, "secGroupRules"}, nil),
 		OK:        []int{200},
-	}, &resp); err != nil {
+	}, &resp, unsafe); err != nil {
 		return nil, err
 	}
 	for i := range resp.Data {
@@ -607,12 +620,19 @@ func (c *Client) list(ctx context.Context, operation string, parts []string, nam
 		return err
 	}
 	routeParts := append([]string{projectID}, parts...)
-	return c.c.DoJSON(ctx, transport.Request{
+	req := transport.Request{
 		Operation: operation,
 		Method:    "GET",
 		URL:       c.networkURL(routeParts, networkListQuery(name, page, size)),
 		OK:        []int{200},
-	}, out)
+	}
+	if operation == "network.ListSecurityGroups" {
+		return floatingip.ReadJSON(ctx, c.c, req, out, func(raw []byte) bool {
+			values, err := floatingip.Credentials(ctx)
+			return err != nil || floatingip.Reflects(raw, values)
+		})
+	}
+	return c.c.DoJSON(ctx, req, out)
 }
 
 func (c *Client) networkURL(parts []string, q url.Values) string {

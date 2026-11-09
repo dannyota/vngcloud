@@ -408,3 +408,15 @@ func jsonEqual(a, b any) bool {
 	}
 	return string(ab) == string(bb)
 }
+
+func TestElasticIPRawFixturesThroughPublicQuote(t *testing.T) {
+	for _, name := range []string{"quote_elastic_ip.json", "quote_elastic_ip_zone.json"} {
+		t.Run(name, func(t *testing.T) {
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { testutil.WriteFixture(t, w, "../testdata/pricing/"+name) }))
+			out, err := c.GetQuote(context.Background(), &GetQuoteInput{ResourceType: "elastic-ip", Action: ActionCreate, ResourceInfo: map[string]any{"period": 1, "isPoc": false, "zoneId": "zone-1"}})
+			if err != nil || out == nil || out.OptimumPrice != 120000 || out.OriginalPrice != 120000 || out.DiscountPrice != 0 || len(out.Properties) != 1 || out.Properties[0].CurrentPrice != nil || out.Properties[0].Description != "" {
+				t.Fatalf("out=%v err=%v", out, err)
+			}
+		})
+	}
+}

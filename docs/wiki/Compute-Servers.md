@@ -142,14 +142,16 @@ ssh_authorized_keys:
 
 `ssh_authorized_keys` installs the key for the image's default user. The
 SDK base64-encodes the cloud-config and sends `userDataBase64Encoded: true`;
-pass plain text as `UserData`. The SDK never sets up password login.
+pass plain text as `UserData`. The SDK sends no password fields; this does
+not establish that the guest disables password login.
 
 `SecurityGroupIDs` must hold at least one id, and the SDK
 never picks a default; the project's default security group opens SSH,
 RDP, HTTP, HTTPS, and ICMP from anywhere, so naming it is the caller's own
-choice, not the SDK's. The SDK never sends `attachFloating`: a public IP
-costs 120,000 VND a month and exposes the server, so getting one is not
-part of this design. `AutoRenew` defaults to false, so nothing renews from
+choice, not the SDK's. The SDK always sends `attachFloating`, explicitly
+false unless `AttachFloatingIP` is true. See [Floating IP
+create](#floating-ip-create) for its quote and exposure guard.
+`AutoRenew` defaults to false, so nothing renews from
 credit without a later command. `UserData`, when set, makes the create
 `transport.Request.Sensitive`, so a decode failure never quotes the
 response body; it is never sent to a quote, logged, or
@@ -164,7 +166,7 @@ the data disk pair when set, and `encryptionVolume` when a disk is encrypted.
 checks the shape of any of these IDs that is set, so a bad ID fails there as
 it will at the create. `Name` has no shape rule and is simply not sent.
 `CreateServer` quotes the same priced-only body before it orders, so the
-quote you read and the guard it checks price one request.
+quote you read and the guard it checks use the same priced configuration.
 The create requires its network fields and exactly one login choice. The
 order is a `POST` and is never retried after a failure that may have
 already reached the server: after any error that is not a 4xx
@@ -240,6 +242,62 @@ the server to be gone; `ERROR` wraps
 `compute.ErrFailed`, and the bound running out wraps
 `compute.ErrNotSettled`. A rerun is always safe, since `DeleteServer`
 always reads first.
+
+## Floating IP create
+
+Set `AttachFloatingIP: true`, or `--attach-floating-ip`, on both the quote
+and create to request a public address. The default remains false. A
+quote needs only priced fields and makes no exposure reads. It ignores
+`MaxPrice`, `NoWait`, and `AllowOpenLogin`, including guard-only values.
+
+The opted-in quote prices the server and then a zone-bearing `elastic-ip`
+reference, each with a 1 MiB response and 30 s limit. It sums optimum,
+original, and discount totals and recomputes the discount percentage.
+IP lines use `FLOATING IP: ` and say
+`Conservative Elastic IP estimate; extra create charge unconfirmed`.
+An empty IP line list gets one labeled fallback. Invalid or incomplete
+components return no partial sum; nonpositive components are `Unpriced`.
+
+The reference is 347,800 + 120,000 = 467,800 VND a month. `MaxPrice` and
+`MonthlyPrice` use this conservative estimate, not an observed debit. A
+347,800 cap refuses this reference order; 467,800 permits it. Prices are
+read fresh and can change before send; the API cannot lock the final bill.
+Whether create adds a separate IP charge remains unconfirmed.
+
+Before quoting and again before sending, the SDK reads every named group
+and its complete rule list. It deduplicates 1 to 64 group IDs, permits at
+most 4096 rules in total, and limits each response to 8 MiB and the whole
+guard to 30 s. Missing data, permissions, invalid identity, response limits,
+and a changed snapshot refuse the order. No group or guest is modified.
+
+The guard checks the union of ingress CIDRs separately for IPv4 and IPv6
+on TCP 22, 234, 3389, and 3490. Two `/1` grants can cover a whole family.
+It case-folds TCP and `any`, reads integer port ranges, and treats 0-65535
+as all ports. A populated `remoteGroupId` does not narrow a CIDR grant.
+Null/empty prefixes, null ports, and unproven encodings cannot establish
+restricted access. `compute.ErrOpenLogin` maps to CLI `OpenLogin`, exit 1.
+`AllowOpenLogin` or `--allow-open-login` bypasses exposure evaluation only;
+it requires public opt-in and never bypasses permissions, limits, identity,
+price, or snapshot checks. The quote has no override flag.
+
+Use narrow source prefixes and consider disabling guest password login
+through user data or guest configuration. Passing this guard does not
+prove guest hardening or cover arbitrary guest ports. Another actor can
+change rules after the final read; use dedicated groups and serialize
+changes. The SDK makes one order attempt and never adopts a resource after
+an uncertain create.
+
+After the existing 15 min ACTIVE wait, public create allows another 2 min
+at 5 s intervals for a valid internal address and path-safe IP ID. Failed
+confirmation keeps safe partial output and `ErrNotSettled`; inspect
+`get-server` or `list-servers` before considering another create.
+`NoWait` reports UUID, name, and guarded estimate without address settlement.
+
+Floating IP attach, detach, and release commands are not available. Verify
+the console detach/release controls and permissions before a live public
+create. Server deletion does not establish IP release, and detach does not
+prove billing stopped. Public-create billing, settlement, and cleanup
+still require live evidence before release.
 
 ## Encrypted disks
 

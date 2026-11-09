@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"danny.vn/vngcloud"
@@ -472,4 +474,84 @@ func newTestClient(t *testing.T, handler http.Handler) *Client {
 	t.Helper()
 
 	return New(testutil.NewConfig(t, handler))
+}
+
+func TestSecurityGroupReadBoundsAndReflection(t *testing.T) {
+	for _, op := range []string{"list", "get", "rules"} {
+		for _, tc := range []struct {
+			name, body string
+			bad        bool
+		}{
+			{"limit", `{"data":[],"listData":[]}` + strings.Repeat(" ", (8<<20)-len(`{"data":[],"listData":[]}`)), false},
+			{"over limit", `{}` + strings.Repeat(" ", (8<<20)-1), true},
+			{"reflection", `{"data":[],"listData":[],"unknown":"token-1"}`, true},
+		} {
+			t.Run(op+"/"+tc.name, func(t *testing.T) {
+				body := tc.body
+				if op == "get" && !tc.bad {
+					body = `{"data":{"id":"sg-1"}}` + strings.Repeat(" ", (8<<20)-len(`{"data":{"id":"sg-1"}}`))
+				}
+				if op == "get" && tc.name == "reflection" {
+					body = `{"data":{"id":"sg-1"},"unknown":"token-1"}`
+				}
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }))
+				defer srv.Close()
+				cfg, configErr := vngcloud.NewConfig(vngcloud.WithRegion("hcm-3"), vngcloud.WithProjectID("project-1"), vngcloud.WithStaticToken("token-1"), vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{VServer: srv.URL}))
+				if configErr != nil {
+					t.Fatal(configErr)
+				}
+				c := New(cfg)
+				var err error
+				switch op {
+				case "list":
+					_, err = c.ListSecurityGroups(context.Background(), nil)
+				case "get":
+					_, err = c.GetSecurityGroup(context.Background(), &GetSecurityGroupInput{SecurityGroupID: "sg-1"})
+				default:
+					_, err = c.ListSecurityGroupRules(context.Background(), &ListSecurityGroupRulesInput{SecurityGroupID: "sg-1"})
+				}
+				if (err != nil) != tc.bad {
+					t.Fatalf("err=%v bad=%v", err, tc.bad)
+				}
+			})
+		}
+	}
+}
+
+func TestSyntheticFloatingRuleFixtureThroughPublicSDK(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		testutil.WriteFixture(t, w, "../testdata/network/security_group_rules_floating_ip.json")
+	}))
+	out, err := c.ListSecurityGroupRules(context.Background(), &ListSecurityGroupRulesInput{SecurityGroupID: "sg-1"})
+	if err != nil || len(out.Items) != 7 || out.Items[0].RemoteIPPrefix != "0.0.0.0/0" || out.Items[0].RemoteGroupID != "sg-1" || out.Items[2].Protocol != "TCP" || out.Items[3].Protocol != "tcp" {
+		t.Fatalf("out=%v err=%v", out, err)
+	}
+}
+
+func TestSecurityGroupErrorsWithholdNumericCredential(t *testing.T) {
+	for _, op := range []string{"list", "get", "rules"} {
+		t.Run(op, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(401)
+				_, _ = w.Write([]byte(`{"message":"synthetic refusal"}`))
+			}))
+			defer srv.Close()
+			cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("hcm-3"), vngcloud.WithProjectID("project-1"), vngcloud.WithStaticToken("401"), vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{VServer: srv.URL}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			c := New(cfg)
+			switch op {
+			case "list":
+				_, err = c.ListSecurityGroups(context.Background(), nil)
+			case "get":
+				_, err = c.GetSecurityGroup(context.Background(), &GetSecurityGroupInput{SecurityGroupID: "sg-1"})
+			default:
+				_, err = c.ListSecurityGroupRules(context.Background(), &ListSecurityGroupRulesInput{SecurityGroupID: "sg-1"})
+			}
+			if err == nil || strings.Contains(err.Error(), "401") || !errors.Is(err, vngcloud.ErrAuth) {
+				t.Fatalf("credential-bearing error or lost identity: %v", err)
+			}
+		})
+	}
 }

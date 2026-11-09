@@ -27,9 +27,8 @@ const secretFileCleanupDeleteTimeout = 10 * time.Second
 //
 // ListFlavorZones and ListFlavors are Read, the reads a caller needs before
 // pricing or creating a server. QuoteCreateServer is Read too, per ADR 0002
-// rule 1: it shares CreateServerInput with the create this design has not
-// added yet, but UserData, MaxPrice, and NoWait govern only that future
-// create, never this price-only call, so NoFlag hides all three here; every
+// rule 1: it shares CreateServerInput with create, but UserData, MaxPrice,
+// NoWait, and AllowOpenLogin govern only create, so NoFlag hides them here; every
 // other CreateServerInput field, SecurityGroupIDs (a repeatable
 // --security-group-id) included, gets its usual flag.
 var computeOps = []Op[compute.Client]{
@@ -76,7 +75,7 @@ var computeOps = []Op[compute.Client]{
 		kebab("ListFlavors"), (*compute.Client).ListFlavors),
 	Read[compute.Client, compute.CreateServerInput, pricing.GetQuoteOutput](
 		kebab("QuoteCreateServer"), (*compute.Client).QuoteCreateServer,
-		NoFlag("UserData", "MaxPrice", "NoWait"),
+		NoFlag("UserData", "MaxPrice", "NoWait", "AllowOpenLogin"),
 		Optional("Name", "VPCID", "SubnetID", "SecurityGroupIDs", "SSHKeyID")),
 	createServerOp(),
 	Write[compute.Client, compute.DeleteServerInput, compute.DeleteServerOutput](

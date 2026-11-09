@@ -1,0 +1,95 @@
+{
+  "data": [
+    {
+      "id": "rule-1",
+      "direction": "egress",
+      "etherType": "IPv4",
+      "protocol": "any",
+      "portRangeMin": 0,
+      "portRangeMax": 65535,
+      "remoteIpPrefix": "0.0.0.0/0",
+      "remoteGroupId": "sg-1",
+      "status": "ACTIVE",
+      "description": "",
+      "createdAt": ""
+    },
+    {
+      "id": "rule-2",
+      "direction": "egress",
+      "etherType": "IPv6",
+      "protocol": "any",
+      "portRangeMin": 0,
+      "portRangeMax": 65535,
+      "remoteIpPrefix": "::/0",
+      "remoteGroupId": "sg-1",
+      "status": "ACTIVE",
+      "description": "",
+      "createdAt": ""
+    },
+    {
+      "id": "rule-3",
+      "direction": "ingress",
+      "etherType": "IPv4",
+      "protocol": "TCP",
+      "portRangeMin": 234,
+      "portRangeMax": 234,
+      "remoteIpPrefix": "0.0.0.0/0",
+      "remoteGroupId": "sg-1",
+      "status": "ACTIVE",
+      "description": "",
+      "createdAt": ""
+    },
+    {
+      "id": "rule-4",
+      "direction": "ingress",
+      "etherType": "IPv4",
+      "protocol": "tcp",
+      "portRangeMin": 3490,
+      "portRangeMax": 3490,
+      "remoteIpPrefix": "0.0.0.0/0",
+      "remoteGroupId": "sg-1",
+      "status": "ACTIVE",
+      "description": "",
+      "createdAt": ""
+    },
+    {
+      "id": "rule-5",
+      "direction": "ingress",
+      "etherType": "IPv4",
+      "protocol": "TCP",
+      "portRangeMin": 80,
+      "portRangeMax": 80,
+      "remoteIpPrefix": "0.0.0.0/0",
+      "remoteGroupId": "sg-1",
+      "status": "ACTIVE",
+      "description": "",
+      "createdAt": ""
+    },
+    {
+      "id": "rule-6",
+      "direction": "ingress",
+      "etherType": "IPv4",
+      "protocol": "tcp",
+      "portRangeMin": 443,
+      "portRangeMax": 443,
+      "remoteIpPrefix": "192.0.2.0/24",
+      "remoteGroupId": "sg-1",
+      "status": "ACTIVE",
+      "description": "",
+      "createdAt": ""
+    },
+    {
+      "id": "rule-7",
+      "direction": "ingress",
+      "etherType": "IPv6",
+      "protocol": "tcp",
+      "portRangeMin": 22,
+      "portRangeMax": 22,
+      "remoteIpPrefix": "2001:db8::/32",
+      "remoteGroupId": "sg-1",
+      "status": "ACTIVE",
+      "description": "",
+      "createdAt": ""
+    }
+  ]
+}

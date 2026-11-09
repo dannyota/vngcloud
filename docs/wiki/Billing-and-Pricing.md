@@ -330,9 +330,27 @@ same as a plain one (32,000 VND for 10 GB). See
 [Volume](Volume.md#encrypted-volumes).
 
 The create still requires every field. The create's price guard quotes the
-same priced-only body, so a quote and the guard price one request. Both
-ignore the Input's `MaxPrice` and `NoWait` fields, which govern only the
-write itself once it orders something, and neither sends user data.
+same priced configuration. A quote ignores the Input's `MaxPrice` and
+`NoWait`, which govern only the write, and never sends user data.
+
+With `CreateServerInput.AttachFloatingIP: true`, `QuoteCreateServer` prices
+the server, then the zone-bearing Elastic IP reference. The quote, guard,
+and `MonthlyPrice` include both: 347,800 + 120,000 = 467,800 VND in the
+reference configuration. This is a conservative estimate; an extra IP
+create charge remains unconfirmed. The IP lines are labeled `FLOATING IP:`
+with `Conservative Elastic IP estimate; extra create charge unconfirmed`.
+A quote with no IP properties gets one labeled fallback, with nil current
+price. Original and discount totals are summed and the combined discount
+percentage is recomputed. Missing, nonfinite, or inconsistent totals give
+no partial quote. Nonpositive components return `vngcloud.ErrUnpriced`.
+
+The default still makes one server quote. Public opt-in makes two price
+requests and no exposure reads; `AllowOpenLogin` is ignored on quotes.
+Both price responses retain their 1 MiB bound and credential protection.
+The API cannot bind an order to this quote or `MaxPrice`. Live attribution
+must settle the price model before release; retention, reservation, and IP
+refunds remain unconfirmed. See
+[Floating IP create](Compute-Servers.md#floating-ip-create).
 
 `computeClient.QuoteResizeServer` and `volumeClient.QuoteResizeVolume` price
 a flavor change or a grow the same way, from `compute.ResizeServerInput`

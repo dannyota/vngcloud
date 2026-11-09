@@ -12,6 +12,7 @@ import (
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/floatingip"
 	"danny.vn/vngcloud/internal/routes"
 	"danny.vn/vngcloud/internal/transport"
 )
@@ -147,6 +148,11 @@ func (c *Client) GetQuote(ctx context.Context, in *GetQuoteInput) (*GetQuoteOutp
 		SentCredentials: &sentCredentials,
 	}
 	err := c.c.DoJSON(ctx, req, &raw)
+	operationCredentials, observeErr := floatingip.Credentials(ctx)
+	if observeErr != nil {
+		return nil, floatingip.InvalidResponse(op, errors.Join(err, observeErr))
+	}
+	sentCredentials = append(sentCredentials, operationCredentials...)
 	if quoteHasNumericCredential(sentCredentials) {
 		return nil, invalidQuoteResponse(op)
 	}
@@ -155,6 +161,11 @@ func (c *Client) GetQuote(ctx context.Context, in *GetQuoteInput) (*GetQuoteOutp
 			return nil, &core.APIError{Operation: op, Message: "quote response exceeds 1 MiB", Err: err}
 		}
 		return nil, err
+	}
+	if floatingip.ComponentQuote(ctx) {
+		if err := floatingip.ValidateComponentWire(raw); err != nil {
+			return nil, err
+		}
 	}
 	resp, err := decodeQuoteResponse(op, raw, sentCredentials)
 	if err != nil {
