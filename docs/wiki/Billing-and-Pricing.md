@@ -130,9 +130,33 @@ if _, err := client.DeleteBudget(ctx, &billing.DeleteBudgetInput{
 
 ## Cost and balances
 
-`GetCostOverview` and `ListBudgetAlerts` decode the console's own field
-names. Populated cost and alert data for these operations remain unverified;
-treat a zero field as unconfirmed.
+`GetCostOverview` returns `Summary.Breakdown` entries with `Key`, `Cost`,
+and `Percent`. `Cost` reads the API's `value` amount in VND; zero is a valid
+amount. `GroupedSeries` holds each group's `Key`, `Color`, and `Points`.
+Each point has `Date` (the API's bucket label `x`, kept unchanged) and
+`Cost` (the numeric `y` amount). Groups retain their own point counts and
+order; the SDK does not fill gaps or combine groups.
+
+`Series []CostSeries` remains available for legacy flat `date`/`cost`
+responses. Captured grouped responses populate `GroupedSeries` and leave
+`Series` nil. Existing Go fields and types remain available. Consumers of
+the live trend data should read `GroupedSeries`; in the CLI:
+
+```sh
+vngcloud billing get-cost-overview --start-date 2026-11-01 \
+  --end-date 2026-11-09 --group-by product --interval daily \
+  --query GroupedSeries
+```
+
+Daily, weekly, and monthly requests with product or resource-type grouping
+return the same grouped shape. For the tested month-long range, hourly
+requests and resource-ID grouping returned HTTP 400 from the API. The exact
+refusal reasons and shorter-range behavior remain unverified. The SDK sends
+these options unchanged and returns the API error. The console's `table`
+block remains outside the SDK output.
+
+Populated `ListBudgetAlerts` data remain unverified; treat a zero alert field
+as unconfirmed.
 
 `GetCurrentPeriodCost` reports the account's current billing period:
 

@@ -206,32 +206,32 @@ string, so one odd row does not fail the list.
 
 ### Cost explorer
 
-| Operation | Method and path | Output |
-|-|-|-|
-| `GetCostOverview` | `GET /v2/cost-explorer/overview` | `{Summary, Series, Interval, StartDate, EndDate, GroupBy}` |
-| `ListCostResources` | `GET /v2/cost-explorer/resources` | P[CostResource] plus `Summary` |
+| Operation | Method and path | Other inputs | Output |
+|-|-|-|-|
+| `GetCostOverview` | `GET /v2/cost-explorer/overview` | `GroupBy`, `Interval` | `{Summary, GroupedSeries, Series, Interval, StartDate, EndDate, GroupBy}` |
+| `ListCostResources` | `GET /v2/cost-explorer/resources` | `Page`, `Size`, `Sort`, `Order` | P[CostResource] plus `Summary` |
 
-Both take `StartDate` (r), `EndDate` (r), `Product`, `ResourceType`,
-`ResourceID`, and `Query` (sent as `q`). `GetCostOverview` also takes
-`GroupBy` (`product`, `resourceType`, or `resourceId`; empty sends
-`product`) and `Interval` (`hourly`, `daily`, `weekly`, or `monthly`; empty
-sends `daily`). `ListCostResources` also takes `Page`, `Size`, `Sort`, and
-`Order`.
+| Type or rule | Contract |
+|-|-|
+| Shared inputs | `StartDate` (r), `EndDate` (r), `Product`, `ResourceType`, `ResourceID`, and `Query` (sent as `q`). Costs are VND. |
+| `GroupBy` | `product` (default), `resourceType`, or `resourceId`; sent unchanged. See observed limits below. |
+| `Interval` | `daily` (default), `hourly`, `weekly`, or `monthly`; sent unchanged. See observed limits below. |
+| `CostBreakdown` | `Key` reads `key`; `Cost` reads `value`; `Percent` reads `percent`. A present `value`, including zero or null, overrides legacy `cost`. JSON output keeps the `cost` field name. |
+| `CostSeriesGroup` | `Key`, `Color`, and `Points` read `key`, `color`, and `points`. `GroupedSeries` retains group and point order, including sparse groups. |
+| `CostSeriesPoint` | `Date` reads the unparsed `x` bucket string; `Cost` reads numeric `y`. No aggregation or padding. |
+| Legacy `Series` | Keeps `[]CostSeries` with `Date`/`Cost` for flat `date`/`cost` responses. Grouped responses populate `GroupedSeries` and leave `Series` nil. Existing fields and types remain; flat responses have no live evidence. |
+| `CostResource` | `ResourceID`, `ResourceName`, `ResourceType`, `Product`, `Cost`, `DailyAverage`, `StartDate`. `Cost` reads only `totalCost`, the API's range total; `DailyAverage` reads `dailyAvg`. Omit `region` and `userId`. |
+| Resource page size | Non-positive `Size` or a value above 200 sends 200; the API rejects larger sizes with HTTP 400. |
+| Resource pagination | Non-positive `Page` selects 1; send `Page - 1`, return `pagination.page + 1`, and retain other metadata. Callers loop to `TotalPage`; one capped API does not establish a lasting helper contract. |
 
-`CostResource` holds `ResourceID`, `ResourceName`, `ResourceType`, `Product`,
-`Cost`, `DailyAverage`, and `StartDate`. `Cost` reads `totalCost` only: the
-resource's total cost over the requested range, in VND, as the API reports it.
-`DailyAverage` reads `dailyAvg`; `StartDate` reads `startDate`. The SDK omits
-`region` and the account's `userId`.
+#### Cost overview evidence
 
-`ListCostResources` sends `Size` 200 for non-positive sizes or sizes above 200.
-The API rejects larger sizes with HTTP 400. Non-positive `Page` selects page 1.
-Public `Page` is 1-based; the SDK sends `Page - 1` to the 0-based API.
-It returns `pagination.page + 1` as `Page`; other paging metadata is unchanged.
-
-The SDK does not page for the caller in this release. A caller that needs
-every row loops on `Page` up to `TotalPage`. A helper is lasting public API,
-and one capped API is too little to design it from.
+| Source | Observation |
+|-|-|
+| Manager's Playwright capture | Console IAM user's own HTTP 200 product/daily request for `2026-11-01` through `2026-11-09`. |
+| [Sanitized raw fixture](../../testdata/billing/GetCostOverviewCaptured.json) | Keeps product keys, colors, bucket dates, amounts, and deferred `table`; no account identifiers. The SDK ignores `table`. `GetCostOverview.json` is legacy synthetic data, not wire evidence. |
+| Manager's SDK diagnostic | For `2026-10-09` through `2026-11-09`, product/resource-type grouping with daily/weekly/monthly shares the breakdown and grouped-point shapes. Resource-type groups can be sparse. |
+| API refusals | All hourly requests and all resource-ID groupings returned HTTP 400 with `code: null`: six refusals in 12 combinations, before success decoding. Messages were withheld; reasons and shorter-range behavior are unverified. No SDK limits follow from these observations. |
 
 ### Balances
 

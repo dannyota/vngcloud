@@ -158,14 +158,40 @@ func (a *Alert) UnmarshalJSON(data []byte) error {
 }
 
 // CostBreakdown is one entry in a cost summary's per-key breakdown.
-// No design document records the API evidence for this type.
+// See docs/design/billing.md.
 type CostBreakdown struct {
-	Key  string  `json:"key"`
-	Cost float64 `json:"cost"`
+	Key     string  `json:"key"`
+	Cost    float64 `json:"cost"`
+	Percent float64 `json:"percent"`
+}
+
+// UnmarshalJSON reads value as Cost, retaining cost for legacy flat responses.
+func (b *CostBreakdown) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		Key     string          `json:"key"`
+		Value   json.RawMessage `json:"value"`
+		Cost    json.RawMessage `json:"cost"`
+		Percent float64         `json:"percent"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	decoded := CostBreakdown{Key: wire.Key, Percent: wire.Percent}
+	amount := wire.Value
+	if len(amount) == 0 {
+		amount = wire.Cost
+	}
+	if len(amount) > 0 {
+		if err := json.Unmarshal(amount, &decoded.Cost); err != nil {
+			return err
+		}
+	}
+	*b = decoded
+	return nil
 }
 
 // CostSummary is the cost explorer overview's headline numbers.
-// No design document records the API evidence for this type.
+// See docs/design/billing.md.
 type CostSummary struct {
 	CurrentCost    float64         `json:"currentCost"`
 	LastPeriodCost float64         `json:"lastPeriodCost"`
@@ -175,11 +201,26 @@ type CostSummary struct {
 	Breakdown      []CostBreakdown `json:"breakdown"`
 }
 
-// CostSeries is one point in the cost explorer overview's trend chart.
-// No design document records the API evidence for this type.
+// CostSeries is a legacy flat date/cost point. Grouped overview responses use
+// CostSeriesGroup and CostSeriesPoint. See docs/design/billing.md.
 type CostSeries struct {
 	Date string  `json:"date"`
 	Cost float64 `json:"cost"`
+}
+
+// CostSeriesGroup holds one cost explorer group and its ordered points.
+// See docs/design/billing.md.
+type CostSeriesGroup struct {
+	Key    string            `json:"key"`
+	Color  string            `json:"color"`
+	Points []CostSeriesPoint `json:"points"`
+}
+
+// CostSeriesPoint holds an API bucket label and its cost in VND. Date retains
+// the x string without parsing it. See docs/design/billing.md.
+type CostSeriesPoint struct {
+	Date string  `json:"x"`
+	Cost float64 `json:"y"`
 }
 
 // CostResource is one row of the per-resource cost list.

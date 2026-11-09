@@ -2,6 +2,7 @@ package billing
 
 import (
 	"context"
+	"encoding/json"
 	"math"
 	"net/http"
 	"net/url"
@@ -39,22 +40,47 @@ type GetCostOverviewInput struct {
 
 // GetCostOverviewOutput holds the cost summary and grouped series.
 type GetCostOverviewOutput struct {
-	Summary   CostSummary
-	Series    []CostSeries
-	Interval  string
-	StartDate string
-	EndDate   string
-	GroupBy   string
+	Summary CostSummary
+	// Series retains legacy flat date/cost responses. Grouped responses leave it nil.
+	Series []CostSeries
+	// GroupedSeries holds the API's series groups, colors, and points in their returned order.
+	GroupedSeries []CostSeriesGroup
+	Interval      string
+	StartDate     string
+	EndDate       string
+	GroupBy       string
 }
 
 // costOverviewData is the wire shape of GetCostOverview's data field.
 type costOverviewData struct {
-	Summary   CostSummary  `json:"summary"`
-	Series    []CostSeries `json:"series"`
-	Interval  string       `json:"interval"`
-	StartDate string       `json:"startDate"`
-	EndDate   string       `json:"endDate"`
-	GroupBy   string       `json:"groupBy"`
+	Summary   CostSummary          `json:"summary"`
+	Series    []costOverviewSeries `json:"series"`
+	Interval  string               `json:"interval"`
+	StartDate string               `json:"startDate"`
+	EndDate   string               `json:"endDate"`
+	GroupBy   string               `json:"groupBy"`
+}
+
+type costOverviewSeries struct {
+	grouped bool
+	group   CostSeriesGroup
+	point   CostSeries
+}
+
+func (s *costOverviewSeries) UnmarshalJSON(data []byte) error {
+	var fields struct {
+		Key    json.RawMessage `json:"key"`
+		Color  json.RawMessage `json:"color"`
+		Points json.RawMessage `json:"points"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	s.grouped = len(fields.Key) > 0 || len(fields.Color) > 0 || len(fields.Points) > 0
+	if s.grouped {
+		return json.Unmarshal(data, &s.group)
+	}
+	return json.Unmarshal(data, &s.point)
 }
 
 // GetCostOverview reads a cost summary for the selected dates and filters.
@@ -92,14 +118,21 @@ func (c *Client) GetCostOverview(ctx context.Context, in *GetCostOverviewInput) 
 	if _, err := c.do(ctx, req, &data); err != nil {
 		return nil, err
 	}
-	return &GetCostOverviewOutput{
+	out := &GetCostOverviewOutput{
 		Summary:   data.Summary,
-		Series:    data.Series,
 		Interval:  data.Interval,
 		StartDate: data.StartDate,
 		EndDate:   data.EndDate,
 		GroupBy:   data.GroupBy,
-	}, nil
+	}
+	for _, series := range data.Series {
+		if series.grouped {
+			out.GroupedSeries = append(out.GroupedSeries, series.group)
+		} else {
+			out.Series = append(out.Series, series.point)
+		}
+	}
+	return out, nil
 }
 
 // ListCostResourcesInput scopes the per-resource cost list to a date range,

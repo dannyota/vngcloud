@@ -47,6 +47,9 @@ func TestGetCostOverview(t *testing.T) {
 	if out.Interval != "daily" || out.GroupBy != "product" {
 		t.Fatalf("unexpected fields: interval=%q groupBy=%q", out.Interval, out.GroupBy)
 	}
+	if out.GroupedSeries != nil {
+		t.Fatalf("legacy response has grouped series: %+v", out.GroupedSeries)
+	}
 }
 
 func TestGetCostOverviewCustomGroupByAndInterval(t *testing.T) {
