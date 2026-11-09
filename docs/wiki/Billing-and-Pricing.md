@@ -224,6 +224,7 @@ JSON, text, and explicit queries can expose descriptions, references, IDs,
 times, and amounts. Default tables omit descriptions and references. These
 reads work with read-only profiles without prompts. Unknown transaction codes
 keep `TypeCode` and an empty `Type`; unknown payment values remain raw.
+Redaction covers verbatim reflection, not deliberate encoding.
 Values retain the API's monetary basis. Historical VAT normalization is
 unverified: wallet credits need not equal tax-inclusive cash paid. Payments
 may describe the same economic activity as wallet charges; do not add them.

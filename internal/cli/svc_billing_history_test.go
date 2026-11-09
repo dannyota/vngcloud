@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -224,6 +225,69 @@ func TestBillingHistoryCredentialCanary(t *testing.T) {
 				}
 				if strings.Contains(stdout.String()+stderr.String(), "test-token") || strings.Contains(stderr.String(), "synthetic-description") {
 					t.Fatal("credential or account data escaped through the CLI")
+				}
+			}
+		}
+	}
+}
+
+func TestBillingHistoryRejectsNumericCredentials(t *testing.T) {
+	const credential = "123456789012345"
+	for _, name := range []string{"transactions", "payments"} {
+		for _, mode := range []string{"envelope", "amount"} {
+			for _, format := range []string{"json", "table", "text"} {
+				t.Run(name+"/"+mode+"/"+format, func(t *testing.T) {
+					body := `{"code":123456789012345,"data":[]}`
+					if mode == "amount" {
+						body = strings.Replace(billingHistoryBody(name == "payments"), ":12.5", ":"+credential, 1)
+					}
+					fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){"/gateway/api/v1/" + name: jsonHandler(http.StatusOK, body)})
+					_, stdout, stderr := newHistorySvcRoot(t, fixture)
+					testOptions = append(testOptions, vngcloud.WithStaticToken(credential))
+					args := []string{"--region", "hcm-3", "--debug", "--read-only", "billing", "list-" + name, "--start-date", "2024-11-01", "--end-date", "2024-11-30", "--output", format}
+					if mode == "amount" {
+						args = append(args, "--query", "Items[].Amount")
+					}
+					code := Main(context.Background(), args, strings.NewReader(""), stdout, stderr)
+					if code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), `"code":"InvalidResponse"`) || strings.Contains(stderr.String(), credential) {
+						t.Fatal("CLI exposed a numeric credential or returned the wrong error")
+					}
+					if fixture.requestCount() != 1 {
+						t.Fatal("numeric refusal sent extra requests")
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestBillingHistoryCaseInsensitiveCredentials(t *testing.T) {
+	for _, name := range []string{"transactions", "payments"} {
+		for _, format := range []string{"json", "table", "text"} {
+			for _, credential := range []string{"SYNTHETIC-HISTORY-TOKEN", `SYNTHETIC-"HISTORY\TOKEN`} {
+				for _, escaped := range []bool{false, true} {
+					reflected := credential
+					if escaped {
+						encoded, err := json.Marshal(credential)
+						if err != nil {
+							t.Fatal("synthetic credential did not encode")
+						}
+						reflected = string(encoded[1 : len(encoded)-1])
+					}
+					reflected = strings.ToLower(reflected)
+					encoded, err := json.Marshal("ordinary prefix " + reflected + " ordinary suffix")
+					if err != nil {
+						t.Fatal("synthetic description did not encode")
+					}
+					body := strings.Replace(billingHistoryBody(name == "payments"), `"synthetic-description"`, string(encoded), 1)
+					fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){"/gateway/api/v1/" + name: jsonHandler(http.StatusOK, body)})
+					_, stdout, stderr := newHistorySvcRoot(t, fixture)
+					testOptions = append(testOptions, vngcloud.WithStaticToken(credential))
+					args := []string{"--region", "hcm-3", "--debug", "--read-only", "billing", "list-" + name, "--start-date", "2024-11-01", "--end-date", "2024-11-30", "--output", format, "--query", "Items[0].Description"}
+					code := Main(context.Background(), args, strings.NewReader(""), stdout, stderr)
+					if code != 0 || !strings.Contains(stdout.String(), "ordinary prefix [redacted] ordinary suffix") || strings.Contains(strings.ToLower(stdout.String()+stderr.String()), reflected) {
+						t.Fatal("CLI exposed a case-insensitive reflection or changed account text")
+					}
 				}
 			}
 		}

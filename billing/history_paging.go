@@ -29,6 +29,9 @@ func (c *Client) fetchHistory(ctx context.Context, op, resource string, dates hi
 		Operation: op, Method: http.MethodGet, URL: c.route([]string{"gateway", "api", "v1", resource}, query), OK: []int{http.StatusOK}, MaxBody: historyMaxBody, NoRedirect: true, WithholdMessage: historyWithheld, SentCredentials: &credentials, KeepObservedStatus: true,
 		ClassifyError: func(status int, _ string) string { return historyStatusCode(status) },
 	}, &raw)
+	if historyHasNumericCredential(credentials) {
+		return nil, nil, &core.APIError{Operation: op, Code: "InvalidResponse", Message: historyWithheld}
+	}
 	if err != nil {
 		return nil, nil, historyRequestError(op, status, err)
 	}
@@ -69,7 +72,7 @@ func validateHistoryMetadata(page *historyPage, number, size int, all bool, op s
 	return nil
 }
 
-func listHistory[T any](ctx context.Context, c *Client, op, resource string, in ListTransactionsInput, decode func(json.RawMessage) (T, error), id func(T) int64, sanitize func(*T, []string)) (*core.PagedList[T], error) {
+func listHistory[T any](ctx context.Context, c *Client, op, resource string, in ListTransactionsInput, decode func(json.RawMessage) (T, error), id func(T) int64, sanitize func(*T, historyRedactor)) (*core.PagedList[T], error) {
 	dates, err := resolveHistoryDates(op, in.StartDate, in.EndDate)
 	if err != nil {
 		return nil, err
@@ -162,11 +165,15 @@ func listHistory[T any](ctx context.Context, c *Client, op, resource string, in 
 		output = core.PagedList[T]{Page: 1, PageSize: len(items), TotalPage: 1, TotalItem: len(items)}
 	}
 	// Later sends can expose credentials already present in earlier rows.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	redactor := newHistoryRedactor(credentials)
 	for i := range items {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		sanitize(&items[i], credentials)
+		sanitize(&items[i], redactor)
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err

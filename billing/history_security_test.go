@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -21,6 +22,181 @@ import (
 	"danny.vn/vngcloud/internal/testutil"
 	"danny.vn/vngcloud/internal/transport"
 )
+
+func TestHistoryRejectsNumericCredentials(t *testing.T) {
+	historyKinds(t, func(t *testing.T, payments bool, _ string) {
+		for index, credential := range []string{"123456789012345", "+1235", "-1235", "1235.", ".5", "-.5", "1e3", "-1E-3", "1e99999", "01", "0", "  +1.25e+03  "} {
+			for _, mode := range []string{"envelope", "amount", "empty", "http-error", "malformed"} {
+				t.Run(strconv.Itoa(index)+"/"+mode, func(t *testing.T) {
+					var calls atomic.Int32
+					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+						calls.Add(1)
+						switch mode {
+						case "envelope":
+							_, _ = w.Write([]byte(`{"code":123456789012345,"data":[]}`))
+						case "http-error":
+							w.WriteHeader(http.StatusNotFound)
+						case "malformed":
+							_, _ = w.Write([]byte(`{"code":`))
+						case "empty":
+							_, _ = w.Write([]byte(historyBody(payments, 1, 50, 0)))
+						default:
+							body := historyObject(historyBody(payments, 1, 50, 1, 1))
+							field := "transactionValue"
+							if payments {
+								field = "paymentAmount"
+							}
+							body["data"].(map[string]any)["content"].([]any)[0].(map[string]any)[field] = json.Number("123456789012345")
+							_, _ = w.Write([]byte(historyJSON(body)))
+						}
+					}))
+					defer server.Close()
+					tc := transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: &credentialTestTokens{values: []string{credential}}})
+					c := New(core.NewTestConfig("hcm-3", "", endpoints.Set{Billing: server.URL + "/"}, tc))
+					out, err := historyRead(t, context.Background(), c, payments, &historyOptions{start: "2024-01-01", end: "2024-01-01", all: true})
+					assertHistoryNumericRefusal(t, out, err)
+					if calls.Load() != 1 {
+						t.Fatal("numeric refusal sent extra requests")
+					}
+				})
+			}
+		}
+	})
+}
+
+func assertHistoryNumericRefusal(t *testing.T, out *historyResult, err error) {
+	t.Helper()
+	var api *vngcloud.APIError
+	if out != nil || !errors.As(err, &api) || api.Code != "InvalidResponse" || api.Message != historyWithheld || api.Err != nil || api.Retryable || api.Operation == "" {
+		t.Fatal("numeric credential did not fail closed with a fixed response")
+	}
+	if strings.Contains(historyJSON(api), "123456789012345") {
+		t.Fatal("numeric credential reached error fields")
+	}
+}
+
+func TestHistoryRejectsNumericCredentialsAcrossRefresh(t *testing.T) {
+	historyKinds(t, func(t *testing.T, payments bool, _ string) {
+		for _, credentials := range [][]string{{"123456789012345", "SYNTHETIC-HISTORY-TOKEN"}, {"SYNTHETIC-HISTORY-TOKEN", "123456789012345"}} {
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				if calls.Add(1) == 1 {
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				_, _ = w.Write([]byte(historyBody(payments, 1, 50, 0)))
+			}))
+			defer server.Close()
+			tc := transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: &credentialTestTokens{values: credentials}})
+			c := New(core.NewTestConfig("hcm-3", "", endpoints.Set{Billing: server.URL + "/"}, tc))
+			out, err := historyRead(t, context.Background(), c, payments, &historyOptions{start: "2024-01-01", end: "2024-01-01", all: true})
+			assertHistoryNumericRefusal(t, out, err)
+			if calls.Load() != 2 {
+				t.Fatal("numeric refresh refusal sent extra requests")
+			}
+		}
+	})
+}
+
+func TestHistoryCaseInsensitiveCredentials(t *testing.T) {
+	historyKinds(t, func(t *testing.T, payments bool, _ string) {
+		for index, credential := range []string{"SYNTHETIC-HISTORY-TOKEN", `SYNTHETIC-"HISTORY\TOKEN`, "SYNTHETIC-K-Σ-TOKEN"} {
+			for _, escaped := range []bool{false, true} {
+				t.Run(strconv.Itoa(index)+"/"+strconv.FormatBool(escaped), func(t *testing.T) {
+					reflected := credential
+					if escaped {
+						encoded := historyJSON(credential)
+						reflected = encoded[1 : len(encoded)-1]
+					}
+					reflected = strings.ToLower(reflected)
+					body := historyObject(historyBody(payments, 1, 50, 1, 1))
+					row := body["data"].(map[string]any)["content"].([]any)[0].(map[string]any)
+					row["description"] = "ordinary prefix " + reflected + " ordinary suffix"
+					if payments {
+						row["transactionID"], row["payGate"], row["paymentStatus"] = reflected, reflected, reflected
+					} else {
+						row["sourceReference"], row["userServiceReference"] = reflected, reflected
+					}
+					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(historyJSON(body))) }))
+					defer server.Close()
+					tc := transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: &credentialTestTokens{values: []string{credential}}})
+					c := New(core.NewTestConfig("hcm-3", "", endpoints.Set{Billing: server.URL + "/"}, tc))
+					out, err := historyRead(t, context.Background(), c, payments, &historyOptions{start: "2024-01-01", end: "2024-01-01"})
+					if err != nil || out == nil || out.Items[0]["Description"] != "ordinary prefix [redacted] ordinary suffix" {
+						t.Fatal("case-insensitive reflection escaped or account text changed")
+					}
+					if strings.Contains(strings.ToLower(historyJSON(out)), reflected) {
+						t.Fatal("case-insensitive credential reached returned fields")
+					}
+					if out.Items[0]["CreatedAt"] != "2024-11-11T18:00:00.123+00:00" {
+						t.Fatal("redaction changed an unrelated timestamp")
+					}
+				})
+			}
+		}
+	})
+}
+
+func TestHistoryCaseInsensitiveOverlappingCredentials(t *testing.T) {
+	historyKinds(t, func(t *testing.T, payments bool, _ string) {
+		credentials := []string{"SYNTHETIC-HISTORY-TOKEN", "SYNTHETIC-HISTORY-TOKEN-SECRET-TAIL"}
+		var calls atomic.Int32
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			if calls.Add(1) == 1 {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			body := historyObject(historyBody(payments, 1, 50, 1, 1))
+			body["data"].(map[string]any)["content"].([]any)[0].(map[string]any)["description"] = strings.ToLower(credentials[1])
+			_, _ = w.Write([]byte(historyJSON(body)))
+		}))
+		defer server.Close()
+		tc := transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: &credentialTestTokens{values: credentials}})
+		c := New(core.NewTestConfig("hcm-3", "", endpoints.Set{Billing: server.URL + "/"}, tc))
+		out, err := historyRead(t, context.Background(), c, payments, &historyOptions{start: "2024-01-01", end: "2024-01-01"})
+		if err != nil || out == nil || out.Items[0]["Description"] != "[redacted]" {
+			t.Fatal("overlapping case-insensitive credential was partly exposed")
+		}
+	})
+}
+
+func TestHistoryCaseInsensitiveRedactionBounds(t *testing.T) {
+	historyKinds(t, func(t *testing.T, payments bool, _ string) {
+		for _, largeCredential := range []bool{false, true} {
+			credential := strings.Repeat("SYNTHETIC-HISTORY-TOKEN", 256)
+			if largeCredential {
+				credential = strings.Repeat("SYNTHETIC-HISTORY-TOKEN", 40000)
+			}
+			body := historyObject(historyBody(payments, 1, 50, 1, 1))
+			body["data"].(map[string]any)["content"].([]any)[0].(map[string]any)["description"] = strings.Repeat("ordinary account text ", 1<<18) + strings.ToLower(credential)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(historyJSON(body))) }))
+			defer server.Close()
+			tc := transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: &credentialTestTokens{values: []string{credential}}})
+			c := New(core.NewTestConfig("hcm-3", "", endpoints.Set{Billing: server.URL + "/"}, tc))
+			out, err := historyRead(t, context.Background(), c, payments, &historyOptions{start: "2024-01-01", end: "2024-01-01"})
+			if err != nil || out == nil || out.Items[0]["Description"] != "[redacted]" {
+				t.Fatal("redaction work exhaustion did not withhold the field")
+			}
+		}
+	})
+}
+
+func TestHistoryCaseInsensitivePreservesLongAccountText(t *testing.T) {
+	historyKinds(t, func(t *testing.T, payments bool, _ string) {
+		credential := "SYNTHETIC-" + strings.Repeat("A", 2048) + "-TOKEN"
+		description := strings.Repeat("ordinary account text ", 1024)
+		body := historyObject(historyBody(payments, 1, 50, 1, 1))
+		body["data"].(map[string]any)["content"].([]any)[0].(map[string]any)["description"] = description
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(historyJSON(body))) }))
+		defer server.Close()
+		tc := transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: &credentialTestTokens{values: []string{credential}}})
+		c := New(core.NewTestConfig("hcm-3", "", endpoints.Set{Billing: server.URL + "/"}, tc))
+		out, err := historyRead(t, context.Background(), c, payments, &historyOptions{start: "2024-01-01", end: "2024-01-01"})
+		if err != nil || out == nil || out.Items[0]["Description"] != description {
+			t.Fatal("redaction changed unrelated account text")
+		}
+	})
+}
 
 func TestHistorySentCredentials(t *testing.T) {
 	historyKinds(t, func(t *testing.T, payments bool, _ string) {
