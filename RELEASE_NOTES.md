@@ -1,5 +1,14 @@
 # Release Notes
 
+## v0.91.1 - Flavor prices with GPU catalogs
+
+- `compute list-flavor-prices` (SDK `ListFlavorPrices`) works again.
+  GreenNode now lists GPU flavors in the `gpu` family, which discovery
+  rejected as an invalid response, so every call failed with
+  `InvalidResponse` from `compute.ListFamilyFlavors`. GPU family scopes are
+  now skipped with an `excluded-family` note; GPU flavors are neither listed
+  nor priced, and malformed rows in other families still fail.
+
 ## v0.91.0 - vMonitor ensure-synthetic-quota
 
 - SDK `EnsureSyntheticQuota` and CLI `monitor ensure-synthetic-quota` keep
