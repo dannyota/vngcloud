@@ -268,10 +268,10 @@ Do not resend. Confirmation never authorizes another paid allocation.
 
 Validate every caller ID before any request and every returned ID before
 reuse with `core.CheckPathID`; reject the reserved caller IP ID `auto`.
-All new/reused read, quote, and mutation response paths need an 8 MiB
-`MaxBody`, applied before capture or decode. `GetServer` and `ListWANIPs`
-currently use zero (unlimited): this is a named implementation obligation,
-along with server lists, group reads, and quote paths used here.
+Apply `MaxBody` before capture or decode: 8 MiB for server, WAN, group,
+and mutation responses; retain 1 MiB for each server or IP quote response.
+`pricing.GetQuote` enforces the existing
+[quote bound](vserver-paid-writes-api.md#quote-decoding-and-bounds).
 
 Reads/quotes keep the finite configured retry count: default three
 retries per send phase and at most one 401 recovery, all inside the

@@ -249,11 +249,11 @@ credential provider supplies auth.
 Do not invent an endpoint, `portal-user-id`, or credential argument.
 
 Send these two requests in order, once each, with 30 s contexts and
-8 MiB response limits. A manager-only capturing transport must allow only
+1 MiB quote-response limits, as `pricing.GetQuote` already enforces.
+A manager-only capturing transport must allow only
 `GET <VServer>/v1/{projectId}/zones` and the exact price POST, reject
-redirects and every mutation, and suppress credentials.
-Current pricing reads need bounded capture
-support before this procedure can run safely.
+redirects and every mutation, and suppress credentials. Keep the zone
+read bounded at 8 MiB; never raise the quote bound for capture.
 
 ```json
 {"resourceType":"elastic-ip","action":"create","resourceInfo":{

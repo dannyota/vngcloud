@@ -166,11 +166,11 @@ All methods live in `compute`. "(r)" marks `vngcloud:"required"`.
   after an unclear failure then finds the first server by name instead of
   ordering a second one when that match is visible. Eventual visibility
   and concurrent callers can still permit duplicates.
-- The project's default security group allows SSH, RDP, HTTP, HTTPS, and
-  ICMP from anywhere
-  ([free writes](vserver-writes.md#server-rules-from-the-product-docs)).
-  The SDK never picks it; a caller who names it gets it, and the wiki says
-  what it opens. Public create also follows the accepted
+- The SDK never selects the project's default security group; a caller
+  who names it gets it. Published defaults have the qualifications in
+  [free writes](vserver-writes.md#server-rules-from-the-product-docs).
+  Account-specific exposure claims require a fresh rule read. Public
+  create also follows the accepted
   [exposure check](vserver-floating-ips.md#login-exposure).
 - `UserData` can hold secrets. When it is set, the create is `Sensitive`,
   so no response capture holds it, and no error or log quotes it. It is

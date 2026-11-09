@@ -49,12 +49,12 @@ only the envelope, never row shape or attachment state.
   malformed IDs, nil Input, invalid shape, and invalid create `MaxPrice`
   before requests. Quote requires only priced fields and still ignores
   `MaxPrice`/`NoWait`, including invalid guard-only price values.
-- Default quote retains its public type, values, and one request. Opt-in
-  sends exactly the selected server and IP quote bodies. Preserve quote
-  order, returned property order, and fallback `PriceProperty` fields.
-  Check discount arithmetic, absent/null optimum, zero/negative prices,
-  missing or inconsistent totals, overflow, and an IP quote failure.
-  Failure returns no partial sum and sends no order.
+- Default quote keeps its type, values, and one request. Opt-in sends
+  the selected server and IP bodies in order; retain property order and
+  fallback fields. Check discount arithmetic, absent/null optimum,
+  zero/negative prices, missing/inconsistent totals, overflow, and IP errors.
+  Test each quote at 1 MiB and 1 MiB + 1 byte; oversized bodies are not
+  captured. Failures return no partial sum and send no order.
 - Guard example: 347800 + 120000 = 467800. A cap of 347800 orders nothing;
   467800 allows one order. `MonthlyPrice` reports 467800. The message
   names total and cap. Never assert that this prevents a backend price
@@ -324,12 +324,12 @@ nested-encoding limit from [security](../../instructions/security.md).
 
 ### Hostile responses: high
 
-`compute/compute.go:89` and `network/network.go:142` omit `MaxBody`;
-`internal/transport/transport.go:134` defines zero as unlimited, and
-`:560` reads an unlimited body. A peer can exhaust memory before a
-wait times out. `ListSecurityGroupRules` at `network/network.go:276`
-and quote reads also need explicit bounds. This is a required fix for
-the releases that reuse them, not a completed hardening claim.
+An unbounded response can exhaust memory before a wait expires.
+`pricing/pricing.go:144` caps quotes at 1 MiB; preserve that limit.
+Server reads use 8 MiB (`compute/server_response_security.go:301`).
+Require 8 MiB for reused WAN/group and mutation responses too.
+Apply limits before capture/decode; zero means unlimited under
+`internal/transport/transport.go:127`.
 
 Invariant: bound every body before capture/decode, every list walk by
 pages/items/time, and each wait by a context deadline covering requests.
