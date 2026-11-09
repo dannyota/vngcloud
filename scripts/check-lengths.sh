@@ -14,7 +14,7 @@ check() {
   local max=$1 file lines
   while IFS= read -r file; do
     [[ -f "$file" ]] || continue
-    head -n 5 "$file" | grep -Eq 'Code generated .* DO NOT EDIT' && continue
+    head -n 5 "$file" | grep -E 'Code generated .* DO NOT EDIT' >/dev/null && continue
     lines=$(wc -l <"$file")
     if ((lines > max)); then
       echo "too long: $file has $lines lines (max $max)"

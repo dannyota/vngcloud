@@ -17,6 +17,7 @@ ci-workflows-check: ## Check workflow triggers, source identity, and validation 
 
 scripts-test: ## Test the Codex launcher and browser credential loading
 	@bash scripts/test/codex-agent-test.sh
+	@bash scripts/test/check-lengths-test.sh
 	@python3 -I scripts/test/browser_creds_test.py
 
 test: ## Run tests
