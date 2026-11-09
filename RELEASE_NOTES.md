@@ -1,5 +1,19 @@
 # Release Notes
 
+## v0.91.2 - Clearer IAM permission confirmations
+
+- Policy attach and detach for service accounts, users, and groups, and
+  adding or removing a user to or from a group, now say "grants
+  permissions" or "removes permissions" when `--yes` is missing, instead
+  of "is destructive". `--yes` stays required on the same commands, still
+  with exit code 2 and no request sent.
+- Help for `iam get-service-account` and `iam list-service-accounts` names
+  `iam list-service-account-policies`; help for `iam get-user` and
+  `iam list-users` names `iam list-user-policies` and
+  `iam list-user-groups`.
+- The global `--yes` help reads "confirm a destructive or
+  permission-changing operation".
+
 ## v0.91.1 - Flavor prices with GPU catalogs
 
 - `compute list-flavor-prices` (SDK `ListFlavorPrices`) works again.
