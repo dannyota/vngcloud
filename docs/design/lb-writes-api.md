@@ -1,6 +1,6 @@
 # vLB Writes: API
 
-Status: Accepted (2026-09-28), with [vLB writes](lb-writes.md).
+Status: Accepted, with [vLB writes](lb-writes.md).
 
 The calls, bodies, server rules, and price evidence behind
 [vLB writes](lb-writes.md). A shape marked "live" was seen on the test
@@ -20,7 +20,7 @@ account; the rest is inferred until its live check passes.
 - The vServer console's public JavaScript
   (`hcm-3.console.greennode.ai/vserver/`): the price request it sends
   before a create or a resize.
-- Read-only calls on the test account in `hcm-3` on 2026-09-28, through a
+- Read-only calls on the test account in `hcm-3`, through a
   throwaway program: packages, quotes, and not-found errors. The account
   has no load balancer. No write was sent.
 
@@ -97,7 +97,7 @@ From the reference, with VNG Cloud's SDK defaults in brackets.
   for HTTP checks, `healthCheckPath`, `healthCheckMethod` (`GET`, `POST`,
   `PUT`), `successCode`, `httpVersion` (`1.0`, `1.1`), and `domainName`.
   VNG Cloud's SDK drops the HTTP fields for TCP and PING-UDP checks.
-  Live (2026-10-09, `hcm-3`): an `HTTP` check with `healthCheckPath`,
+  Recorded live evidence (`hcm-3`): an `HTTP` check with `healthCheckPath`,
   `httpVersion`, and `domainName` set but no method or success code is
   refused with 400 `If healthCheckProtocol field is HTTP, following fields
   must be specified: healthCheckPath, healthCheckMethod, successCode,
@@ -108,7 +108,7 @@ From the reference, with VNG Cloud's SDK defaults in brackets.
 - Replace members: `members`, the whole list, each `ipAddress` (IPv4),
   `port`, `backup` (required), and optional `weight` [1], `name` (5 to 50
   of `a-z A-Z 0-9 _ - .`), and `monitorPort`. No member ID is sent.
-  Live (2026-10-09, `hcm-3`): `monitorPort` 0 is refused with 400
+  Recorded live evidence (`hcm-3`): `monitorPort` 0 is refused with 400
   `members[0].monitorPort: Invalid port number. The value must be in range
   from 1 to 65535.`, so a member sends its `port` when none is set.
 - Policy create: `name`, `action` (`REDIRECT_TO_POOL` or
@@ -117,7 +117,7 @@ From the reference, with VNG Cloud's SDK defaults in brackets.
   `ruleType` (`PATH` or `HOST_NAME`), `compareType` (`CONTAINS`,
   `ENDS_WITH`, `EQUAL_TO`, `REGEX`, `STARTS_WITH`), and `ruleValue`.
   Policy update: the same without `name`; `action` is required and
-  `rules` is the whole list. Live (2026-10-09, `hcm-3`): a create with no
+  `rules` is the whole list. Recorded live evidence (`hcm-3`): a create with no
   rules is refused with 400 `Missing required rules property;`, so both
   writes refuse an empty list before sending.
 
@@ -191,7 +191,7 @@ The console then drops `period`, `isPoc`, `isBuyMorePoc`, and
 `isEnableAutoRenew` and sends the rest as the create body. Scheme, type,
 and name are not priced.
 
-Live quotes for a create, `period` 1, on 2026-09-28, the same in all four
+Recorded create quotes, `period` 1, the same in all four
 `hcm-3` zones and with no `zoneId`:
 
 | Package | Layer | Connections | VND a month |
@@ -222,8 +222,12 @@ Live quotes for a create, `period` 1, on 2026-09-28, the same in all four
   Server Error`, so the SDK checks `PackageID` before quoting.
 - A resize quote for a missing load balancer returns 400 `The resource is
   not found.`: the server accepts the shape and checks the ID. Live: a
-  resize quote on a real load balancer prices the new package prorated for
-  the rest of the period, and is negative for a downsize.
+  resize quote on a real load balancer is negative for a downsize. This
+  records the sign, not proof of the exact server resize formula. The
+  public `QuoteResizeLoadBalancer` uses the
+  [signed pricing reader](vserver-paid-writes.md#resize-credits); the
+  private write reader independently accepts credits. Neither a signed
+  quote nor `QuotedPrice` confirms an actual refund.
 
 ## Server rules
 

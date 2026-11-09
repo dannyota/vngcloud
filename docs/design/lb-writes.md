@@ -1,17 +1,16 @@
 # vLB Writes Design
 
-Status: Accepted (2026-09-28). The owner approved every recommendation
+Status: Accepted. The owner approved every recommendation
 under [Owner decisions](#owner-decisions).
 
 This design adds paid vLB writes to `loadbalancer`: load balancer create,
 package change, and delete; listeners (HTTP, HTTPS, TCP, UDP); pools with
 their health monitors; pool members; and Layer 7 policies. A create or a
-package change costs money, so each one prices itself first and orders
-nothing above a limit the caller sets, default 0 VND.
+package change quotes first and compares the result with the caller's
+limit, default 0 VND; the API does not enforce a charge ceiling.
 
-The test account has no credit. The code is built and unit-tested with
-`httptest` now; each paid release's live checks and tag wait for credit.
-Quotes are reads and ship first.
+Quotes are reads. Paid live checks and releases retain their account,
+credit, resource, and approval gates.
 
 It follows [ADR 0002](../adr/0002-write-api-conventions.md) for every
 write (rule 8: every paid create has a quote built by the create's own
@@ -46,13 +45,10 @@ takes the same Input, and each quotes before it sends:
 
 1. Check the Input's shape, and that `MaxPrice` is finite and not
    negative (`ErrInvalidInput`).
-2. Quote with the same builder the write uses, reading the response
-   itself rather than through `pricing.GetQuote`: `GetQuoteOutput`'s
-   `OptimumPrice` is a plain `float64`, so a JSON `null` there silently
-   becomes 0, indistinguishable from a genuine zero price. The guard
-   reads the raw quote body and refuses a missing `optimumPrice` key, a
-   null one, or a NaN or infinite number, whatever pricing.GetQuote would
-   have done with the same response.
+2. Quote with the same builder the write uses. The write's private
+   reader rejects missing, null, and nonfinite prices independently of
+   `pricing.GetQuote`, which also rejects those shapes. Keep that reader
+   and the existing write guard unchanged by signed quote support.
 3. A create's quote of 0 or less, and a resize's quote of exactly 0,
    returns `ErrUnpriced`, sending nothing, whatever `MaxPrice` is: nothing
    in vLB is free, so the gateway could not price the input. A resize's
@@ -66,13 +62,16 @@ takes the same Input, and each quotes before it sends:
 `MaxPrice` is VND and defaults to 0, so a bare create orders nothing: the
 cheapest package quotes 400,000 VND a month. A create quote uses
 `period` 1, so it is the first month's price. A resize quote prices the
-new package prorated for the rest of the period, negative for a downsize;
-the guard compares whatever the quote says. The price can change
-between the quote and the write; the gap is one request.
+quoted adjustment for the remaining period, negative for a downsize.
+The API does not bind the quote to the write: another actor or price
+change can turn a credit into a charge. See the shared
+[race limits](vserver-paid-writes-api.md#resize-credits).
 
-`pricing.GetQuoteInput` gains `Action` (empty sends `create`, as today)
-and constants `ActionCreate`, `ActionResize`, and `ResourceLoadBalancer`
-(`load-balancer`). The change adds fields and breaks no caller.
+`QuoteResizeLoadBalancer` uses `pricing.GetQuote` with `ActionResize`
+and returns signed `OptimumPrice` under the
+[shared reader rule](vserver-paid-writes.md#resize-credits). Create quote
+reads still reject negatives. The private write reader already accepts
+resize credits and rejects nonpositive creates; this policy is unchanged.
 
 ## Load balancers
 
@@ -218,7 +217,8 @@ to `Changed` false, since step 3 already stops that case.
   and `KeepQueryString`; `REDIRECT_TO_URL` needs `RedirectURL` and refuses
   `RedirectPoolID`. The body carries only its action's fields. Other
   values go as given.
-- Update reads, merges, and sends the full body; a set `Rules` replaces the list; an empty merged list is refused.
+- Update reads, merges, and sends the full body; a set `Rules` replaces the
+  list; an empty merged list is refused.
 
 ## Busy
 
@@ -327,9 +327,9 @@ by amending this table.
 | `loadbalancer create-policy`, `update-policy` | Write | No | L6 |
 | `loadbalancer delete-policy` | Write, destructive | Yes | L6 |
 
-- Paid writes take `--max-price <vnd>`; without it every order is
-  refused, since a real quote is above 0. `NaN`, `Inf`, or a negative
-  value exits 2 before any request.
+- `--max-price <vnd>` defaults to 0. Positive quotes cannot pass that
+  default; negative resize quotes can. Both signed zeros are `ErrUnpriced`.
+  `NaN`, `Inf`, or a negative cap exits 2 before any request.
 - A [read-only](cli.md#read-only) profile refuses every write with exit 2
   before any request. The quotes are reads and run.
 - `--allowed-cidrs` is a comma-separated list, as the API takes it. `--yes`
@@ -400,9 +400,8 @@ the quotes.
    every listener create; none. Recommend the private-range check: unlike
    the `/0` check, several prefixes that together cover a public address
    cannot pass without it.
-4. `MaxPrice` default. Options: 0, so every paid write needs
-   `--max-price`; no default, a required flag. Recommend 0, as
-   `create-log-project` does.
+4. `MaxPrice` defaults to 0: positive quotes need `--max-price`;
+   resize credits pass the existing guard without it.
 5. Resize retries. Options: `Once`, never resent; the transport's normal
    `PUT` retries. Recommend `Once`: a resize is paid, and a resend after a
    5xx could race a resize already in progress.
