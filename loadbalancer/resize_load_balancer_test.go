@@ -128,3 +128,13 @@ func TestQuoteResizeLoadBalancerNotFoundPassesThrough(t *testing.T) {
 		t.Fatalf("err = %v, want IsNotFound false: a 400 is not classified as NotFound", err)
 	}
 }
+
+func TestQuoteResizeLoadBalancerCreditSynthetic(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"optimumPrice":-180797}`))
+	}))
+	out, err := c.QuoteResizeLoadBalancer(context.Background(), validResizeLoadBalancerInput())
+	if err != nil || out == nil || out.OptimumPrice != -180797 {
+		t.Fatalf("out = %+v, err = %v, want credit", out, err)
+	}
+}

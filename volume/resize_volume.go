@@ -20,8 +20,8 @@ type ResizeVolumeInput struct {
 	// Size must be positive and exceed the current volume size.
 	Size int `vngcloud:"required"`
 
-	// MaxPrice is VND a month; a paid ResizeVolume refuses to send above
-	// it. QuoteResizeVolume ignores it.
+	// MaxPrice caps the quoted adjustment in VND; default 0.
+	// QuoteResizeVolume ignores it.
 	MaxPrice float64
 	// NoWait skips ResizeVolume's post-resize wait. QuoteResizeVolume
 	// ignores it.

@@ -10,8 +10,7 @@ import (
 // (quoted > maxPrice) cannot compare any of those safely. NaN compares
 // false against every quote, which would silently disable the guard rather
 // than block an overpriced order; +Inf and -Inf are never a real budget;
-// and a negative value can never be exceeded by a live quote, the same
-// effective hole as NaN. Every paid write calls this before any request,
+// and a negative value is not a valid spending cap. Every paid write calls this before any request,
 // including its own quote.
 func CheckMaxPrice(op string, maxPrice float64) error {
 	if math.IsNaN(maxPrice) || math.IsInf(maxPrice, 0) || maxPrice < 0 {
@@ -27,7 +26,7 @@ func CheckMaxPrice(op string, maxPrice float64) error {
 // non-nil.
 func CheckPriceAboveMax(op string, quoted, maxPrice float64) error {
 	if quoted <= 0 {
-		return fmt.Errorf("%w: %s", ErrUnpriced, op)
+		return fmt.Errorf("%w: %s: quote %v VND", ErrUnpriced, op, quoted)
 	}
 	if quoted > maxPrice {
 		return fmt.Errorf("%w: %s: quote %.0f VND exceeds MaxPrice %.0f VND", ErrPriceAboveMax, op, quoted, maxPrice)

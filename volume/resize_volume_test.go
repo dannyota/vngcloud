@@ -507,3 +507,36 @@ func TestResizeVolumeZeroQuoteRefusesAndSendsNoResize(t *testing.T) {
 		t.Fatalf("resize calls = %d, want 0", resizeCalls.Load())
 	}
 }
+
+func TestQuoteResizeVolumeCreditSynthetic(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		routeResizeVolumeRequest(t, w, r,
+			func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(volumeBodyWithSize("AVAILABLE", 10)))
+			},
+			func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`{"optimumPrice":-180797}`)) }, nil)
+	}))
+	out, err := c.QuoteResizeVolume(context.Background(), &ResizeVolumeInput{VolumeID: "volume-1", Size: 20})
+	if err != nil || out == nil || out.OptimumPrice != -180797 {
+		t.Fatalf("out = %+v, err = %v, want credit", out, err)
+	}
+}
+
+func TestResizeVolumeNonpositiveQuoteNamesAmountSynthetic(t *testing.T) {
+	for _, price := range []string{"-180797", "0", "-0"} {
+		t.Run(price, func(t *testing.T) {
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				routeResizeVolumeRequest(t, w, r,
+					func(w http.ResponseWriter, _ *http.Request) {
+						_, _ = w.Write([]byte(volumeBodyWithSize("AVAILABLE", 10)))
+					},
+					func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`{"optimumPrice":` + price + `}`)) },
+					func(http.ResponseWriter, *http.Request) { t.Error("nonpositive quote sent a write") })
+			}))
+			out, err := c.ResizeVolume(context.Background(), &ResizeVolumeInput{VolumeID: "volume-1", Size: 20})
+			if out != nil || !errors.Is(err, vngcloud.ErrUnpriced) || !strings.Contains(err.Error(), price+" VND") {
+				t.Fatalf("out = %+v, err = %v, want amount and ErrUnpriced", out, err)
+			}
+		})
+	}
+}

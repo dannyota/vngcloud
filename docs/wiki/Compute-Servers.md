@@ -237,15 +237,15 @@ attaches to such a server; a server with plain disks refuses it with a 400
 
 ```go
 quote, err := client.QuoteResizeServer(ctx, &compute.ResizeServerInput{
-	ServerID: created.Server.UUID, FlavorID: "<bigger-flavor-id>",
+	ServerID: created.Server.UUID, FlavorID: "<target-flavor-id>",
 })
 if err != nil {
 	log.Fatal(err)
 }
 
 resized, err := client.ResizeServer(ctx, &compute.ResizeServerInput{
-	ServerID: created.Server.UUID, FlavorID: "<bigger-flavor-id>",
-	MaxPrice: quote.OptimumPrice,
+	ServerID: created.Server.UUID, FlavorID: "<target-flavor-id>",
+	MaxPrice: max(quote.OptimumPrice, 0),
 })
 switch {
 case errors.Is(err, vngcloud.ErrPriceAboveMax):
@@ -256,22 +256,34 @@ case err != nil:
 log.Println(resized.Server.Flavor.FlavorID, resized.MonthlyPrice)
 ```
 
-`ResizeServer` reads the server first: `FlavorID` equal to the server's
-current flavor fails with `vngcloud.ErrInvalidInput`, and a status other
-than `ACTIVE` or `STOPPED` fails with `compute.ErrUnexpectedStatus`; both
-send nothing. It otherwise follows `CreateServer`'s own price guard:
-`MaxPrice` defaults to 0, so `vngcloud.ErrPriceAboveMax` is the result
-without one, and a `NaN`, `+Inf`, `-Inf`, or negative `MaxPrice` is
-`vngcloud.ErrInvalidInput` before any request. The PUT is sent at most
-once (`transport.Request.Once`), the same as `StartServer`: a resend would
-act on the flavor read this call already took. A 4xx response proves the
-server never acted and is returned as is; any other failure wraps
-`compute.ErrNotSettled`, and the recovery is to run `ResizeServer` again.
+`QuoteResizeServer` is a read and works in CLI read-only mode. Its signed
+`OptimumPrice` is the quoted adjustment in VND for the remaining period.
+A negative amount is an expected credit, not a confirmed refund. JSON,
+table, and text keep the minus sign.
 
-Unless `NoWait` is set, `ResizeServer` then waits up to 15 minutes,
-polling every 5 seconds, for a read showing the new flavor with `Status`
-`ACTIVE` or `STOPPED`. `ERROR` wraps `compute.ErrFailed`, and the bound
-running out wraps `compute.ErrNotSettled`.
+`ResizeServer` reads the server first. The same flavor fails with
+`vngcloud.ErrInvalidInput`; a status outside `ACTIVE` or `STOPPED` fails
+with `compute.ErrUnexpectedStatus`. Both send nothing. A NaN, infinity,
+or negative `MaxPrice` fails before any request. Positive quotes above
+`MaxPrice` (default 0) wrap `vngcloud.ErrPriceAboveMax`. Either signed zero
+wraps `vngcloud.ErrUnpriced`. A credit passes every valid `MaxPrice`, so a
+CLI downsize needs `--yes` but can omit `--max-price`.
+
+`MaxPrice` compares the quote; the API cannot enforce a ceiling on the
+final charge. A concurrent flavor, price, or discount change can turn a
+quoted credit into a charge even with `MaxPrice` 0. Do not subtract
+expected credits from a spending budget or use them to fund another write.
+The gateway's exact adjustment formula remains unverified.
+
+The resize is sent once. After an ambiguous failure or failed wait, read
+`GetServer` to reconcile before considering another write. Partial Output
+retains the signed quote in `MonthlyPrice` and the last server. The quote
+is neither the final charge nor proof of a refund.
+
+Unless `NoWait` is set, the SDK polls every 5 seconds for up to 15 minutes
+for the new flavor and `ACTIVE` or `STOPPED`. `ERROR` wraps
+`compute.ErrFailed`; a timeout wraps `compute.ErrNotSettled`. `NoWait`
+returns the pre-resize server with the quote, without confirming the change.
 
 `ResizeServer` never grows the root disk; grow it with
 `volume.ResizeVolume` on the server's own `BootVolumeID`, from

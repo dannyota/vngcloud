@@ -442,7 +442,7 @@ vngcloud compute quote-create-server --zone-id <zone-id> --flavor-id <flavor-id>
 
 Kind: Read.
 
-Never sends a resize: prices the flavor change ResizeServerInput describes without sending it. OptimumPrice and every other price are VND a month. Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern only an actual resize. Prices are VND totals that include VAT; the API gives no VAT breakdown.
+Never sends a resize. OptimumPrice is the signed quoted adjustment in VND for the remaining period. A negative value is an expected credit, not a confirmed refund. JSON, table, and text retain the minus sign. Ignores MaxPrice and NoWait, which govern only an actual resize. Runs in read-only mode. Prices are VND totals that include VAT; the API gives no VAT breakdown.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -493,7 +493,7 @@ vngcloud compute rename-server --server-id <server-id> --name <name>
 
 Kind: Write, destructive.
 
-Needs --yes: a resize restarts the server and may charge more. Sends nothing above --max-price, default 0: a bare resize-server refuses with error code PriceAboveMax until --max-price is raised to at least the quoted price. Refuses, before any request, with error code InvalidUsage when --flavor-id already names the server's current flavor, and with error code UnexpectedStatus when the server is neither ACTIVE nor STOPPED. The resize is sent at most once and never retried after a failure that may have already reached the server; check get-server rather than repeating this command, since a repeat risks a second charge. Without --no-wait, waits up to 15 minutes for a read showing the new flavor with Status ACTIVE or STOPPED; ERROR during that wait is WriteFailed, and the bound running out is NotSettled either way, check get-server rather than repeating this command. The root disk does not grow with the flavor; use resize-volume on the server's own BootVolumeID (see get-server) for that.
+Needs --yes: a resize restarts the server and may charge more. --max-price caps a positive quoted adjustment in VND, default 0. A negative quote passes without --max-price; zero is refused as Unpriced. MonthlyPrice retains the signed quote, not the final charge or a confirmed refund. A concurrent flavor, price, or discount change can turn a quoted credit into a charge even with --max-price 0: the API cannot enforce the cap on the final charge. Refuses invalid --max-price before any request. The same flavor is InvalidUsage; a server outside ACTIVE or STOPPED is UnexpectedStatus. Sends the resize once. After uncertainty or a failed wait, check get-server to reconcile before considering another write. Without --no-wait, waits up to 15 minutes, polling every 5 seconds, for the new flavor and ACTIVE or STOPPED. ERROR is WriteFailed; a timeout is NotSettled. Partial output retains the signed quote and last server. --no-wait returns the pre-resize server with the quote. The root disk grows through resize-volume on BootVolumeID.
 
 If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it. Prices are VND totals that include VAT; the API gives no VAT breakdown.
 

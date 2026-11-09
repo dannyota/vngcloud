@@ -331,15 +331,18 @@ func TestValidQuotePrice(t *testing.T) {
 		{"positive", ptrFloat64(347800), false},
 	}
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			_, err := validQuotePrice("op", tc.price)
-			if tc.wantErr && err == nil {
-				t.Fatal("err = nil, want an error")
-			}
-			if !tc.wantErr && err != nil {
-				t.Fatalf("err = %v, want nil", err)
-			}
-		})
+		for _, action := range []string{ActionCreate, ActionResize} {
+			t.Run(tc.name+"/"+action, func(t *testing.T) {
+				wantErr := tc.wantErr && (tc.name != "negative" || action != ActionResize)
+				_, err := validQuotePrice("op", action, tc.price)
+				if wantErr && err == nil {
+					t.Fatal("err = nil, want an error")
+				}
+				if !wantErr && err != nil {
+					t.Fatalf("err = %v, want nil", err)
+				}
+			})
+		}
 	}
 }
 

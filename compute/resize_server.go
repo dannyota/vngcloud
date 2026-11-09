@@ -20,8 +20,9 @@ type ResizeServerInput struct {
 	// FlavorID is required; use ASCII letters, digits, or hyphens.
 	FlavorID string `vngcloud:"required"`
 
-	// MaxPrice is VND a month; a paid ResizeServer refuses to send above
-	// it. QuoteResizeServer ignores it.
+	// MaxPrice caps the positive quoted adjustment in VND; default 0.
+	// A credit passes any valid cap. The API cannot enforce this cap on
+	// the final charge. QuoteResizeServer ignores it.
 	MaxPrice float64
 	// NoWait skips ResizeServer's post-resize wait. QuoteResizeServer
 	// ignores it.
@@ -73,8 +74,8 @@ func (c *Client) QuoteResizeServer(ctx context.Context, in *ResizeServerInput) (
 	})
 }
 
-// ResizeServerOutput is ResizeServer's result. MonthlyPrice is the quote's
-// own OptimumPrice, the price actually checked against Input.MaxPrice.
+// ResizeServerOutput is ResizeServer's result. MonthlyPrice holds the signed
+// quoted adjustment in VND, not the final charge or a confirmed refund.
 type ResizeServerOutput struct {
 	Server       Server
 	MonthlyPrice float64
@@ -90,7 +91,9 @@ type ResizeServerOutput struct {
 // the same builder QuoteResizeServer uses, and sends that body to the
 // quote endpoint first. It refuses with vngcloud.ErrPriceAboveMax, sending
 // nothing, when the quote's OptimumPrice exceeds Input.MaxPrice (default
-// 0).
+// 0). A finite credit passes every valid MaxPrice; either signed zero is
+// ErrUnpriced. The API has no price or old-flavor condition, so a concurrent
+// change can turn a quoted credit into a charge even with MaxPrice 0.
 //
 // The resize PUT is sent at most once (transport.Request.Once), per ADR
 // 0003: a resend would act on the flavor read this call already took,
@@ -105,7 +108,8 @@ type ResizeServerOutput struct {
 // ACTIVE or STOPPED. ERROR wraps ErrFailed; the bound running out, or a
 // read or a sleep failing, wraps ErrNotSettled, again naming GetServer as
 // the read to run. NoWait returns at once instead, with Output.Server
-// holding the pre-resize read.
+// holding the pre-resize read. Output retains the signed quote after an
+// ambiguous send or failed wait.
 func (c *Client) ResizeServer(ctx context.Context, in *ResizeServerInput) (*ResizeServerOutput, error) {
 	const op = "compute.ResizeServer"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -142,8 +146,12 @@ func (c *Client) ResizeServer(ctx context.Context, in *ResizeServerInput) (*Resi
 	if err != nil {
 		return nil, err
 	}
-	if err := core.CheckPriceAboveMax(op, quote.OptimumPrice, in.MaxPrice); err != nil {
-		return nil, err
+	// Credits pass every valid MaxPrice; the shared guard stays positive-only.
+	if quote.OptimumPrice >= 0 {
+		if err := core.CheckPriceAboveMax(op, quote.OptimumPrice, in.MaxPrice); err != nil {
+			return nil, err
+		}
+
 	}
 
 	projectID, err := c.c.RequireProjectID(ctx)
@@ -162,7 +170,7 @@ func (c *Client) ResizeServer(ctx context.Context, in *ResizeServerInput) (*Resi
 		if is4xxAPIError(err) {
 			return nil, err
 		}
-		return &ResizeServerOutput{Server: current.Server}, fmt.Errorf("%w: %s: server %s: call GetServer to check its status: %w", ErrNotSettled, op, in.ServerID, err)
+		return &ResizeServerOutput{Server: current.Server, MonthlyPrice: quote.OptimumPrice}, fmt.Errorf("%w: %s: server %s: call GetServer to check its status: %w", ErrNotSettled, op, in.ServerID, err)
 	}
 
 	if in.NoWait {
@@ -190,7 +198,7 @@ func (c *Client) waitServerResized(ctx context.Context, op, serverID, wantFlavor
 			server = &out.Server
 			switch {
 			case isServerError(server.Status):
-				return true, fmt.Errorf("%w: %s: server %s is ERROR", ErrFailed, op, serverID)
+				return true, fmt.Errorf("%w: %s: server %s is ERROR; call GetServer to check its status", ErrFailed, op, serverID)
 			case server.Flavor.FlavorID == wantFlavorID &&
 				(strings.EqualFold(server.Status, serverStatusActive) || strings.EqualFold(server.Status, serverStatusStopped)):
 				return true, nil
@@ -204,7 +212,7 @@ func (c *Client) waitServerResized(ctx context.Context, op, serverID, wantFlavor
 		},
 	)
 	if err != nil && !errors.Is(err, ErrFailed) && !errors.Is(err, ErrNotSettled) {
-		err = fmt.Errorf("%w: %s: server %s: %w", ErrNotSettled, op, serverID, err)
+		err = fmt.Errorf("%w: %s: server %s: call GetServer to check its status: %w", ErrNotSettled, op, serverID, err)
 	}
 	return server, err
 }

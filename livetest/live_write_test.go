@@ -8188,7 +8188,7 @@ func newLiveSpend(cap float64) *liveSpend {
 // cap, naming both amounts; a negative quote (a resize-down refund) is
 // never refused and never lowers the running total, so a refund cannot buy
 // room for a later order. On success it records a positive quote against the
-// running total and returns quote, so a caller can pass the result straight to MaxPrice.
+// running total and returns max(quote, 0) for the write's MaxPrice.
 func (s *liveSpend) checkAndAdd(t *testing.T, step string, quote float64) (float64, bool) {
 	t.Helper()
 	if quote > 0 && s.spent+quote > s.cap {
@@ -8198,7 +8198,7 @@ func (s *liveSpend) checkAndAdd(t *testing.T, step string, quote float64) (float
 	if quote > 0 {
 		s.spent += quote
 	}
-	return quote, true
+	return max(quote, 0), true
 }
 
 // liveResizeMaxPrice returns the MaxPrice a live resize should send for
@@ -10557,14 +10557,8 @@ func TestLiveWritePaidResize(t *testing.T) {
 	}
 	volumeInput := &volume.CreateVolumeInput{Name: name + "-data", ZoneID: zoneID, Size: 10, VolumeTypeID: volType.VolumeType.ID}
 
-	// Step 4: quote the create writes, and refuse to order anything once
-	// their sum exceeds this run's cap, before any write. spent tracks the
-	// running total of every quote accepted so far in this run: each later
-	// step checks spent plus its own quote against budgetCap, not the quote
-	// alone, since checking each quote against the full cap in isolation
-	// would let the run's total spend exceed it even though no single quote
-	// did.
-	var spent float64
+	// Count positive quotes only; an expected credit never funds another write.
+	spend := newLiveSpend(budgetCap)
 	serverQuote, err := computeClient.QuoteCreateServer(ctx, serverInput)
 	if err != nil {
 		t.Fatalf("step 4 QuoteCreateServer: %s", safeErr(err))
@@ -10573,10 +10567,13 @@ func TestLiveWritePaidResize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("step 4 QuoteCreateVolume: %s", safeErr(err))
 	}
-	if createTotal := serverQuote.OptimumPrice + volumeQuote.OptimumPrice; spent+createTotal > budgetCap {
-		t.Fatalf("step 4: create total %.0f VND exceeds this run's cap %.0f VND; ordering nothing", createTotal, budgetCap)
-	} else {
-		spent += createTotal
+	serverMaxPrice, ok := spend.checkAndAdd(t, "step 4 server", serverQuote.OptimumPrice)
+	if !ok {
+		t.FailNow()
+	}
+	volumeMaxPrice, ok := spend.checkAndAdd(t, "step 4 volume", volumeQuote.OptimumPrice)
+	if !ok {
+		t.FailNow()
 	}
 
 	t.Cleanup(func() {
@@ -10590,7 +10587,7 @@ func TestLiveWritePaidResize(t *testing.T) {
 	})
 
 	// Step 5: order the server and the data volume, attach the volume.
-	serverInput.MaxPrice = serverQuote.OptimumPrice
+	serverInput.MaxPrice = serverMaxPrice
 	server, err := computeClient.CreateServer(ctx, serverInput)
 	if err != nil {
 		t.Fatalf("step 5 CreateServer: %s", safeErr(err))
@@ -10599,7 +10596,7 @@ func TestLiveWritePaidResize(t *testing.T) {
 	bootVolumeID := server.Server.BootVolumeID
 	t.Logf("step 5: server %s at status %s, boot volume %s", serverID, server.Server.Status, bootVolumeID)
 
-	volumeInput.MaxPrice = volumeQuote.OptimumPrice
+	volumeInput.MaxPrice = volumeMaxPrice
 	createdVolume, err := volumeClient.CreateVolume(ctx, volumeInput)
 	if err != nil {
 		t.Fatalf("step 5 CreateVolume: %s", safeErr(err))
@@ -10617,11 +10614,11 @@ func TestLiveWritePaidResize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("step 6 QuoteResizeVolume: %s", safeErr(err))
 	}
-	if spent+dataResizeQuote.OptimumPrice > budgetCap {
-		t.Fatalf("step 6: spent %.0f VND plus resize quote %.0f VND exceeds this run's cap %.0f VND; resizing nothing", spent, dataResizeQuote.OptimumPrice, budgetCap)
+	dataMaxPrice, ok := spend.checkAndAdd(t, "step 6", dataResizeQuote.OptimumPrice)
+	if !ok {
+		t.FailNow()
 	}
-	spent += dataResizeQuote.OptimumPrice
-	resizedData, err := volumeClient.ResizeVolume(ctx, &volume.ResizeVolumeInput{VolumeID: volumeID, Size: 20, MaxPrice: dataResizeQuote.OptimumPrice})
+	resizedData, err := volumeClient.ResizeVolume(ctx, &volume.ResizeVolumeInput{VolumeID: volumeID, Size: 20, MaxPrice: dataMaxPrice})
 	if err != nil {
 		t.Fatalf("step 6 ResizeVolume (data): %s", safeErr(err))
 	}
@@ -10635,11 +10632,11 @@ func TestLiveWritePaidResize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("step 7 QuoteResizeServer: %s", safeErr(err))
 	}
-	if spent+serverResizeQuote.OptimumPrice > budgetCap {
-		t.Fatalf("step 7: spent %.0f VND plus resize quote %.0f VND exceeds this run's cap %.0f VND; resizing nothing", spent, serverResizeQuote.OptimumPrice, budgetCap)
+	serverResizeMaxPrice, ok := spend.checkAndAdd(t, "step 7", serverResizeQuote.OptimumPrice)
+	if !ok {
+		t.FailNow()
 	}
-	spent += serverResizeQuote.OptimumPrice
-	resizedServer, err := computeClient.ResizeServer(ctx, &compute.ResizeServerInput{ServerID: serverID, FlavorID: bigFlavorID, MaxPrice: serverResizeQuote.OptimumPrice})
+	resizedServer, err := computeClient.ResizeServer(ctx, &compute.ResizeServerInput{ServerID: serverID, FlavorID: bigFlavorID, MaxPrice: serverResizeMaxPrice})
 	if err != nil {
 		t.Fatalf("step 7 ResizeServer: %s", safeErr(err))
 	}
@@ -10650,12 +10647,11 @@ func TestLiveWritePaidResize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("step 8 QuoteResizeVolume (boot): %s", safeErr(err))
 	}
-	// This is the run's last quoted spend, so nothing reads spent again
-	// after this check; an assignment here would be dead.
-	if spent+bootResizeQuote.OptimumPrice > budgetCap {
-		t.Fatalf("step 8: spent %.0f VND plus resize quote %.0f VND exceeds this run's cap %.0f VND; resizing nothing", spent, bootResizeQuote.OptimumPrice, budgetCap)
+	bootMaxPrice, ok := spend.checkAndAdd(t, "step 8", bootResizeQuote.OptimumPrice)
+	if !ok {
+		t.FailNow()
 	}
-	resizedBoot, err := volumeClient.ResizeVolume(ctx, &volume.ResizeVolumeInput{VolumeID: bootVolumeID, Size: 30, MaxPrice: bootResizeQuote.OptimumPrice})
+	resizedBoot, err := volumeClient.ResizeVolume(ctx, &volume.ResizeVolumeInput{VolumeID: bootVolumeID, Size: 30, MaxPrice: bootMaxPrice})
 	if err != nil {
 		t.Fatalf("step 8 ResizeVolume (boot): %s", safeErr(err))
 	}
@@ -12463,5 +12459,21 @@ func TestLiveWriteStorageBucketSettings(t *testing.T) {
 		vngcloud.IsNotFound(vErr), vngcloud.IsNotFound(cErr), vngcloud.IsNotFound(pErr))
 	if !vngcloud.IsNotFound(vErr) || !vngcloud.IsNotFound(cErr) || !vngcloud.IsNotFound(pErr) {
 		t.Error("step 7: a call on the deleted bucket is not ErrNotFound")
+	}
+}
+
+func TestLiveSpendCreditSynthetic(t *testing.T) {
+	spend := liveSpend{cap: 100}
+	for _, step := range []struct {
+		quote, wantMax, wantSpent float64
+	}{
+		{80, 80, 80},
+		{-180797, 0, 80},
+		{20, 20, 100},
+	} {
+		maxPrice, ok := spend.checkAndAdd(t, "synthetic budget", step.quote)
+		if !ok || maxPrice != step.wantMax || spend.spent != step.wantSpent {
+			t.Fatalf("quote %v: MaxPrice %v, spent %v, ok %v", step.quote, maxPrice, spend.spent, ok)
+		}
 	}
 }

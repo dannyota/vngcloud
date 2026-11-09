@@ -297,9 +297,11 @@ write itself once it orders something, and neither sends user data.
 
 `computeClient.QuoteResizeServer` and `volumeClient.QuoteResizeVolume` price
 a flavor change or a grow the same way, from `compute.ResizeServerInput`
-and `volume.ResizeVolumeInput`. A resize quote is the new configuration's
-price for the rest of the current period, prorated to the minute, not the
-difference from the old one. `QuoteResizeVolume` reads the volume fresh
+and `volume.ResizeVolumeInput`. A resize `OptimumPrice` is a signed quoted
+adjustment in VND for the remaining period. A negative amount is an
+expected credit, not a confirmed refund. The exact gateway formula is
+unverified. JSON, table, and text retain the minus sign. `QuoteResizeVolume`
+reads the volume fresh
 on every call to learn its current size and type, independently of
 `ResizeVolume`'s own read, the same way `QuoteCreateLogProject` always
 rereads its own class list rather than sharing a read with its create.
@@ -312,12 +314,28 @@ already exists, rather than a create: it takes a
 server's own error unchanged, since the price guard checks input shape, not
 that the resource exists.
 
-A paid write refuses to order above its own `MaxPrice` (VND a month, default
-0), with an error wrapping `vngcloud.ErrPriceAboveMax`. The load balancer
-writes also refuse a create quote of 0 or less, or a resize quote of
-exactly 0 (a negative resize quote is a refund and passes), whatever
-`MaxPrice` is, with an error wrapping `vngcloud.ErrUnpriced`: nothing in
-vLB is free, so such a quote means the gateway could not price the input.
+`pricing.GetQuote` accepts a finite negative `optimumPrice` only for exact
+`Action: pricing.ActionResize`, for every resource type. Empty action sends
+`create`; create, unknown, whitespace, and case variants refuse negatives
+as `*vngcloud.APIError` with nil Output. Missing, null, malformed, NaN, and
+infinite prices also fail with nil Output. Either signed zero is a valid
+quote read. Each pricing response is limited to 1 MiB. Quote commands run
+in CLI read-only mode.
+
+A paid write compares its quote with `MaxPrice` (default 0): monthly VND
+for creates, the quoted adjustment for resizes. An excess wraps
+`vngcloud.ErrPriceAboveMax`. `ResizeServer` and `ResizeLoadBalancer` accept
+a credit at every valid cap but refuse zero with `vngcloud.ErrUnpriced`.
+`ResizeVolume` refuses every nonpositive quote, naming the amount. Create
+quote reads refuse negatives; paid server, volume, and load balancer
+creates also refuse zero. `MonthlyPrice` retains its name and signed
+`float64` type; it holds the quote, not the final charge or refund.
+
+The API cannot enforce `MaxPrice` on the final charge. A concurrent
+resource, price, or discount change can turn a quoted credit into a charge
+even with `MaxPrice` 0. Never subtract expected credits from a run's spend
+or use them to fund another operation. After an uncertain server resize,
+read `GetServer` before considering another write; do not resend blindly.
 
 ```go
 if _, err := monitorClient.CreateLogProject(ctx, in); errors.Is(err, vngcloud.ErrPriceAboveMax) {
@@ -344,15 +362,10 @@ guarantee:
 | SSD volume | ~3,200 a GB |
 | Volume, 10 GB SSD | ~32,000 |
 
-Every paid create or resize in `compute` and `volume` refuses to send a
-write priced above its own `MaxPrice`, which defaults to 0: setting
-`MaxPrice` is the caller's explicit consent to pay up to that amount, the
-role the CLI's `--max-price` flag plays for the matching command. A quote
-of 0 is refused with `vngcloud.ErrUnpriced`: nothing in vServer is free, so
-the gateway could not price the input. A
-destructive write, such as deleting a server or a volume, needs no price
-consent, since it does not order anything; the CLI instead requires its
-`--yes` flag there, since a delete cannot be undone.
+Every paid create or resize in `compute` and `volume` follows the quote
+policy above. The CLI requires `--yes` for server resize because it
+restarts the server; a credit needs no `--max-price`. Deleting a server or
+volume also requires `--yes`, since a delete cannot be undone.
 
 If a server or volume is managed by OpenTofu or Terraform, a write made
 through the SDK drifts from that state; keep such a resource's writes in

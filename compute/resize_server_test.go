@@ -229,14 +229,20 @@ func TestResizeServerQuoteFailureSendsNoResize(t *testing.T) {
 
 // TestResizeServerInvalidQuotePriceSendsNoResize checks that a quote
 // response carrying a price the guard cannot safely compare, null,
-// negative, or a bare NaN literal, refuses the resize with nothing sent.
+// missing, or nonfinite, refuses the resize with nothing sent.
 func TestResizeServerInvalidQuotePriceSendsNoResize(t *testing.T) {
 	cases := []struct {
 		name      string
 		quoteBody string
 	}{
 		{"null price", `{"optimumPrice":null}`},
-		{"negative price", `{"optimumPrice":-100}`},
+		{"missing price", `{}`},
+		{"wrong type", `{"optimumPrice":"credit"}`},
+		{"positive infinity", `{"optimumPrice":Infinity}`},
+		{"negative infinity", `{"optimumPrice":-Infinity}`},
+		{"positive overflow", `{"optimumPrice":1e309}`},
+		{"negative overflow", `{"optimumPrice":-1e309}`},
+		{"oversized credit", `{"optimumPrice":-180797}` + strings.Repeat(" ", 1<<20)},
 		{"NaN literal", `{"optimumPrice":NaN}`},
 	}
 	for _, tc := range cases {
@@ -259,8 +265,10 @@ func TestResizeServerInvalidQuotePriceSendsNoResize(t *testing.T) {
 
 			in := validResizeServerInput()
 			in.MaxPrice = 1000000
-			if _, err := c.ResizeServer(context.Background(), in); err == nil {
-				t.Fatal("err = nil, want an error for an invalid quote price")
+			out, err := c.ResizeServer(context.Background(), in)
+			var apiErr *vngcloud.APIError
+			if out != nil || !errors.As(err, &apiErr) {
+				t.Fatalf("out = %+v, err = %v, want nil Output and APIError", out, err)
 			}
 			if resizeCalls.Load() != 0 {
 				t.Fatalf("resize calls = %d, want 0", resizeCalls.Load())

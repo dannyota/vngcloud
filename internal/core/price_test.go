@@ -2,7 +2,9 @@ package core
 
 import (
 	"errors"
+	"fmt"
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -52,6 +54,15 @@ func TestCheckPriceAboveMaxRefusesUnpricedQuote(t *testing.T) {
 	for _, quoted := range []float64{0, -1} {
 		if err := CheckPriceAboveMax("op", quoted, 100); !errors.Is(err, ErrUnpriced) {
 			t.Fatalf("quoted %v: err = %v, want ErrUnpriced", quoted, err)
+		}
+	}
+}
+
+func TestCheckPriceAboveMaxNamesNonpositiveAmountSynthetic(t *testing.T) {
+	for _, price := range []float64{0, -180797} {
+		err := CheckPriceAboveMax("volume.ResizeVolume", price, 1000000)
+		if !errors.Is(err, ErrUnpriced) || !strings.Contains(err.Error(), fmt.Sprint(price)+" VND") {
+			t.Fatalf("price %v: err = %v, want ErrUnpriced naming amount", price, err)
 		}
 	}
 }

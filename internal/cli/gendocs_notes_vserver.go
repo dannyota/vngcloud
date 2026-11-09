@@ -138,31 +138,22 @@ const volumeDetachVolumeNote = "Needs --yes: detaching a volume can lose unwritt
 	"read AVAILABLE; ERROR during that wait is WriteFailed, and the bound running out is NotSettled, a rerun " +
 	"is safe, since this command always reads first.\n\n" + vserverDriftNote
 
-// computeResizeServerNote documents resize-server's own price guard,
-// same-flavor and status guards, why it needs --yes, its wait bound, and
-// its own recovery advice: the flag table shows --max-price as a plain,
-// optional float with no hint that a bare resize-server, with --max-price
-// left at 0, already refuses almost every real flavor change, or that a
-// rerun after an ambiguous failure is unsafe.
-const computeResizeServerNote = "Needs --yes: a resize restarts the server and may charge more. Sends " +
-	"nothing above --max-price, default 0: a bare resize-server refuses with error code PriceAboveMax " +
-	"until --max-price is raised to at least the quoted price. Refuses, before any request, with error code " +
-	"InvalidUsage when --flavor-id already names the server's current flavor, and with error code " +
-	"UnexpectedStatus when the server is neither ACTIVE nor STOPPED. The resize is sent at most once and " +
-	"never retried after a failure that may have already reached the server; check get-server rather than " +
-	"repeating this command, since a repeat risks a second charge. Without --no-wait, waits up to 15 " +
-	"minutes for a read showing the new flavor with Status ACTIVE or STOPPED; ERROR during that wait is " +
-	"WriteFailed, and the bound running out is NotSettled either way, check get-server rather than " +
-	"repeating this command. The root disk does not grow with the flavor; use resize-volume on the " +
-	"server's own BootVolumeID (see get-server) for that.\n\n" + vserverDriftNote
+// computeResizeServerNote documents the credit policy, consent, and recovery.
+const computeResizeServerNote = "Needs --yes: a resize restarts the server and may charge more. " +
+	"--max-price caps a positive quoted adjustment in VND, default 0. A negative quote passes without " +
+	"--max-price; zero is refused as Unpriced. MonthlyPrice retains the signed quote, not the final charge " +
+	"or a confirmed refund. A concurrent flavor, price, or discount change can turn a quoted credit into " +
+	"a charge even with --max-price 0: the API cannot enforce the cap on the final charge. " +
+	"Refuses invalid --max-price before any request. The same flavor is InvalidUsage; a server outside " +
+	"ACTIVE or STOPPED is UnexpectedStatus. Sends the resize once. After uncertainty or a failed wait, " +
+	"check get-server to reconcile before considering another write. Without --no-wait, waits up to " +
+	"15 minutes, polling every 5 seconds, for the new flavor and ACTIVE or STOPPED. ERROR is WriteFailed; " +
+	"a timeout is NotSettled. Partial output retains the signed quote and last server. --no-wait returns " +
+	"the pre-resize server with the quote. The root disk grows through resize-volume on BootVolumeID.\n\n" + vserverDriftNote
 
-// computeQuoteResizeServerNote documents quote-resize-server's own price
-// guard exemptions and unit, matching computeQuoteCreateServerNote's shape
-// for the two fields ResizeServerInput shares with every other paid write's
-// Input.
-const computeQuoteResizeServerNote = "Never sends a resize: prices the flavor change ResizeServerInput " +
-	"describes without sending it. OptimumPrice and every other price are VND a month. Ignores MaxPrice and " +
-	"NoWait even when an inline --cli-input-json value sets them: both govern only an actual resize."
+// computeQuoteResizeServerNote documents signed reads and ignored write flags.
+const computeQuoteResizeServerNote = "Never sends a resize. " + signedResizeQuoteNote +
+	" Ignores MaxPrice and NoWait, which govern only an actual resize. Runs in read-only mode."
 
 // volumeResizeVolumeNote documents resize-volume's own price guard,
 // grow-only and status guards, why it needs --yes, its wait bound, and its
@@ -171,7 +162,8 @@ const computeQuoteResizeServerNote = "Never sends a resize: prices the flavor ch
 // type never changes, or that a rerun after an ambiguous failure is unsafe.
 const volumeResizeVolumeNote = "Needs --yes: a resize can charge more, and this design only grows a volume. " +
 	"Sends nothing above --max-price, default 0: a bare resize-volume refuses with error code PriceAboveMax " +
-	"until --max-price is raised to at least the quoted price. Refuses, before any request, with error code " +
+	"until --max-price is raised to at least the quoted price. A quote at or below zero is refused as Unpriced, " +
+	"with the amount in the message. MaxPrice is VND for the quoted adjustment. Refuses, before any request, with error code " +
 	"InvalidUsage when --size is at or below the volume's current size, since shrinking would cut off the " +
 	"end of the data, and with error code UnexpectedStatus when the volume is neither AVAILABLE nor " +
 	"IN-USE. Resends the volume's own current volume type, so a type never changes by accident. The resize " +
@@ -188,9 +180,9 @@ const volumeResizeVolumeNote = "Needs --yes: a resize can charge more, and this 
 // fields, with no hint that this read still reaches the network once for
 // the volume's own current size and type before it ever reaches the quote.
 const volumeQuoteResizeVolumeNote = "Reads the volume first, on every call, for its current size and type, " +
-	"then prices the grow --size describes without sending it. OptimumPrice and every other price are VND a " +
-	"month. Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern " +
-	"only an actual resize."
+	"then prices the grow --size describes without sending it. " + signedResizeQuoteNote +
+	" This read accepts credits; resize-volume still refuses nonpositive quotes. Ignores MaxPrice and NoWait, " +
+	"which govern only an actual resize. Runs in read-only mode."
 
 // idsForCreateServerLink points the commands that take or find a server's
 // IDs at the page that maps each create-server flag to its lookup command.

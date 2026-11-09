@@ -340,14 +340,22 @@ volume's current `VolumeTypeID` back as `newVolumeTypeId`, which the API
 requires on every resize, so a type never changes by accident. It
 otherwise follows `CreateVolume`'s own price guard: `MaxPrice` defaults to
 0, and a `NaN`, `+Inf`, `-Inf`, or negative `MaxPrice` is
-`vngcloud.ErrInvalidInput` before any request. `QuoteResizeVolume` reads
-the volume fresh on every call, independently of `ResizeVolume`'s own
-read, to learn its current size and type.
+`vngcloud.ErrInvalidInput` before any request. `MaxPrice` compares the
+quoted adjustment in VND for the remaining period. `QuoteResizeVolume`
+reads the volume fresh on every call for its current size and type and
+returns signed `OptimumPrice`. A negative amount is an expected credit,
+not a confirmed refund; JSON, table, and text keep the minus sign. The
+quote works in CLI read-only mode. `ResizeVolume` still refuses every
+nonpositive quote with `vngcloud.ErrUnpriced`, naming the amount and
+sending no write. Server resize has a different
+[credit policy](Compute-Servers.md#resizing-a-server).
 
 The resize `PUT` is sent at most once (`transport.Request.Once`): a resend
 would act on the size read this call already took. A 4xx response proves
 the server never acted and is returned as is; any other failure wraps
-`volume.ErrNotSettled`, and the recovery is to run `ResizeVolume` again.
+`volume.ErrNotSettled`. Read `GetVolume` to reconcile before considering
+another write. The quote is not a final charge; the API cannot enforce
+`MaxPrice` on the eventual charge.
 Unless `NoWait` is set, it then waits up to 5 minutes, polling every 2
 seconds, for a read showing the new size with `Status` `AVAILABLE` or
 `IN-USE`. `ERROR` wraps `volume.ErrFailed`.

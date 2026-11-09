@@ -1,9 +1,10 @@
-// Package pricing prices a resource before it is created, on the regional
+// Package pricing prices a create or resize on the regional
 // billing gateway. GetQuote changes nothing and places no order.
 package pricing
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -60,7 +61,9 @@ type GetQuoteInput struct {
 	ResourceInfo map[string]any
 }
 
-// GetQuoteOutput is the account's current price for the requested resource.
+// GetQuoteOutput is the account's current quote, recorded in
+// docs/design/vserver-paid-writes-api.md. A resize OptimumPrice is signed:
+// a negative value is an expected credit, not confirmation of a refund.
 type GetQuoteOutput struct {
 	OptimumPrice    float64
 	OriginalPrice   float64
@@ -69,7 +72,8 @@ type GetQuoteOutput struct {
 	Properties      []PriceProperty
 }
 
-// PriceProperty is one line item of a quote's propertiesPrice list.
+// PriceProperty is a quote line item; its wire fields are recorded in
+// docs/design/vserver-paid-writes-api.md.
 type PriceProperty struct {
 	Name            string
 	Description     string
@@ -125,6 +129,7 @@ func (c *Client) GetQuote(ctx context.Context, in *GetQuoteInput) (*GetQuoteOutp
 	}
 
 	var resp quoteResponse
+	var sentCredentials []string
 	req := transport.Request{
 		Operation: op,
 		Method:    http.MethodPost,
@@ -134,14 +139,19 @@ func (c *Client) GetQuote(ctx context.Context, in *GetQuoteInput) (*GetQuoteOutp
 			Action:       action,
 			ResourceInfo: in.ResourceInfo,
 		},
-		OK:         []int{200},
-		Idempotent: true,
+		OK:              []int{200},
+		Idempotent:      true,
+		MaxBody:         1 << 20,
+		SentCredentials: &sentCredentials,
 	}
 	if err := c.c.DoJSON(ctx, req, &resp); err != nil {
+		if errors.Is(err, transport.ErrBodyTooLarge) {
+			return nil, &core.APIError{Operation: op, Message: "quote response exceeds 1 MiB", Err: err}
+		}
 		return nil, err
 	}
 
-	price, err := validQuotePrice(op, resp.OptimumPrice)
+	price, err := validQuotePrice(op, action, resp.OptimumPrice)
 	if err != nil {
 		return nil, err
 	}
@@ -149,6 +159,8 @@ func (c *Client) GetQuote(ctx context.Context, in *GetQuoteInput) (*GetQuoteOutp
 	properties := make([]PriceProperty, len(resp.PropertiesPrice))
 	for i, p := range resp.PropertiesPrice {
 		properties[i] = PriceProperty(p)
+		properties[i].Name = transport.RedactErrorText(p.Name, sentCredentials...)
+		properties[i].Description = transport.RedactErrorText(p.Description, sentCredentials...)
 	}
 	return &GetQuoteOutput{
 		OptimumPrice:    price,
@@ -159,23 +171,13 @@ func (c *Client) GetQuote(ctx context.Context, in *GetQuoteInput) (*GetQuoteOutp
 	}, nil
 }
 
-// validQuotePrice returns price's value, refusing every shape a paid
-// write's guard (quoted > MaxPrice) cannot compare safely. price is nil
-// when the response omitted optimumPrice or sent it null, which an
-// otherwise successful HTTP 200 gives for an error shape (such as a
-// billing-style envelope) rather than a priced quote; decoding that as a
-// price would silently return 0 and let a write guarded by the default
-// MaxPrice of 0 through unpriced. A negative price would compare below any
-// non-negative MaxPrice and pass the same guard; NaN and an infinite price
-// can never arrive through a valid JSON number (encoding/json rejects both
-// the bare literal and a value that overflows float64 while decoding), but
-// are still refused here as defense in depth, the same values
-// core.CheckMaxPrice refuses for the caller's own MaxPrice.
-func validQuotePrice(op string, price *float64) (float64, error) {
+// validQuotePrice refuses absent and nonfinite prices. Only exact resize
+// actions may return a credit; empty actions become create before this check.
+func validQuotePrice(op, action string, price *float64) (float64, error) {
 	if price == nil {
 		return 0, &core.APIError{Operation: op, Message: "quote response had no price"}
 	}
-	if math.IsNaN(*price) || math.IsInf(*price, 0) || *price < 0 {
+	if math.IsNaN(*price) || math.IsInf(*price, 0) || (*price < 0 && action != ActionResize) {
 		return 0, &core.APIError{Operation: op, Message: fmt.Sprintf("quote response had an invalid price: %v", *price)}
 	}
 	return *price, nil

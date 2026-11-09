@@ -41,8 +41,8 @@ const loadbalancerQuoteCreateLoadBalancerNote = "Never orders anything: prices t
 // from every other load-balancer command's: the flag table shows only
 // --load-balancer-id and --package-id, with no hint of any of this.
 const loadbalancerQuoteResizeLoadBalancerNote = "Never orders anything: prices the package change " +
-	"ResizeLoadBalancerInput describes without sending a resize. OptimumPrice and every other price are VND " +
-	"a month. Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern " +
+	"ResizeLoadBalancerInput describes without sending a resize. " + signedResizeQuoteNote +
+	" Runs in read-only mode. Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern " +
 	"only an actual resize. --load-balancer-id naming a load balancer that does not exist exits 1 with the " +
 	"server's own status 400 message, not NotFound: unlike every other load-balancer command, the server " +
 	"checks this request's shape before it checks the ID."
@@ -84,7 +84,9 @@ const loadbalancerDeleteLoadBalancerNote = "Reads the load balancer first: an un
 const loadbalancerResizeLoadBalancerNote = "Reads the load balancer first: --package-id equal to its current " +
 	"package makes this a no-op, Changed false, quoting and sending nothing. Otherwise orders nothing above " +
 	"--max-price, default 0; --max-price NaN, Inf, or negative exits 2 (InvalidUsage) before any request. A " +
-	"downsize's quote may legitimately price below zero as a refund, which never exceeds --max-price. The " +
+	"downsize's quote may price below zero as an expected credit, which never exceeds --max-price. " +
+	"A quote is not a confirmed refund. A concurrent state or price change can turn a credit into a charge " +
+	"above --max-price, including 0; the API cannot enforce the cap on the final charge. The " +
 	"resize is sent once and never resent, whatever the failure: a busy load balancer refuses the resize " +
 	"itself with ResourceBusy at once, rather than waiting and resending the way a free write's busy resend " +
 	"does. After any failure, read the load balancer with get-load-balancer and compare its package to the " +
