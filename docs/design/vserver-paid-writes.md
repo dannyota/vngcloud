@@ -1,7 +1,6 @@
 # vServer Paid Writes Design
 
-Status: Accepted baseline. Resize quote handling is decided in decision 19;
-the proposed credit write guard remains gated by decision 20.
+Status: Accepted, including decisions 19 and 20.
 
 This design covers the vServer writes that cost money: servers in
 `compute` and volumes in `volume`. Every paid create and resize quotes
@@ -80,8 +79,7 @@ The paid write runs these steps, in order, and stops at the first failure:
 3. Quote. A quote error stops the write; a response without
    `optimumPrice` is an `*APIError`, never a price of 0. A negative price
    is an `*APIError` unless the action is exactly `resize`.
-4. Subject to the credit gate in decision 20, when `OptimumPrice`
-   is above `MaxPrice`, return an error wrapping
+4. When `OptimumPrice` is above `MaxPrice`, return an error wrapping
    `vngcloud.ErrPriceAboveMax` that names both amounts. A quote of 0 is
    `ErrUnpriced`, as is a volume resize quote below 0. Nothing is sent.
 5. Send the write once. A create is a `POST` and is not retried after a
@@ -229,8 +227,8 @@ The signed quote is an expected adjustment, with the evidence limits in
   proves support for a resource nor authorizes any write.
 - Missing, null, malformed, NaN, and infinite prices remain `*APIError`,
   with nil Output. Zero remains a valid quote read, including negative zero.
-- The proposed `ResizeServer` guard, gated by decision 20, accepts a finite
-  credit at every valid `MaxPrice`, rejects either signed zero with
+- The accepted `ResizeServer` policy permits a finite credit at every
+  valid `MaxPrice`, rejects either signed zero with
   `ErrUnpriced`, and compares positive prices normally. Keep this policy
   local to server resize; do not relax `core.CheckPriceAboveMax` for
   creates or volume growth. `ResizeVolume` refuses nonpositive quotes
@@ -333,8 +331,9 @@ states, poll spacing, bounds, and failure results are in the
   what runs on the server and lose what it holds only in memory, as route
   writes need `--yes` for cutting traffic
   ([network writes](vserver-network-writes.md#cli)). Resize needs `--yes`
-  because it restarts the server and may charge more. Decision 20 gates
-  allowing a credit with no `--max-price`; the quote stays an estimate.
+  because it restarts the server and may charge more. A credit passes
+  without `--max-price`; the quote stays an estimate under the accepted
+  race in decision 20.
 - `delete-server --delete-volumes --yes` deletes attached volumes too.
   Without `--delete-volumes` they stay, and stdout lists them.
 - `detach-volume --allow-running` maps to `AllowRunning`.
@@ -388,13 +387,14 @@ and user data are account data; fixtures use `<id>`, `<name>`, `<ip>`, and
 | P3 | `CreateServer`, `DeleteServer`, `StartServer`, `StopServer`, `RebootServer`, `RenameServer`, server waits, `[]string` flags, `--user-data-file`; CLI | After run L2 |
 | P4 | `AttachVolume`, `DetachVolume` and their guards; CLI | After run L2 |
 | P5 | `QuoteResizeServer`, `ResizeServer`, `QuoteResizeVolume`, `ResizeVolume`; CLI | After run L3 |
-| P6 | Signed resize quote reads, then the credit write guard; CLI and wiki | Independent review, raw evidence; write guard also needs decision 20 |
+| P6 | Signed resize quote reads, then the credit write guard; CLI and wiki | Independent review, raw evidence |
 
 The signed read change depends on the existing pricing and transport
 packages. Require independent design and implementation review, the raw
 fixture from free check 7, and deterministic regression tests before
-release. The write guard also needs decision 20 resolved; this design
-approves no live run, resource creation, activation, purchase, or cleanup.
+release. These gates apply to reads and the accepted credit write guard.
+This design approves no live run, resource creation, activation, purchase,
+or cleanup.
 Update `Compute-Servers`, `Volume`, `Billing-and-Pricing`, and generated
 `CLI-Compute`, `CLI-Volume`, `CLI-Pricing`, and `CLI-LoadBalancer` pages
 through `make gen-docs` from CLI sources. Release notes explain signed

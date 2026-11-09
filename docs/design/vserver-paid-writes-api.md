@@ -291,7 +291,8 @@ cheaper flavor before A sends, A's target can become an upgrade. `Once`
 prevents a resend within A's call; it neither serializes callers nor makes
 the quote atomic. A price or discount change can also reverse the sign.
 The actual charge can exceed `MaxPrice`, including 0. Another pre-read
-only narrows the gap. Decision 20 gates accepting this residual risk.
+only narrows the gap. [Decision 20](vserver-paid-writes.md#owner-decisions)
+explicitly accepts this residual risk.
 
 Volume growth retains its nonpositive-price refusal as SDK policy; the
 published text does not prove a grow can never quote a credit. Generic

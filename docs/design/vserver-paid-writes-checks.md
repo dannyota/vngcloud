@@ -54,7 +54,7 @@ real API.
   naming the amount. Preserve the vLB private guard's existing negative
   resize acceptance and nonpositive create refusal. Use `errors.Is` for
   sentinels. Do not change the shared positive-only guard into a signed one.
-- Proposed server write tests require decision 20. With a credit,
+- Server write tests enforce the accepted credit policy. With a credit,
   `MaxPrice` 0 and 1000000 send one PUT; invalid `MaxPrice` values send
   no request. Both signed zeros wrap `ErrUnpriced` and send no write.
   Positive equality passes, an excess wraps `ErrPriceAboveMax`. Missing,
@@ -323,7 +323,7 @@ On a server and a 10 GB volume created as in L2:
 4. `ResizeVolume` on the boot volume from 20 GB to 30 GB: status and
    time.
 5. Balance after each resize: the charge, against its quote.
-6. Downsize, only after decision 20 and approval for this step: run the
+6. Downsize, only with per-run approval for this step: run the
    [credit probe](#free-checks) from `s2-general-2x4` back to
    `s2-general-1x2`, then `ResizeServer` to it with `MaxPrice` 0: the
    negative quote, the negative `MonthlyPrice`, the statuses, the flavor
@@ -417,7 +417,8 @@ paths are unimplemented. Existing protections must survive the change.
   `compute/resize_server.go:120` reads before quoting; `:157` sets `Once`;
   neither locks a resource against another actor. Invariant: at most one
   resize per call, explicit CLI consent, no automatic retry or cleanup
-  after uncertainty. Decision 20 gates the proposed negative guard.
+  after uncertainty. Decision 20 explicitly accepts the residual
+  quote-to-send risk.
   Check a deterministic peer changing the old flavor after the quote,
   unchanged target body, one send, and read-only recovery. This test
   exposes the residual risk; it must not assert a guaranteed zero charge.
