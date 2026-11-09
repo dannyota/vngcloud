@@ -7,9 +7,9 @@ Implement the accepted [billing history design](../design/billing-history.md) an
 - [x] The manager accepts fixed UTC+07:00, inclusive public bounds, and next-calendar-day exclusive wire end; zone uniqueness and exact-midnight behavior remain unproved and are not implementation blockers.
 - [x] Recorded IAM-user discovery settles access, accepted size 50, 1-based pages, empty/beyond-end metadata, timestamps, and modeled nullability; do not repeat discovery or treat reports as raw fixtures.
 - [x] Existing `billing.Client` has budgets, costs, balances, and resources; history methods, spend aggregation, history CLI registration, and raw history fixtures are absent. Code inspection is not test verification.
-- [ ] Receive the independent design fix confirmation already running; do not anticipate its verdict or extend the accepted contract.
-- [ ] Obtain independent plan review and fix confirmation through `design_reviewer`, `gpt-6.1-sol` xhigh before code; the author supplies no independent verdict.
-- [ ] Manager supplies sanitized raw history fixtures under the [fixture rules](../design/billing-history-api.md#fixtures); SDK decode tests are acceptance gates, and known-code raw rows plus direction/amount semantics gate spend release.
+- [x] Receive the independent design fix confirmation already running; do not anticipate its verdict or extend the accepted contract.
+- [x] Obtain independent plan review and fix confirmation through `design_reviewer`, `gpt-6.1-sol` xhigh before code; the author supplies no independent verdict.
+- [x] Manager supplies sanitized raw history fixtures under the [fixture rules](../design/billing-history-api.md#fixtures); SDK decode tests are acceptance gates, and known-code raw rows plus direction/amount semantics gate spend release.
 - [ ] Dispatch complex history, spend, and existing-read hardening through `implementer`, `gpt-6.1-sol` xhigh; use separate read-only `code_reviewer`, `gpt-6-astra` high for code review and any confirmation required by the code review policy below.
 - [ ] Dispatch small CLI help/table slices through `implementer`, `gpt-6.1-terra` xhigh; use separate read-only `code_reviewer`, `gpt-6.1-sol` xhigh for code review and any confirmation required by the code review policy below.
 - [ ] Route failure investigation and fixes through `troubleshooter`, `gpt-6.1-sol` xhigh; planning workers use `gpt-6.1-sol` medium and exploration/mechanical workers use `explorer`, `gpt-6-luna` low under [routing](../../AGENTS.md#ai-agent-definitions-and-routing).
