@@ -295,11 +295,12 @@ with `pageNumber` (1-based), `pageSize`, `dateStart`, and `dateEnd`; dates use
 a request without it returned 401. The observed envelope has `code:200`,
 `message:"Success"`, and a `data.content` row array; `data.pageable` has integer
 `totalPages`, `totalElements`, `size`, and `number`. Rows have integer
-`transactionID`/`transactionType`, numeric VND
-`transactionValue`/`cumulativeValue`, string `sourceReference`/`description`
-and offset timestamp `createTimeStamp`, and boolean `creditStatus`.
-`transactionValue` is observed non-negative; `creditStatus` true adds credit,
-false subtracts. `userServiceReference`/`invoiceId` were null, meaning unknown.
+`transactionID`/`transactionType`, VND `transactionValue`/`cumulativeValue`,
+string `description`, string or null `sourceReference`, offset
+`createTimeStamp`, boolean `creditStatus` (true adds, false subtracts;
+`transactionValue` is non-negative). `userServiceReference`/`invoiceId` were
+null in the console sample and populated (string, integer) in an SDK probe;
+their meanings stay unverified.
 Keep descriptions/raw rows private. A billing history read is designed
 separately. Use approved console reads, never token extraction or CLI/harness
 bypasses. Posting delay/full paging are unverified; capture is not SDK testing.
