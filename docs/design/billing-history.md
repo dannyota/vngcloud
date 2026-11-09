@@ -293,8 +293,9 @@ Separate briefs own these changes; none is implied implementation scope:
    `billing/budgets.go` with `MaxBody: 8 << 20`, a client limit. An
    oversized success returns fixed-text `APIError` code `InvalidResponse`
    with the observed status; an oversized error keeps status-based
-   classification. Preserve existing output shapes. This is an observable
-   hardening change.
+   classification but, like every bounded read in the shared transport,
+   fails without retry or token refresh. Preserve existing output shapes.
+   This is an observable hardening change.
 2. Explain query roots in all billing help and generated wiki examples.
 3. Add compact budget and balance tables; show absent balances as `none`.
 4. List exported enum values in budget and threshold flag help. Runtime
