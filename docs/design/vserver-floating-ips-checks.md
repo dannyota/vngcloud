@@ -244,8 +244,8 @@ are excluded; an SSH banner does not list auth methods.
    [decision procedure](vserver-floating-ips-api.md#credit-history-decision-procedure)
    in every mode. Save baseline inventory/balances/cost privately; inventory
    never proves ownership. Quote, check cap, create once, register known IDs
-   for cleanup. Save raw create/server responses, linkage, timing, and debit
-   versus estimate. Charges outside either hypothesis or above quote stop
+   for cleanup. Save create/server outputs (decoded, since the SDK withholds
+   sensitive captures), raw WAN rows, linkage, timing, and debit vs estimate. Charges outside either hypothesis or above quote stop
    experiments; approved cleanup remains necessary.
 2. Capture the exact WAN row linked by the created server's internal
    `floatingIpId` and interface UUID. Sanitize this pair for decode tests.
