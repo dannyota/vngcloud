@@ -416,3 +416,108 @@ func TestFloatingCreateCredentialHistoryExhaustionPreventsOrder(t *testing.T) {
 		t.Fatalf("orders=%d requests=%d captures=%d", orders.Load(), requests.Load(), captures.Load())
 	}
 }
+
+func TestCreateServerExposureKeepsIPv6Family(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		prefixes []string
+		open     bool
+	}{
+		{"narrow mapped end", []string{"::/80"}, false},
+		{"narrow 79", []string{"::/79"}, false},
+		{"narrow 81", []string{"::/81"}, false},
+		{"narrow 96", []string{"::/96"}, false},
+		{"single address", []string{"::/128"}, false},
+		{"documentation prefix", []string{"2001:db8::/32"}, false},
+		{"half", []string{"::/1"}, false},
+		{"anywhere", []string{"::/0"}, true},
+		{"two halves", []string{"::/1", "8000::/1"}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var rows []string
+			for i, prefix := range tc.prefixes {
+				rows = append(rows, fmt.Sprintf(`{"id":"rule-%d","direction":"ingress","etherType":"IPv6","protocol":"tcp","portRangeMin":234,"portRangeMax":234,"remoteIpPrefix":%q,"remoteGroupId":"sg-1"}`, i, prefix))
+			}
+			rules := `{"data":[` + strings.Join(rows, ",") + `]}`
+			var orders atomic.Int64
+			c := newTestClient(t, floatingCreateHandler(t, func() string { return rules }, func(w http.ResponseWriter, _ *http.Request) {
+				orders.Add(1)
+				w.WriteHeader(202)
+				_, _ = w.Write([]byte(`{"data":{"uuid":"server-1"}}`))
+			}, nil))
+			in := validCreateServerInput()
+			in.AttachFloatingIP = true
+			in.MaxPrice = 467800
+			in.NoWait = true
+			out, err := c.CreateServer(context.Background(), in)
+			if tc.open {
+				if !errors.Is(err, ErrOpenLogin) || out != nil || orders.Load() != 0 {
+					t.Fatalf("out=%v err=%v orders=%d", out, err, orders.Load())
+				}
+			} else if err != nil || out == nil || orders.Load() != 1 {
+				t.Fatalf("out=%v err=%v orders=%d", out, err, orders.Load())
+			}
+		})
+	}
+}
+
+func TestCreateServerExposureRefusalExplainsReasonSafely(t *testing.T) {
+	for _, tc := range []struct {
+		name, protocol, prefix, want string
+		named                        bool
+	}{
+		{"icmp", "ICMP", "192.0.2.0/24", "unsupported rule encoding", true},
+		{"udp", "udp", "192.0.2.0/24", "unsupported rule encoding", true},
+		{"other protocol", "sctp", "192.0.2.0/24", "unsupported rule encoding", true},
+		{"control text", "bad\nprotocol", "192.0.2.0/24", "unsupported rule encoding", false},
+		{"resource-like text", "rule-1", "192.0.2.0/24", "unsupported rule encoding", false},
+		{"CIDR-like text", "192.0.2.0/24", "192.0.2.0/24", "unsupported rule encoding", false},
+		{"long text", strings.Repeat("x", 17), "192.0.2.0/24", "unsupported rule encoding", false},
+		{"internet exposure", "tcp", "0.0.0.0/0", "port open to the internet", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var envelope struct {
+				Data []map[string]any `json:"data"`
+			}
+			if err := json.Unmarshal([]byte(floatingSafeRules), &envelope); err != nil {
+				t.Fatal(err)
+			}
+			envelope.Data[0]["protocol"] = tc.protocol
+			envelope.Data[0]["remoteIpPrefix"] = tc.prefix
+			envelope.Data[0]["description"] = "hidden-description"
+			raw, err := json.Marshal(envelope)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var orders atomic.Int64
+			c := newTestClient(t, floatingCreateHandler(t, func() string { return string(raw) }, func(http.ResponseWriter, *http.Request) { orders.Add(1) }, nil))
+			in := validCreateServerInput()
+			in.AttachFloatingIP = true
+			in.MaxPrice = 467800
+			in.NoWait = true
+			out, err := c.CreateServer(context.Background(), in)
+			if !errors.Is(err, ErrOpenLogin) || out != nil || orders.Load() != 0 {
+				t.Fatalf("out=%v err=%v orders=%d", out, err, orders.Load())
+			}
+			message := err.Error()
+			if !strings.Contains(message, tc.want) {
+				t.Fatalf("reason=%q want=%q", message, tc.want)
+			}
+			if tc.named {
+				if !strings.Contains(message, fmt.Sprintf("protocol %q", tc.protocol)) {
+					t.Fatalf("missing safe protocol name: %q", message)
+				}
+			} else if strings.Contains(message, "protocol ") {
+				t.Fatalf("untrusted protocol name included: %q", message)
+			}
+			for _, private := range []string{"sg-1", "rule-1", tc.prefix, "hidden-description"} {
+				if strings.Contains(message, private) {
+					t.Fatalf("private rule value escaped: %q", message)
+				}
+			}
+			if strings.ContainsAny(message, "\r\n") {
+				t.Fatal("control characters escaped")
+			}
+		})
+	}
+}

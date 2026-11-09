@@ -106,6 +106,9 @@ func (c *Client) waitServerActive(ctx context.Context, op, serverID string) (res
 				}
 				return true, err
 			}
+			if out.Server.UUID != serverID {
+				return true, invalidServerResponse(op, 0, nil)
+			}
 			server = &out.Server
 			switch {
 			case strings.EqualFold(server.Status, serverStatusActive):
