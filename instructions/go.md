@@ -20,7 +20,18 @@ Follow Google Go style and the repository's `golangci-lint` configuration. `make
 
 Keep `golangci-lint`, including gosec, at zero issues. A justified `//nolint:<linter>` needs its reason on the same line. [Security](security.md#tools-and-scanners) owns the scanner and suppression rules.
 
-Non-test Go files stay at or under 700 lines, with the existing generated-file and fixture exemptions. Split by topic into sibling files in the same package.
+Non-test Go files stay at or under 700 lines, with the existing generated-file and fixture exemptions; [file length](documentation.md#file-length) sets the ratchet and split rules.
+
+## Code rules
+
+Apply these to Go you add, move, or touch; do not sweep unrelated code.
+
+- Wrap an error with `%w` once, at the boundary where callers need the cause, and test causes with `errors.Is` or `errors.As`. Never put tokens, secrets, or response bodies in error text.
+- Pass `context.Context` first to work that accepts it and propagate cancellation.
+- Keep no package-level mutable runtime state. Inject clients, clocks, entropy, caches, and locks. Only immutable sentinel errors, compiled regular expressions, and embedded assets live at package level; write new read-only lookups as switch functions.
+- Define small interfaces at the consumer, only for a real dependency, and return concrete types.
+- Use named table-driven subtests for repeated cases; keep distinct scenarios and concurrency tests separate.
+- `cmd/vngcloud/main.go` only parses, wires, and owns lifecycle; command construction lives under `internal/cli/`.
 
 A comment explains a constraint the code cannot express; do not narrate the code. Use a design or ADR citation or state the invariant, never a plan, task, or finding ID. Follow [documentation](documentation.md#writing-rules) for plain wording and current-state claims.
 

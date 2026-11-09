@@ -25,7 +25,7 @@ Use existing authorities until replacement documents exist. Create a directory w
 - Never cite plans, tasks, review findings, or their names or IDs in code, comments, tests, or living docs. Cite the design or ADR, or state the rule. Navigation may link the plans directory.
 - Keep completed plans with checked completion boxes. A short-term TODO task is one unchecked line and leaves the list in the commit that completes it. Do not put account details in plans or public TODO items.
 - Agent-only files (`AGENTS.md`, `CLAUDE.md`, `instructions/`, `.claude/`, `.codex/`, and `docs/plans/`) use one line per paragraph or list item and unpadded tables. Human docs wrap at 80 columns.
-- General Markdown stays at or under 450 lines. New or converted designs and specifications stay at or under 400 lines; existing source designs retain the general cap until conversion. Preserve generated-page exemptions in `scripts/check-lengths.sh`. Split by topic or section and link the parts without losing information.
+- General Markdown stays at or under 450 lines and new or converted designs and specifications at or under 400; [file length](#file-length) sets the ratchet and split rules.
 - Inspect relative links and heading anchors after moves. Retain forwarding files and their consumed headings until every consumer moves in the atomic document cutover. Do not delete a forwarder while a contract still links to it.
 
 ## Public surface and wiki
@@ -35,3 +35,11 @@ Update the matching `docs/wiki/` page in the same change as a public SDK or CLI 
 Wiki links between pages use `Page-Name.md` so they work in the repo and published wiki. Links from wiki pages to repository files use absolute repository URLs. Preserve the [wiki source and publication decision](../docs/adr/0001-wiki-from-docs.md) and generated-doc workflow; change generated pages through their source.
 
 Follow [Go](go.md#formatting-and-comments) for code comments and [testing](testing.md#required-checks) for documentation checks.
+
+## File length
+
+Long files are hard to review and easy places for bugs. `scripts/check-lengths.sh` enforces the limits in `make check`, CI, and the staged-content hook. Tests, fixtures, and files with a `Code generated ... DO NOT EDIT` header in their first five lines are exempt.
+
+- Limits ratchet down one step per pull request: non-test Go from 700 to 600 and then 500 lines; Markdown from 450 to 400, 350, and then 300 lines. Each step splits every file over the new limit and lowers the gate in the same pull request, and the gate's tests cover N and N+1 lines. [TODO.md](../TODO.md) tracks the next step.
+- Split Go by concern, not line count: move code unchanged into sibling files in the same package named after the concern. Change no exported API, error text, ordering, locks, or timeouts. Review checks that every moved declaration appears exactly once with identical tokens.
+- Split Markdown by keeping the parent path as a short index and moving whole sections verbatim to linked sibling pages. Keep every cited anchor and section name resolvable, with pointer headings where needed.
