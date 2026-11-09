@@ -24,7 +24,7 @@ Non-test Go files stay at or under 700 lines, with the existing generated-file a
 
 ## Code rules
 
-Apply these to Go you add, move, or touch; do not sweep unrelated code.
+Apply these to new Go code. Leave existing declarations as they are during bounded edits and mechanical moves, such as adding an entry to an existing operation table; do not sweep unrelated code.
 
 - Wrap an error with `%w` once, at the boundary where callers need the cause, and test causes with `errors.Is` or `errors.As`. Never put tokens, secrets, or response bodies in error text.
 - Pass `context.Context` first to work that accepts it and propagate cancellation.

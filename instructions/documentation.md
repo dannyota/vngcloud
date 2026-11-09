@@ -38,8 +38,8 @@ Follow [Go](go.md#formatting-and-comments) for code comments and [testing](testi
 
 ## File length
 
-Long files are hard to review and easy places for bugs. `scripts/check-lengths.sh` enforces the limits in `make check`, CI, and the staged-content hook. Tests, fixtures, and files with a `Code generated ... DO NOT EDIT` header in their first five lines are exempt.
+Long files are hard to review and easy places for bugs. `scripts/check-lengths.sh` enforces the limits in `make check`, CI, and the staged-content hook. Go tests and Go files under `testdata/` are exempt, as is any Go or Markdown file with a `Code generated ... DO NOT EDIT` header in its first five lines.
 
 - Markdown stays at 450 lines. Non-test Go ratchets down from 700 to 600 and then 500 lines, one step per pull request: each step splits every file over the new limit and lowers the gate in the same pull request, and the gate's tests cover N and N+1 lines. [TODO.md](../TODO.md) tracks the next step. Do not spend ratchet steps on small differences once a limit is near 500 lines of code or 450 of Markdown.
 - Split Go by concern, not line count: move code unchanged into sibling files in the same package named after the concern. Change no exported API, error text, ordering, locks, or timeouts. Review checks that every moved declaration appears exactly once with identical tokens.
-- Split Markdown by keeping the parent path as a short index and moving whole sections verbatim to linked sibling pages. Keep every cited anchor and section name resolvable, with pointer headings where needed.
+- Split Markdown by keeping the parent path as a short index and moving whole sections verbatim to linked sibling pages. Keep every cited anchor and section name resolvable, with pointer headings where needed. `RELEASE_NOTES.md` instead follows its [archive procedure](release.md).
