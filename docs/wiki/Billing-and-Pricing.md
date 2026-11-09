@@ -324,6 +324,8 @@ in CLI read-only mode.
 
 `GetQuote` rejects a successful response that reflects any credential sent
 by the call, including earlier or refreshed tokens and JSON-escaped strings.
+The check also covers decoded numbers, including exponent notation and
+rounding, before returning a quote or formatting an invalid-price error.
 The check includes unknown fields and returns nil Output with
 `*vngcloud.APIError`. Routine SDK response captures are suppressed for quotes,
 including failed responses. Unknown raw fields such as `artifactPrices`,
@@ -331,6 +333,8 @@ including failed responses. Unknown raw fields such as `artifactPrices`,
 authorized raw evidence separately from decoded SDK output. Missing or null
 `originalPrice`, `discountPrice`, and `discountPercent` retain their existing
 zero defaults, which do not prove that the API supplied those totals.
+Malformed JSON retains a sanitized `*json.SyntaxError` and its offset while
+withholding response text and captures.
 
 A paid write compares its quote with `MaxPrice` (default 0): monthly VND
 for creates, the quoted adjustment for resizes. An excess wraps

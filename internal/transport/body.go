@@ -2,6 +2,7 @@ package transport
 
 import (
 	"encoding/json"
+	"errors"
 
 	"danny.vn/vngcloud/internal/jsonresponse"
 )
@@ -26,8 +27,14 @@ func decodeSuccessBody(req Request, statusCode int, body []byte, out any) (int, 
 				return statusCode, &APIError{Operation: req.Operation, StatusCode: statusCode, Code: "InvalidResponse", Message: "response failed to decode; body withheld"}
 			}
 			if req.Sensitive {
-				// Sensitive responses withhold validation and decode error details.
-				return statusCode, &APIError{Operation: req.Operation, Message: "response failed to decode; body withheld"}
+				failure := &APIError{Operation: req.Operation, Message: "response failed to decode; body withheld"}
+				// Ordinary decoding keeps safe syntax identity and offset.
+				// Strict validation retains its opaque failure contract.
+				var syntax *json.SyntaxError
+				if !req.StrictJSON && errors.As(err, &syntax) {
+					failure.Err = sanitizeDecodeError(err)
+				}
+				return statusCode, failure
 			}
 			return statusCode, &APIError{Operation: req.Operation, Err: sanitizeDecodeError(err)}
 		}

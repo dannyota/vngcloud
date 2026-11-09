@@ -168,13 +168,17 @@ func (c *Client) GetQuote(ctx context.Context, in *GetQuoteInput) (*GetQuoteOutp
 		properties[i].Name = transport.RedactErrorText(p.Name, sentCredentials...)
 		properties[i].Description = transport.RedactErrorText(p.Description, sentCredentials...)
 	}
-	return &GetQuoteOutput{
+	out := &GetQuoteOutput{
 		OptimumPrice:    price,
 		OriginalPrice:   resp.OriginalPrice,
 		DiscountPrice:   resp.DiscountPrice,
 		DiscountPercent: resp.DiscountPercent,
 		Properties:      properties,
-	}, nil
+	}
+	if quoteDecodedReflectsCredentials(out, sentCredentials) {
+		return nil, invalidQuoteResponse(op)
+	}
+	return out, nil
 }
 
 // validQuotePrice refuses absent and nonfinite prices. Only exact resize
