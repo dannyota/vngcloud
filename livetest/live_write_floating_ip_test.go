@@ -44,6 +44,10 @@ func TestLiveWriteFloatingIP(t *testing.T) {
 	if !run {
 		t.Skip("requires VNGCLOUD_LIVE_WRITE=1 and VNGCLOUD_LIVE_FLOATING_IP=1")
 	}
+	region, err := floatingIPRegion(os.Getenv("VNGCLOUD_LIVE_FLOATING_IP_REGION"))
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Reserve ten minutes of the sixty-minute envelope for fresh cleanup.
 	deadline := time.Now().Add(60 * time.Minute)
@@ -64,11 +68,12 @@ func TestLiveWriteFloatingIP(t *testing.T) {
 	if err := os.Mkdir(capture.dir, 0o700); err != nil {
 		t.Fatal("private capture directory creation failed")
 	}
-	guard := &floatingIPTransport{base: http.DefaultTransport, host: "hcm-3.console.greennode.ai"}
-	cfg := liveWriteConfig(ctx, t, vngcloud.WithTransport(guard), vngcloud.WithResponseCapture(capture.hook))
-	if cfg.Region() != "hcm-3" || !core.ClientOf(cfg).UsesIAMUserLogin() {
-		t.Fatal("requires IAM user login in hcm-3")
+	guard := newFloatingIPTransport(region)
+	cfg := liveWriteConfig(ctx, t, vngcloud.WithRegion(region), vngcloud.WithTransport(guard), vngcloud.WithResponseCapture(capture.hook))
+	if cfg.Region() != region || !core.ClientOf(cfg).UsesIAMUserLogin() {
+		t.Fatal("requires IAM user login in the selected region")
 	}
+	t.Logf("selected region: %s", region)
 	r := newFloatingIPRun(t, cfg, guard, capture, name)
 	before := r.balance(ctx)
 	t.Cleanup(func() {
@@ -92,7 +97,10 @@ func TestLiveWriteFloatingIP(t *testing.T) {
 	if err != nil {
 		t.Fatal("selected zone is missing, disabled, or ambiguous")
 	}
-	input := r.spec(ctx, zone)
+	input, err := r.spec(ctx, zone)
+	if err != nil {
+		t.Fatal(err)
+	}
 	// Quote before creating parents, so a refusal alone triggers no deletes.
 	r.quote(ctx, input)
 	if capture.failed {
@@ -119,7 +127,7 @@ func TestLiveWriteFloatingIP(t *testing.T) {
 func newFloatingIPRun(t *testing.T, cfg vngcloud.Config, guard *floatingIPTransport, capture *floatingIPCapture, name string) *floatingIPRun {
 	return &floatingIPRun{
 		t: t, compute: compute.New(cfg), network: network.New(cfg), volume: volume.New(cfg),
-		billing: billing.New(cfg), guard: guard, capture: capture, name: name,
+		billing: billing.New(cfg), guard: guard, capture: capture, name: name, region: cfg.Region(),
 		ledger: &floatingIPLedger{ids: map[string]string{}, seen: map[string]map[string]bool{}, baseline: map[string]map[string]bool{}, attempted: map[string]bool{}},
 	}
 }
@@ -163,7 +171,7 @@ func (r *floatingIPRun) purchase(ctx context.Context, input *compute.CreateServe
 }
 
 func (r *floatingIPRun) waitForConsoleRelease(ctx context.Context, ticks <-chan time.Time) error {
-	r.t.Log("Release the run-owned floating IP in the console now; this test waits for its absence.")
+	r.t.Logf("Release the run-owned floating IP in the %s console now; this test waits for its absence.", r.region)
 	waitCtx, waitCancel := context.WithTimeout(ctx, 30*time.Minute)
 	defer waitCancel()
 	for {
@@ -183,6 +191,21 @@ func (r *floatingIPRun) waitForConsoleRelease(ctx context.Context, ticks <-chan 
 			return nil
 		}
 	}
+}
+
+func floatingIPRegion(value string) (string, error) {
+	switch value {
+	case "":
+		return "hcm-3", nil
+	case "hcm-3", "han-1":
+		return value, nil
+	default:
+		return "", errors.New("VNGCLOUD_LIVE_FLOATING_IP_REGION must be hcm-3 or han-1")
+	}
+}
+
+func newFloatingIPTransport(region string) *floatingIPTransport {
+	return &floatingIPTransport{base: http.DefaultTransport, host: region + ".console.greennode.ai"}
 }
 
 func floatingIPGates(write, floating, cap string) (bool, error) {
@@ -393,6 +416,7 @@ type floatingIPRun struct {
 	capture           *floatingIPCapture
 	ledger            *floatingIPLedger
 	name, interfaceID string
+	region            string
 	serverAttempted   bool
 	released          bool
 	vpcs              []network.VPC
@@ -590,30 +614,33 @@ func floatingIPInventory[T any](ctx context.Context, fetch func(context.Context,
 	return ids, nil
 }
 
-func (r *floatingIPRun) spec(ctx context.Context, zone string) *compute.CreateServerInput {
+func (r *floatingIPRun) spec(ctx context.Context, zone string) (*compute.CreateServerInput, error) {
 	r.t.Helper()
 	input := &compute.CreateServerInput{Name: r.name, ZoneID: zone, RootDiskSize: 20, AttachFloatingIP: true, AllowOpenLogin: false}
 	flavorZones, err := r.compute.ListFlavorZones(ctx, &compute.ListFlavorZonesInput{ZoneID: zone})
 	if err != nil {
-		r.t.Fatal("flavor-zone read failed")
+		return nil, errors.New("flavor-zone read failed")
 	}
 	for _, fz := range flavorZones.Items {
 		flavors, err := r.compute.ListFlavors(ctx, &compute.ListFlavorsInput{FlavorZoneID: fz.ID})
 		if err != nil {
-			r.t.Fatal("flavor read failed")
+			return nil, errors.New("flavor read failed")
 		}
 		for _, f := range flavors.Items {
 			if f.Name == "s2-general-1x2" && !f.IsSoldOut {
 				if input.FlavorID != "" && input.FlavorID != f.FlavorID {
-					r.t.Fatal("flavor selection is ambiguous")
+					return nil, errors.New("flavor selection is ambiguous")
 				}
 				input.FlavorID = f.FlavorID
 			}
 		}
 	}
+	if input.FlavorID == "" {
+		return nil, errors.New("s2-general-1x2 missing in selected region or zone")
+	}
 	images, err := r.compute.ListOSImages(ctx, &compute.ListOSImagesInput{ZoneID: zone})
 	if err != nil {
-		r.t.Fatal("image read failed")
+		return nil, errors.New("image read failed")
 	}
 	for _, img := range images.Items {
 		if strings.Contains(strings.ToLower(img.ImageVersion), "ubuntu") && strings.Contains(img.ImageVersion, "24.04") &&
@@ -622,11 +649,14 @@ func (r *floatingIPRun) spec(ctx context.Context, zone string) *compute.CreateSe
 			break
 		}
 	}
+	if input.ImageID == "" {
+		return nil, errors.New("Ubuntu 24.04 image unavailable in selected region or zone")
+	}
 	// Catalog parents can name a disabled zone. Read SSD children directly;
 	// the successful server quote verifies this type in the selected zone.
 	typeZones, err := r.volume.ListVolumeTypeZones(ctx, nil)
 	if err != nil {
-		r.t.Fatal("disk catalog read failed")
+		return nil, errors.New("disk catalog read failed")
 	}
 	requested := os.Getenv("VNGCLOUD_LIVE_FLOATING_IP_ROOT_DISK_TYPE_ID")
 	for _, tz := range typeZones.Items {
@@ -635,22 +665,22 @@ func (r *floatingIPRun) spec(ctx context.Context, zone string) *compute.CreateSe
 		}
 		types, err := r.volume.ListVolumeTypes(ctx, &volume.ListVolumeTypesInput{VolumeTypeZoneID: tz.ID})
 		if err != nil {
-			r.t.Fatal("SSD type read failed")
+			return nil, errors.New("SSD type read failed")
 		}
 		for _, vt := range types.Items {
 			if vt.IOPS != 3000 || vt.MinSize > 20 || vt.MaxSize < 20 || (requested != "" && requested != vt.ID) {
 				continue
 			}
 			if input.RootDiskTypeID != "" && input.RootDiskTypeID != vt.ID {
-				r.t.Fatal("SSD selection is ambiguous; set VNGCLOUD_LIVE_FLOATING_IP_ROOT_DISK_TYPE_ID")
+				return nil, errors.New("SSD selection is ambiguous; set VNGCLOUD_LIVE_FLOATING_IP_ROOT_DISK_TYPE_ID")
 			}
 			input.RootDiskTypeID = vt.ID
 		}
 	}
-	if input.FlavorID == "" || input.ImageID == "" || input.RootDiskTypeID == "" {
-		r.t.Fatal("required flavor, image, or 3000 IOPS SSD unavailable")
+	if input.RootDiskTypeID == "" {
+		return nil, errors.New("3000 IOPS SSD root type missing in selected region or zone")
 	}
-	return input
+	return input, nil
 }
 
 func (r *floatingIPRun) parents(ctx context.Context, input *compute.CreateServerInput) {
