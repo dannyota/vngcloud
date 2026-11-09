@@ -1,10 +1,9 @@
 # Billing history: API evidence and checks
 
 [Billing history](billing-history.md) owns public types, limits, decisions,
-and release order. No new method is implemented. Console evidence below
-comes from the manager's sanitized shape summary, not raw-response files.
-It establishes observations, not fixture provenance or a published schema.
-No SDK-token probe has run for these endpoints.
+and release order. New methods remain unimplemented. Console observations,
+recorded manager-run evidence, and accepted choices are distinct from
+published contracts. Private reports are not sanitized raw fixtures.
 
 ## Sources
 
@@ -16,44 +15,75 @@ No SDK-token probe has run for these endpoints.
   APIs normalize older history. Preserve reported values without conversion.
 - Unverified source claims: the Vietnamese [credit guide][credit-doc] and
   [payment guide][payment-doc] could not be retrieved for this check. The
-  claimed action names, filters, gateway names, and six payment type labels
-  must not serve as wire-contract evidence. No numeric mapping depends on
-  those labels being published.
+  claimed labels and filters must not serve as wire-contract evidence.
 - Console observation: authenticated GETs to transactions and payments on
   the Billing host succeeded using the IAM user's bearer token. An
   unauthenticated transactions fetch returned 401; the supplied summary
   does not establish a separate unauthenticated payments result.
 - Console observation: fields and example enum values below. Account
-  counts, amounts, dates, identifiers, and private capture paths are omitted.
-  The summary reports two balance checkpoints, not every adjacent ledger
-  equation. Raw responses and full reconciliation remain missing.
+  values stay private. Two balance checkpoints do not prove reconciliation.
+- Recorded live evidence: the manager supplied a probe report and structured
+  summary from shared-SDK requests, with raw captures retained privately.
+  The [results](#recorded-live-evidence) settle the listed discovery gates;
+  they do not establish public-method decoding or fixture sanitation.
 - Existing contract: [billing](billing.md#shared-rules) owns envelope and
   monetary conventions; [billing endpoints](billing.md#endpoints) owns the
-  global Billing base and account scope. Cost explorer has a different
-  pagination shape and provides no history paging evidence.
+  global Billing base and account scope; cost paging is not history evidence.
 
 [payment-overview]: https://docs.greennode.ai/billing-management/experience-with-billing-and-payment/payment
 [vat]: https://docs.greennode.ai/overview/product-updates-all/2026
 [credit-doc]: https://docs.greennode.ai/vn/quan-ly-hoa-don-chi-phi-and-tai-nguyen-tren-vng-cloud/vconsole-kenh-quan-ly-chung-ve-hoa-don-va-tai-nguyen-tren-vng-cloud/trai-nghiem-vconsole/lich-su-tin-dung
 [payment-doc]: https://docs.greennode.ai/vn/quan-ly-hoa-don-chi-phi-and-tai-nguyen-tren-vng-cloud/vconsole-kenh-quan-ly-chung-ve-hoa-don-va-tai-nguyen-tren-vng-cloud/trai-nghiem-vconsole/lich-su-thanh-toan
 
+## Recorded live evidence
+
+Provenance: manager-run temporary Go probe using shared SDK Config, IAM-user
+authentication, Billing routes, and raw transport for both endpoints. The
+completed run has 38 GETs within its 64-call bound. Private reports retain
+stopped probe-check attempts as well as results; raw bodies stay private.
+No account values or private capture paths belong here.
+
+Both endpoints establish SDK IAM-user access with HTTP/envelope 200,
+accepted sizes 10, 49, and 50, and rejection of size 100 by HTTP 200 with
+envelope code 400. The reported validation rule names a maximum of 50;
+50 succeeds despite error text saying "less than 50". Default and maximum
+SDK `Size` are 50. The server default without a size was not tested.
+
+First and second responses number pages 1 and 2 with distinct IDs. Complete
+walks succeeded. Successful empty ranges report `number=1`, `size=50`,
+`totalPages=0`, `totalElements=0`. Both timestamp forms parse as
+`time.RFC3339Nano`, with fractional seconds and explicit UTC offsets.
+The [row sections](#transaction-row) record nullable and populated fields.
+
+Page 0 and omitted date bounds also yield validation errors inside HTTP
+200. The summary records `Min_value` for `pageNumber`, `Max_value` for
+`pageSize`, and `Not_null` for absent bounds; [error handling](#error-statuses)
+checks the envelope before attempting to decode success `data`.
+
+Date membership fits inclusive `dateStart` and exclusive `dateEnd` under
+UTC+07:00 or UTC+08:00; UTC is excluded. Exact-midnight membership and a
+unique filtering zone are not proved. The manager accepts UTC+07:00 for
+implementation as an observed fit, not a published rule, with the
+[public-date conversion](billing-history.md#dates). The structured summary's
+unresolved-zone labels describe evidence limits, not an implementation
+veto. First-party confirmation remains desirable but is not a release gate
+under this decision. No approval upgrades this fit to verified uniqueness.
+
 ## Requests
 
-Both operations send GET with no body, project ID, region parameter,
-keyword filter, or payment gateway filter. Authentication comes from the
-configured shared SDK client, never from an Input field.
+Both operations send GET without body, project/region, or extra filters.
+Authentication comes from shared SDK Config, never an Input field.
 
 | Operation | Path under `Billing` |
 |-|-|
 | `ListTransactions` | `gateway/api/v1/transactions` |
 | `ListPayments` | `gateway/api/v1/payments` |
 
-Observed query keys: `pageNumber=1`, `pageSize=10`, `dateStart`, `dateEnd`.
-Date strings use `DD/MM/YYYY`; encode slashes through `url.Values`, not
-string concatenation. Public inputs use `YYYY-MM-DD`. The captured first
-page request is 1-based; response numbering, later pages, ordering,
-server defaults, maxima, omission semantics, and date inclusivity are
-unverified. A returned UTC timestamp does not establish UTC filtering.
+Required query keys are `pageNumber`, `pageSize`, `dateStart`, `dateEnd`.
+Request and response pages are 1-based. The SDK sends explicit dates and
+size under [inputs](billing-history.md#listtransactions-and-listpayments).
+Wire dates use `DD/MM/YYYY`; encode with `url.Values`. Apply the accepted
+[date conversion](billing-history.md#dates), never timestamp-offset inference.
 
 History requests set `OK: []int{200}`, `MaxBody: 8 << 20`,
 `NoRedirect: true`, and a fixed `WithholdMessage`. Retain sent credentials
@@ -86,30 +116,34 @@ code: number, message: string, data: object
     number: integer
 ```
 
-The manager's summary gives no actual `pageable.number` value. Do not claim
-that the first response number is 1 or 0 until the probe compares pages.
-There is no published or raw evidence of a stable sort or snapshot token.
+The recorded response `number` echoes the requested 1-based page. There is
+no established stable sort or snapshot token; a successful walk is not a
+guarantee of consistency during concurrent account changes.
 
-For history, HTTP 200 must contain a `code` key, a non-null `data` object,
-a non-null `content` array, and all four non-null integer metadata fields.
-Preserve accepted envelope code representations (numeric, numeric string,
-and null); envelope failures use [error rules](#error-statuses). Empty
+Decode `code` before `data`: validation failures have array-valued `data`.
+Only a successful envelope requires a non-null `data` object, non-null
+`content` array, and all four non-null integer metadata fields. Preserve
+accepted code representations (numeric, numeric string, and null); missing
+`code` fails. Envelope failures use [error rules](#error-statuses). Empty
 body, missing envelope, or missing data is `InvalidResponse`, not an empty
 wallet. Unknown JSON fields are allowed and retained in raw fixtures.
 
-Use presence-aware private wire structs so zero and false cannot mask
-missing/null fields. Require positive returned size no larger than the
-requested size, nonnegative totals, and the verified response number for
-the requested page. A silently clamped positive size is usable; freeze it
+Use presence-aware structs so zero/false cannot mask missing/null fields.
+Require positive size no larger than requested, nonnegative totals, and
+response number equal to requested page. A clamped positive size is usable;
+freeze it
 for the walk and compute page counts from it. Reject inconsistent counts,
 more rows than size, duplicate IDs within a page, and integer overflow.
 A single page can advertise more than 100 pages; only `All` rejects a
 well-formed total exceeding its walk bound.
 
-The empty and beyond-last-page metadata rules are unresolved. Record the
-observed exact forms here before implementing their normalization. Never
-accept a null/missing `content` as empty by default. If real empty responses
-use null, return for an explicit contract update and independent review.
+Empty ranges have `content=[]`, `totalPages=0`, `totalElements=0`, returned
+size, and the requested 1-based number. The recorded first empty page uses
+number 1 and size 50. Beyond-last-page requests also succeed with empty
+content but retain the range's nonzero totals and echo the requested page.
+Single-page mode preserves this metadata; `All` never requests beyond its
+frozen total. Require full pages except the final remainder, or an empty
+array for empty ranges/beyond-end pages. Null/missing content still fails.
 
 ## Transaction row
 
@@ -123,16 +157,21 @@ direction, not a published enum:
 | `creditStatus` | boolean | Derived `Direction` |
 | `transactionValue` | number, nonnegative in sample | `Amount float64` |
 | `cumulativeValue` | number | `Balance float64` |
-| `sourceReference` | string | `SourceReference string` |
-| `description` | string | `Description string` |
+| `sourceReference` | string or null | `SourceReference *string` |
+| `description` | string or null | `Description *string` |
 | `createTimeStamp` | string with UTC offset | `CreatedAt string` |
-| `userServiceReference`, `invoiceId` | null | Unmodeled |
+| `userServiceReference` | string or null | `UserServiceReference *string` |
+| `invoiceId` | integer or null | `InvoiceID *int64` |
 
-All modeled fields must be present and non-null, with the observed JSON
-type. Require positive IDs, finite amounts/balances, nonnegative amounts,
-and a parseable offset-bearing timestamp. Empty description/reference is
-allowed. Raw numeric codes survive; no string-to-number coercion applies.
-Codes 1 and 2 were credits; code 5 was a debit. Descriptions associate them
+Require modeled keys and their stated types; only the four pointer fields
+above accept null. The manager report permits null descriptions; structured
+transaction field analysis directly records null/populated references and
+invoice IDs, with string descriptions in sampled rows. Null becomes nil;
+empty strings stay present. Require positive primary IDs, finite amounts
+and balances, nonnegative amounts, and offset-bearing timestamps. Invoice
+IDs retain integer values without coercion or an inferred positivity rule.
+Codes retain integers without coercion; 1 and 2 were credits, 5 a debit.
+Descriptions associate them
 with credit purchase, refund, and resource charge respectively. Preserve
 `TypeCode` even after deriving names; unknown codes have empty `Type`.
 
@@ -152,25 +191,26 @@ within identical timestamps, negative amounts, or null balances.
 | `paymentStatus` | string, `"1"`; meaning unknown | `Status string` |
 | `paymentAmount` | number | `Amount float64` |
 | `paymentType` | integer, `8084`; meaning unknown | `TypeCode int` |
-| `description` | string | `Description string` |
-| `createTimeStamp` | string; exact syntax missing | `CreatedAt string` |
+| `description` | string or null | `Description *string` |
+| `createTimeStamp` | RFC3339Nano string | `CreatedAt string` |
 
-Require modeled fields with their observed types, positive ID, and finite
-nonnegative amount. The timestamp parser requires an offset-bearing value;
-its exact raw form is a probe gate. Unknown gateway/status/type values stay
-raw. Do not assign names from the unverified guide labels.
+Require modeled keys with stated types, positive ID, finite nonnegative
+amount, and an offset-bearing timestamp. Description accepts null under the
+manager's row-nullability report; other modeled fields stay non-null.
+Unknown gateway/status/type values stay raw, without inferred names.
 
-The following were null and remain unmodeled: `payGateTransactionID`,
-`payGateName`, `bankCode`, `bankName`, `merchantCode`, `actualAmount`,
-`paymentRefID`, `paymentOptions`, `executorID`, `executorName`. The summary
-does not establish that a payment row joins a wallet row. Do not assert
-reference equality or use payments to reconcile wallet spending.
+The structured probe also records nullable strings `payGateTransactionID`,
+`paymentOptions`, `paymentRefID`, `executorName`, and nullable numeric
+`executorID`. These remain deliberately unmodeled: their semantics and an
+integer contract for `executorID` are not established. `payGateName`,
+`bankCode`, `bankName`, `merchantCode`, and `actualAmount` remain observed
+only as null. Retain all fields in raw fixtures. None blocks the modeled
+payment read; no evidence establishes reference joins to wallet rows.
 
 ## Error statuses
 
-No published status table exists for these paths. Only the transactions
-unauthenticated 401 is observed. Other rows below specify deterministic
-handling under the existing transport contract, not captured behavior.
+Recorded errors are console transactions 401 and probe HTTP 200/envelope
+400. Other statuses specify handling, not observed or published behavior.
 
 | Case | History result; CLI exit |
 |-|-|
@@ -183,7 +223,8 @@ handling under the existing transport contract, not captured behavior.
 | HTTP 500/502/503/504 exhausted | `APIError`, `ServerError`; 1 |
 | Unexpected 2xx or any 3xx | `APIError`, `InvalidResponse`; 1 |
 | Other 4xx/5xx | `APIError`, safe status-derived code; 1 |
-| HTTP 200, failing numeric envelope code | `APIError`, decimal code; 1 |
+| HTTP 200, envelope 400 | `APIError`, status 200, code `400`; 1 |
+| HTTP 200, other failing numeric code | `APIError`, decimal code; 1 |
 | Unsupported envelope code or malformed data | `InvalidResponse`; 1 |
 | Walk bound or changed coverage | `ErrHistoryIncomplete`; 1 |
 | Context canceled/deadline | Preserve context identity; 1 |
@@ -192,7 +233,12 @@ Preserve HTTP status, Operation, safe cause chain, and transport Retryable.
 History withholds peer messages and arbitrary peer codes, including budget
 not-found text. Numeric failing envelope codes do not become HTTP status
 sentinels: an HTTP 200 envelope code 403 remains status 200, code `403`.
-Never turn an envelope failure into a successful empty output.
+Envelope 400 keeps the existing billing API error identity: `errors.As`
+reaches `*vngcloud.APIError`, `Retryable=false`, and `errors.Is` does not
+match `ErrInvalidInput`. Local shape validation alone uses that sentinel.
+This follows `billing/billing.go:100` without adding global mappings. Use
+fixed text and discard validation `data`, including `errorMsg`; never
+retain peer arrays in error fields or chains, or decode them as a page.
 
 For 2xx body overflow, return `*vngcloud.APIError` with
 `Code: "InvalidResponse"`, fixed text, observed status, and underlying
@@ -206,105 +252,49 @@ return nil Output and print no report on stdout.
 
 ## Free verification call
 
-This is a manager-run read-only probe specification, not authorization or
-an existing executable. It requires an explicitly approved account/profile
-and run. No worker reads credentials or makes these calls. No purchases,
-policy changes, activation, synthetic transactions, or resource cleanup are
-permitted to obtain witnesses. Only temporary probe files are removed.
+The [recorded probe](#recorded-live-evidence) settles modeled-read discovery.
+This procedure requires an approved manager-run recheck; it authorizes no
+run, purchases, policy changes, or manufactured transactions. Workers make
+no cloud calls or credential reads.
 
 ### Runner and bounds
 
-The manager prepares a temporary Go program under an already git-ignored
-path inside the module, with no public SDK bypass added to the CLI. Load
-`vngcloud.LoadConfig(ctx, vngcloud.WithProfile("default"),
-vngcloud.WithRegion("hcm-3"), vngcloud.WithRetry(0, 0))`; `default` is the
-captured IAM-user profile and region is only a Config requirement. Confirm
-this explicit profile is the approved identity; if not, substitute the
-approved IAM-user profile as a recorded runner argument. Never print its
-contents, copy a token, or inspect `.env`. Use no endpoint overrides,
-custom transports, debug logger, or response-capture hook.
-
-Use `core.ClientOf(cfg).RouteURL` with `routes.ProductBilling` and the path
-segments above, then `core.ClientOf(cfg).DoRaw`. Set GET, `Once=true`,
-`NoRedirect=true`, `MaxBody=8<<20`, and fixed withheld error text. This
-allows shared token acquisition but no application resend on 401. Record a
-401 as a failure; do not silently refresh into a positive probe result.
-One request has a 20-second context; the run has a ten-minute context and
-at most 64 history GETs, serially, with no reruns. Stop at the first 401,
-403, 429, 5xx, redirect, malformed body, size overflow, or deadline. Expected
-400s on exploratory size/date/page variants are recorded without retries.
-
-Write each raw body with its observed status under private
-`examples/basic/output/raw/billing/`, wrapped under `body` per live-data
-rules. Use mode 0600 files and a private directory; never overwrite a
-capture. Save request parameters and per-step results privately without
-headers. Print only step labels and pass/fail, never IDs, values, bodies,
-errors, or private paths. The summary is not a fixture. Remove the temporary
-program after the run; captures remain private for manager sanitation.
+Use a temporary Go program under a git-ignored module path. Load Config
+with the approved explicit IAM-user profile, required region, and
+`WithRetry(0, 0)`; no overrides, custom transport, logger, or capture hook.
+Use `core.ClientOf(cfg).RouteURL` with `routes.ProductBilling`, then `DoRaw`.
+Set GET, `Once=true`, `NoRedirect=true`, `MaxBody=8<<20`. Bound each request
+at 20 seconds and the run at ten minutes and 64 serial GETs. Stop on
+401/403/429/5xx, redirect, malformed body, overflow, deadline, or drift.
+Expected invalid parameters may return HTTP 200/envelope 400. No automatic
+retry or restart. Save raw bodies, status, and queries privately with mode
+0600, no overwrite or headers. Print only step labels/pass/fail; remove the
+program after use. Captures require manager sanitation before publication.
 
 ### Exact request sequence
 
-Freeze `N = time.Now().UTC()` once. Let D be N's UTC calendar date,
-S = D minus 90 calendar days, E = D plus 2 calendar days. Format all probe
-query dates with `02/01/2006`. These broad exploratory bounds deliberately
-make no claim about the eventual public date contract.
+Freeze N in UTC; D is its date, S=D minus 90 calendar days, E=D plus 2 days.
+Format dates `DD/MM/YYYY`. For each endpoint, within the shared run budget:
 
-Run the following for transactions, then independently for payments:
+1. GET page 1, size 10, S/E; record status, code, shape, and metadata.
+2. Repeat sizes 49, 50, 100; verify accepted size echoes and rejected
+   validation envelopes. Never infer server defaults or expand the SDK cap.
+3. At size 10 request page 2, page 0, baseline totalPages+1; check distinct
+   IDs, numbering, validation errors, and beyond-end metadata.
+4. At page 1, size 10, omit end, then both bounds; record envelope errors.
+5. Walk S/E at size 50. Select the latest existing row older than two UTC
+   days with UTC hour at least 17, ties by smallest ID. No witness means
+   missing evidence; never create one.
+6. Let U/L be its UTC/UTC+07:00 dates. For each distinct d in {U,L}, query
+   `(d-1,d)`, `(d,d)`, `(d,d+1)`, `(d+1,d+1)` at size 50. Walk results before
+   judging absence; reuse identical requests. Record compatible UTC,
+   UTC+07:00, UTC+08:00 models, not a uniquely proved zone/midnight rule.
+7. Query `(E+1,E+2)`, page 1, size 50; record successful empty shape.
 
-1. GET page 1, size 10, start S, end E. Require HTTP/envelope success and
-   record required field presence/types, metadata, and timestamp syntax.
-2. Repeat page 1 at size 100 then 500, holding dates fixed. Candidate C
-   qualifies only with HTTP/envelope success, `pageable.size == C`, coherent
-   metadata, and all rows decodable. A 400 or clamped size does not qualify.
-   Choose the largest qualifying candidate from 10, 100, 500. This proves
-   the SDK cap, never the upstream maximum. If none qualifies, keep gated.
-3. Using size 10 and S/E, request page 2, page 0, and page P+1, where P is
-   the baseline `totalPages`. Page 2 must be nonempty to prove the response
-   number base and distinct IDs. Record exact page-0 and beyond-end forms,
-   including 400 if returned. Do not assume an empty wallet proves paging.
-4. With page 1 and size 10, omit only `dateEnd`, then omit both dates.
-   Record success/error and private row membership. This is evidence only;
-   the chosen SDK rule always sends explicit bounds.
-5. Walk S/E using the proved size from step 2, within the run budget and
-   design consistency limits. Stop rather than declare success on drift.
-   Preserve raw pages. Privately select the latest row older than two UTC
-   days with timestamp UTC hour at least 17. This witness has different
-   UTC and UTC+07:00 dates. Ties select the smallest ID. No witness means
-   the timezone gate stays open; do not generate a transaction.
-6. Let U be that witness's UTC date and L its UTC+07:00 date. For each
-   distinct d in {U,L}, GET these `(dateStart,dateEnd)` pairs at page 1
-   with the proved size: `(d-1,d)`, `(d,d)`, `(d,d+1)`, `(d+1,d+1)`.
-   Walk each successful result to completion to test witness membership;
-   absence on page 1 alone proves nothing. Reuse identical requests within
-   this step. Record memberships by ID privately and check all returned
-   timestamps. Record only the calendar and boundary hypotheses these
-   memberships distinguish. A unique match among these candidates does
-   not establish the filtering zone or clear its gate.
-7. Query `(E+1,E+2)` at page 1 and the proved size as a candidate empty
-   range. If it contains rows, it is not empty evidence. A 400 is also not
-   empty evidence. Record the exact successful empty shape if available.
-
-Require first-party documentation or written first-party confirmation
-explicitly naming the date-filtering zone for each endpoint. The current
-witness protocol cannot establish that zone: rows at 18:xx UTC can have
-identical memberships under UTC+07:00 and UTC+08:00. Record which hypotheses
-remain compatible, considering at least UTC, UTC+07:00, and UTC+08:00.
-Without the first-party evidence, keep the zone gate open for effective
-`EndDate` and `GetSpend` day boundaries, even if only one tested candidate
-matches. Never infer the filtering zone from the console's local display.
-
-Witnesses away from midnight also cannot establish exact midnight
-inclusivity. If whole-day inclusive bounds and midnight cutoffs remain
-indistinguishable, obtain first-party evidence or additional existing
-boundary witnesses in another approved run; keep the boundary gate open.
-
-Stop when any budget is exhausted and list each unresolved step. Record
-per endpoint: proved cap, numbering/empty convention, timestamp syntax,
-surviving zone/boundary hypotheses, and any verified wire conversion. Cite
-first-party zone evidence or mark the zone unresolved; retain raw probe
-provenance for observed facts. Update this document before coding.
-Service-account probing is optional and needs a separately approved profile
-and run; repeat baseline only. Do not create credentials or widen policy.
+Report unresolved steps and discrepancies without changing the accepted
+[date choice](billing-history.md#dates). Contradictory evidence needs manager
+resolution before release. Further zone or service-account probes require
+separate approval; never create credentials or widen policy for them.
 
 ## Fixtures
 
@@ -332,7 +322,7 @@ relations. Redact credentials before any public artifact. Label adversarial
 and arithmetic fixtures synthetic; they do not establish upstream behavior.
 
 Both reads join `make live` after implementation. Use a fixed-at-run-start
-30-calendar-day range through today under the verified conversion, page 1,
+30-calendar-day range through today under the accepted conversion, page 1,
 `Size=min(10, endpoint cap)`, `All=false`, bounded context, and counts-only
 logs. They still require manager live-run authorization. Capture and compare
 raw versus SDK examples privately under [live data][live-data].
@@ -348,16 +338,23 @@ synthetic hostile bodies. No unit test contacts a cloud endpoint.
   project/region/filter keys, and read-only CLI access without consent.
 - Nil Input, invalid/leap/zero-padded dates, reversed ranges, converted-date
   overflow, and `All` with `Page>1`: invalid input, zero authentication/GETs.
-- Empty end uses one clock read in the proved zone across midnight/pages;
-  host local zone changes nothing. Check UTC versus local date transitions.
-- Synthetic rows at 18:xx UTC matching both UTC+07:00 and UTC+08:00 must
-  leave the zone gate open; a UTC-versus-UTC+07:00 result cannot clear it.
+- Empty end uses one clock read in fixed UTC+07:00 across midnight/pages;
+  host local zone changes nothing. Assert end-plus-one-day conversion across
+  month/year/leap boundaries and one-day public ranges. Size 0 or >50 sends
+  50; sizes 1 and 49 survive. No request omits either bound.
+- Synthetic 18:xx UTC rows fitting UTC+07:00 and UTC+08:00 cannot prove a
+  unique zone. The accepted UTC+07:00 rule remains a decision, not evidence.
 - Decode every field through the SDK. Missing/null false/zero fields,
   wrong types, negative amounts, bad offsets, overflow, empty body,
   unenveloped body, and null data/content/metadata fail with no Output.
+  Nullable fields decode null, empty, and populated values distinctly;
+  missing keys or wrong populated types fail. Include pointer sanitation.
 - Exercise each error-table row on both endpoints, including HTTP 200
   failing envelopes. Assert `errors.Is`, `errors.As`, status, fixed message,
   code, Retryable, stdout emptiness, and absence of peer values in chains.
+- Envelope-400 validation arrays for size 100, page 0, and omitted bounds:
+  assert status 200, code `400`, nil Output, exit 1, no `ErrInvalidInput`,
+  no retry, and no validation text leakage. Decode the code before data.
 - Regress HTTP 404 on both history commands: `NotFound`, exit 4, empty
   stdout. Run existing `TestClassify` and `TestExitCode` assertions unchanged
   in `internal/cli/errors_test.go`, including wrapped not-found errors.
@@ -384,14 +381,20 @@ synthetic hostile bodies. No unit test contacts a cloud endpoint.
 
 ## Open evidence
 
-Implementation waits for SDK IAM-user access, both endpoints' proved caps,
-response numbering and coherent multi-page/empty raw fixtures, payment
-timestamp syntax, exact date zone and boundary conversion. `GetSpend` also
-waits for raw known-code rows and their direction/amount semantics. A probe
-that lacks suitable existing rows leaves the relevant gate unresolved.
+Discovery gates for SDK IAM-user access, SDK size default/cap, page base,
+empty/beyond-end conventions, timestamps, and modeled row nullability are
+closed by recorded evidence. The manager's date decision closes the
+implementation gate while retaining UTC+08:00 and exact-midnight ambiguity.
 
-Nonblocking unknowns remain explicit: service-account permissions, new
-transaction codes, unmodeled null fields, payment type/status/gateway
-meanings, reference joins, description grammar, historical VAT basis, equal
-instant ledger ordering, and snapshot guarantees. No document move, owner
-decision, or approval turns these into verified facts.
+Implementers can plan the reads now; independent design and plan review
+still precede code. Manager-sanitized raw fixtures and SDK decode tests are
+acceptance gates: the JSON summary holds analysis, not response bodies.
+`GetSpend` release needs raw known-code rows, direction/amount semantics,
+and reconciliation tests. Prepare fixtures through the manager, never from
+SDK output; probe success does not replace these checks.
+
+Nonblocking unknowns: service-account access, server size default, new
+transaction codes, remaining unmodeled field types/semantics, payment enums,
+reference joins, description grammar, historical VAT basis, tied-instant
+ledger order, snapshot guarantees, unique zone, and exact-midnight behavior.
+Do not reopen settled discovery or hide these limits behind approval.

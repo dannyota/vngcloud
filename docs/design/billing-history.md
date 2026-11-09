@@ -1,8 +1,9 @@
 # Billing History Design
 
-The seven [owner decisions](#owner-decisions) are accepted. Implementation
-remains gated by [API evidence](billing-history-api.md#open-evidence) and
-independent design and implementation-plan review. All paths below are
+The [owner decisions](#owner-decisions) are accepted. Recorded live evidence
+settles the list-read discovery gates. Implementation still requires
+independent design and implementation-plan review and the remaining
+[fixture checks](billing-history-api.md#open-evidence). All paths below are
 proposed unless identified as existing. This document authorizes no live
 run, purchase, activation, or cleanup.
 
@@ -15,17 +16,16 @@ have one home in [billing history API](billing-history-api.md).
 
 ## Scope and evidence
 
-The manager's sanitized console summary establishes authenticated reads
-on the Billing host, row shapes, and observed transaction codes. It is not
-an archived raw-response fixture or a published API contract. It does not
-prove paging stability, boundary semantics, or complete reconciliation.
-The [source register](billing-history-api.md#sources) separates published
-material, console observations, inference, and missing evidence.
+The manager's console summary and shared-SDK probe establish the recorded
+observations in [API evidence](billing-history-api.md#recorded-live-evidence).
+The source register distinguishes published rules, recorded live evidence,
+manager decisions, and missing evidence. Reports are not raw fixtures and
+do not prove snapshot stability or complete reconciliation.
 
 These paths differ from `/v1/credits`, whose IAM-user 403 remains recorded
-in [billing](billing.md#deferred). Console IAM-user access does not prove
-SDK-token or service-account access. A denied service account remains a
-permission error; never switch identity or widen policy automatically.
+in [billing](billing.md#deferred). The probe confirms SDK IAM-user access
+for both history endpoints. Service-account access remains unverified;
+never switch identity or widen policy automatically after a denial.
 
 Invoices, orders, PDFs, writes, description parsing, and joins between
 payments and wallet transactions are out of scope. Payment totals are not
@@ -49,19 +49,22 @@ missing start, invalid dates, or start after the effective end return
 `ErrInvalidInput` before authentication or network activity. Do not mutate
 the caller's Input. Dates carry no time of day or caller-local time zone.
 
-Both public endpoints are inclusive calendar days in the service's
-verified filtering zone. That zone is an implementation gate, not assumed
-from the timestamp offset or the console display. Empty `EndDate` means
-today in that zone, resolved once per invocation. Inject a package-private
-clock into the date resolver in tests; the current billing client has no
-shared public clock option. All pages reuse the resolved range.
+Both public bounds are inclusive calendar days in fixed UTC+07:00, the
+manager's accepted filtering-zone choice for Asia/Ho_Chi_Minh. This is an
+observed fit, not a published or uniquely proved zone; UTC+08:00 also fits
+the probe. [Recorded evidence](billing-history-api.md#recorded-live-evidence)
+keeps that ambiguity and exact-midnight evidence limits explicit.
 
-Send explicit bounds, converting dates to `DD/MM/YYYY` with `url.Values`.
-Use the verified wire boundary conversion, including a one-calendar-day
-advance only if an exclusive upper bound is proved. Never guess an extra
-day, omit the end opportunistically, or use `24*time.Hour` calendar math.
-Reject an unrepresentable converted bound before sending. Record the exact
-zone and conversion in the API document before implementation.
+Empty `EndDate` means today in UTC+07:00, resolved once per invocation.
+Use `time.FixedZone("UTC+07:00", 7*60*60)` so host timezone data cannot
+change the chosen offset. Inject a package-private clock into the resolver
+in tests; all pages reuse the resolved range and never use host local time.
+
+Send explicit bounds through `url.Values` in `DD/MM/YYYY`: `dateStart`
+is `StartDate`, and exclusive `dateEnd` is the inclusive effective
+`EndDate` plus one calendar day using `AddDate(0, 0, 1)`. Equal public dates
+therefore request one full calendar day. Reject an unrepresentable next-day
+bound before sending. Do not omit dates or use duration-based calendar math.
 
 `CreatedAt` retains the wire string and offset. Parse with
 `time.RFC3339Nano` for comparisons; never sort timestamps lexically. The
@@ -78,13 +81,13 @@ Both exported Input types contain these fields:
 | `StartDate` | string | Required, with `vngcloud:"required"` |
 | `EndDate` | string | Optional; resolved by [dates](#dates) |
 | `Page` | int | Nonpositive means 1 |
-| `Size` | int | Nonpositive or above the verified cap means the cap |
+| `Size` | int | Nonpositive or above 50 means 50 |
 | `All` | bool | Start at 1; reject `Page > 1` before requests |
 
-The cap and default are the largest size proved for each endpoint by the
-bounded probe. They may differ; `GetSpend` uses the transactions cap. This
-is an SDK limit, not a claim about the server's maximum. No history list
-uses the cost explorer's size limit without evidence.
+Both endpoint defaults and SDK maximum sizes are 50; `GetSpend` uses 50.
+The [probe](billing-history-api.md#recorded-live-evidence) establishes
+acceptance at 50 and rejection at 100. The SDK always sends a size and does
+not depend on an untested server default.
 
 `ListTransactionsOutput` embeds `core.PagedList[Transaction]`.
 `Transaction` contains:
@@ -96,8 +99,10 @@ uses the cost explorer's size limit without evidence.
 | `TypeCode` | int | Raw transaction code |
 | `Direction` | string | `CREDIT` or `DEBIT` from `creditStatus` |
 | `Amount`, `Balance` | float64 | Amount and balance after the row |
-| `SourceReference` | string | Opaque payment or bill reference |
-| `Description` | string | Sensitive free text |
+| `SourceReference` | *string | Nullable opaque payment or bill reference |
+| `Description` | *string | Nullable sensitive free text |
+| `UserServiceReference` | *string | Nullable opaque service reference |
+| `InvoiceID` | *int64 | Nullable invoice identifier |
 | `CreatedAt` | string | Timestamp with offset |
 
 Export `TransactionPurchase = "PURCHASE"`, `TransactionRefund = "REFUND"`,
@@ -108,18 +113,21 @@ this mapping is observed and inferred, not a published numeric enum.
 
 `ListPaymentsOutput` embeds `core.PagedList[Payment]`. `Payment` contains
 `ID int64`, `TypeCode int`, `Amount float64`, and string fields
-`TransactionID`, `Gateway`, `Status`, `Description`, `CreatedAt`.
-Export only the observed `GatewayBalance = "use_balance"`. Do not infer a
-payment status name, derived payment type, or a reference join. Fields
-observed only as null stay unmodeled; the API document lists them.
+`TransactionID`, `Gateway`, `Status`, `CreatedAt`, plus
+`Description *string`. Nullable fields preserve null as nil and populated
+empty strings as non-nil pointers; JSON includes null, without `omitempty`.
+These are unimplemented types, so this changes no existing caller. Export
+only the observed `GatewayBalance = "use_balance"`. Do not infer a
+payment status name, derived payment type, or a reference join. Additional
+payment fields remain explicitly unmodeled, with observed types and limits
+listed in the API document; their presence does not block core reads.
 
 ### Paging
 
-Single-page mode preserves server metadata, converting its verified page
-base to public 1-based `Page`. `PageSize` is the returned size, not row
-count. Empty `Items` is a non-nil empty slice. Validate the required
-metadata, content, and rows before returning anything. Empty and
-past-the-end wire conventions must be captured before coding.
+Single-page mode preserves the server's 1-based `number` as public `Page`.
+`PageSize` is the returned size, not row count. Empty `Items` is a non-nil
+empty slice. Validate metadata, content, and rows using the recorded
+[empty and beyond-end conventions](billing-history-api.md#response-envelope-and-paging).
 
 `All` uses a sequential walk, with no goroutines or automatic restarts:
 
@@ -129,7 +137,7 @@ past-the-end wire conventions must be captured before coding.
 2. Request consecutive pages only. Require the expected page number,
    unchanged totals and size, and the exact expected row count on each
    page. Validate `totalPages` against ceiling division of total and size,
-   using overflow-safe arithmetic and the verified empty convention.
+   using overflow-safe arithmetic and the recorded empty convention.
 3. Reject every duplicate ID within or across pages, including identical
    rows. Do not discard duplicates and call the walk complete. A duplicate
    within one page is malformed; one across pages means an incomplete walk.
@@ -212,7 +220,8 @@ Do not convert VAT or equate credits purchased to tax-inclusive cash paid.
 
 Descriptions, references, IDs, timestamps, and amounts are account data.
 SDK outputs expose them for authorized callers; raw description structure
-is not a stable contract. Do not derive actions, products, resource types,
+is not a stable contract. Apply string sanitation to non-nil pointers too.
+Do not derive actions, products, resource types,
 or IDs from it. Redact all credentials observed across sends from returned
 string fields, including unknown gateway/status strings. Retain credential
 observations within the new history helper; never expose the observation
@@ -343,11 +352,12 @@ These are design constraints for independent review, not a review verdict.
 
 ## Release order and alternatives
 
-First obtain the manager-run evidence and independent design review; then
-review an implementation plan. Implement the list methods, focused CLI
-renderers, fixtures, examples, wiki, and both live reads together. Release
-`GetSpend` only once known-type raw fixtures and date/paging gates support
-its calculations. Hardening/help improvements can ship separately.
+The recorded evidence and manager's date decision support a concrete list
+implementation plan; no repeat discovery run is required for settled facts.
+Obtain independent design and plan review, then implement list methods,
+renderers, sanitized raw fixtures, examples, wiki, and both live reads.
+Release `GetSpend` only after known-type raw fixtures and SDK decoding tests
+support its calculations. Hardening/help improvements can ship separately.
 
 SDK aggregation avoids duplicate CLI paging and serves Go callers. A
 CLI-only loop would split the error and completeness contract. Fail-closed
@@ -361,14 +371,16 @@ conventions at the cost of finite precision; this is not an invoice engine.
 The manager accepted all seven choices under delegated owner authority:
 
 1. Derive `--start-date` and `--end-date` from Inputs for consistent flags.
-2. Optional `EndDate` means through today; wire semantics remain gated.
+2. Optional `EndDate` means through today under [dates](#dates).
 3. Put `GetSpend` in the SDK for one reusable aggregation contract.
 4. Fail closed on incomplete walks with nil Output.
 5. Expose derived transaction `Type` and raw `TypeCode` together.
-6. Set each default size and cap to the largest size the probe proves.
+6. Set both default and maximum SDK sizes to 50, the proved accepted size.
 7. Add both reads to `make live`; inclusion does not authorize execution.
 
-No accepted choice requires reopening. Additional safety constraints in
-this design still require independent review. Unresolved wire facts stay
-in [open evidence](billing-history-api.md#open-evidence); approval does not
-upgrade inference or sanitized summaries to raw fixture evidence.
+The manager also accepts fixed UTC+07:00 and inclusive-start/exclusive-end
+wire filtering, with inclusive public dates converted under [dates](#dates).
+That decision permits implementation despite the UTC+08:00 ambiguity; it
+does not establish a published server zone or exact-midnight behavior.
+Remaining [evidence gates](billing-history-api.md#open-evidence) stay explicit.
+Approval never converts reports into raw fixtures or removes review.
