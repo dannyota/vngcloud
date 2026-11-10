@@ -209,13 +209,13 @@ L4 scope/cap is not run authorization. Each approval names account, region
 (`hcm-3`, or `han-1` while the HCM VPC quota is full), enabled zone, mode,
 resources, and cleanup under the cap. Require quote evidence and cleanup
 before purchase. Set `VNGCLOUD_LIVE_WRITE=1`, `VNGCLOUD_LIVE_FLOATING_IP=1`,
-and `VNGCLOUD_LIVE_MAX_VND=467800` in a manager-owned test with a 60 min
+and `VNGCLOUD_LIVE_MAX_VND=500000` in a manager-owned test with a 60 min
 timeout. Each run needs new approval; never reuse consent or raise the cap.
 
 Buy one `s2-general-1x2` server with a 20 GB 3000 IOPS SSD root (NVME only
 where a region has no SSD, as `han-1`) by its verified zone-specific
 `RootDiskTypeID`, and one IP through `AttachFloatingIP`. No data disk,
-resize, second IP, or auto-attach. Keep 467,800 VND as the gross quote
+resize, second IP, or auto-attach. Keep 500,000 VND as the gross quote
 cap. Requote before purchase; refuse above the cap; never take a default
 type. Pass the fresh sum as `MaxPrice`. No refund funds another purchase.
 Measure IP refunds; never assume them.
@@ -236,7 +236,7 @@ are excluded; an SSH banner does not list auth methods.
   R2 does not depend on unshipped R3 for cleanup or a release tag.
 - R3-only: use released R2 to create the same single-server fixture in
   a separately approved run, then perform the management steps. Its own
-  cap remains 467800; combined approval is not standing purchase consent.
+  cap remains 500000; combined approval is not standing purchase consent.
 
 ### Steps
 

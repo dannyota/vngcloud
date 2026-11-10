@@ -385,7 +385,7 @@ Decisions accepted by the manager under delegated owner authority:
    unchanged to preserve callers and service ownership.
 5. Keep the existing quote Output type, checked sums, and labeled fallback
    properties. The accepted price interpretation is in [Cost](#cost).
-6. Use one-IP L4 with a 467,800 VND gross quote cap; defer auto-allocation
+6. Use one-IP L4 with a 500,000 VND gross quote cap; defer auto-allocation
    to avoid another purchase. Evidence gates and manager run-time approval
    naming account, region, cleanup method, and mode still apply.
 
