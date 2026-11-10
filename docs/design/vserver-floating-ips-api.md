@@ -337,9 +337,10 @@ window cannot rule out delayed or renewal charges.
   erase a past charge. Different amounts, missing itemization, or incomplete
   evidence decide neither hypothesis.
 
-The delegated manager records the outcome: inclusion needs the reviewed
-pre-tag correction; separate charging needs matching evidence/guidance.
-Other results block tagging. Preserve detach warnings and refund gates.
+Recorded outcome: inclusion. L4 in `han-1` (HAN01-1B, `s2-general-1x2`, 20
+GB NVME root) debited exactly the 349,720 VND server quote, refunded
+349,704 at delete, and posted no IP row; a month of HCM ledger with
+create-attached IPs agrees. Keep detach warnings and refund gates.
 
 ## Security group rules
 
@@ -373,9 +374,8 @@ loses the IP. That justifies caution, not fixtures or an API contract.
 
 ## Missing evidence
 
-- R2: created-IP billing attribution, reservation scope, nonzero
-  discounts, IAM public create compatibility, populated server fields,
-  settlement timing, and a usable cleanup route and its permissions.
+- R2: reservation scope and nonzero discounts; L4 closed attribution,
+  IAM create, populated fields, settlement timing, and console cleanup.
 - R3: populated WAN list envelope and attached/unattached rows, stable
   identity and zone fields, empty-list encoding, IAM attach/detach/delete
   acknowledgements, existing-IP attachment charge, and final conflict
