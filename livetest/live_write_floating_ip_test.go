@@ -20,6 +20,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode"
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/billing"
@@ -27,10 +28,13 @@ import (
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/network"
 	"danny.vn/vngcloud/portal"
+	"danny.vn/vngcloud/pricing"
 	"danny.vn/vngcloud/volume"
 )
 
 const floatingIPCap = 500000
+
+const floatingIPGroupDescription = "Floating IP live test with no ingress"
 
 // TestLiveWriteFloatingIP needs fresh manager approval and verified console
 // release permissions. Credit-history access, checkpoint captures, and billing
@@ -128,7 +132,8 @@ func newFloatingIPRun(t *testing.T, cfg vngcloud.Config, guard *floatingIPTransp
 	return &floatingIPRun{
 		t: t, compute: compute.New(cfg), network: network.New(cfg), volume: volume.New(cfg),
 		billing: billing.New(cfg), guard: guard, capture: capture, name: name, region: cfg.Region(),
-		ledger: &floatingIPLedger{ids: map[string]string{}, seen: map[string]map[string]bool{}, baseline: map[string]map[string]bool{}, attempted: map[string]bool{}},
+		ledger:     &floatingIPLedger{ids: map[string]string{}, seen: map[string]map[string]bool{}, baseline: map[string]map[string]bool{}, attempted: map[string]bool{}},
+		failureLog: func(line string) { t.Log(line) },
 	}
 }
 
@@ -142,6 +147,9 @@ func (r *floatingIPRun) purchase(ctx context.Context, input *compute.CreateServe
 	r.guard.disarm()
 	if created != nil {
 		r.rememberServer(created.Server)
+	}
+	r.logWriteFailure("compute.CreateServer", createErr)
+	if created != nil {
 		if err := r.capture.saveSDK("compute.CreateServer", created); err != nil {
 			return err
 		}
@@ -420,6 +428,142 @@ type floatingIPRun struct {
 	serverAttempted   bool
 	released          bool
 	vpcs              []network.VPC
+	failureLog        func(string)
+}
+
+func (r *floatingIPRun) logWriteFailure(step string, err error) {
+	if err == nil {
+		return
+	}
+	known := []string{r.name, floatingIPGroupDescription}
+	if r.ledger != nil {
+		for _, ids := range r.ledger.seen {
+			for id := range ids {
+				known = append(known, id)
+			}
+		}
+	}
+	diagnostic := struct {
+		Step      string   `json:"step"`
+		Sentinels []string `json:"sentinels"`
+		APIError  *struct {
+			StatusCode int    `json:"statusCode"`
+			Code       string `json:"code"`
+		} `json:"apiError,omitempty"`
+		Message string `json:"message"`
+	}{Step: step, Sentinels: []string{}, Message: floatingIPRedactDiagnostic(err.Error(), known)}
+	for _, sentinel := range floatingIPFailureSentinels {
+		if errors.Is(err, sentinel.err) {
+			diagnostic.Sentinels = append(diagnostic.Sentinels, sentinel.name)
+		}
+	}
+	var apiErr *core.APIError
+	if errors.As(err, &apiErr) {
+		diagnostic.APIError = &struct {
+			StatusCode int    `json:"statusCode"`
+			Code       string `json:"code"`
+		}{apiErr.StatusCode, floatingIPRedactDiagnostic(apiErr.Code, known)}
+	}
+	line, marshalErr := json.Marshal(diagnostic)
+	if marshalErr != nil {
+		r.failureLog(`{"message":"write diagnostic unavailable"}`)
+		return
+	}
+	r.failureLog(string(line))
+}
+
+var floatingIPFailureSentinels = []struct {
+	name string
+	err  error
+}{
+	{"compute.ErrOpenLogin", compute.ErrOpenLogin},
+	{"compute.ErrFailed", compute.ErrFailed},
+	{"compute.ErrUnexpectedStatus", compute.ErrUnexpectedStatus},
+	{"compute.ErrServerGroupInUse", compute.ErrServerGroupInUse},
+	{"compute.ErrNotSettled", compute.ErrNotSettled},
+	{"network.ErrOpenLogin", network.ErrOpenLogin},
+	{"network.ErrSecurityGroupInUse", network.ErrSecurityGroupInUse},
+	{"network.ErrSystemGroup", network.ErrSystemGroup},
+	{"network.ErrNotSettled", network.ErrNotSettled},
+	{"network.ErrFailed", network.ErrFailed},
+	{"network.ErrDefaultResource", network.ErrDefaultResource},
+	{"network.ErrBusy", network.ErrBusy},
+	{"network.ErrInUse", network.ErrInUse},
+	{"network.ErrUnexpectedStatus", network.ErrUnexpectedStatus},
+	{"pricing.ErrDiscoveryIncomplete", pricing.ErrDiscoveryIncomplete},
+	{"core.ErrTokenCache", core.ErrTokenCache},
+	{"core.ErrAuth", core.ErrAuth},
+	{"core.ErrNotFound", core.ErrNotFound},
+	{"core.ErrPermission", core.ErrPermission},
+	{"core.ErrRateLimited", core.ErrRateLimited},
+	{"core.ErrProjectNotFound", core.ErrProjectNotFound},
+	{"core.ErrProjectAmbiguous", core.ErrProjectAmbiguous},
+	{"core.ErrMissingProjectID", core.ErrMissingProjectID},
+	{"core.ErrInvalidConfig", core.ErrInvalidConfig},
+	{"core.ErrInvalidInput", core.ErrInvalidInput},
+	{"core.ErrPriceAboveMax", core.ErrPriceAboveMax},
+	{"core.ErrUnpriced", core.ErrUnpriced},
+	{"core.ErrNoCredentials", core.ErrNoCredentials},
+	{"core.ErrCredentialsFile", core.ErrCredentialsFile},
+}
+
+var (
+	floatingIPDiagnosticBody   = regexp.MustCompile(`(?s)\{.*\}|\[.*\]`)
+	floatingIPDiagnosticSecret = regexp.MustCompile(`(?is)\b(?:authorization|bearer|cookie|password|token|access_token|refresh_token|id_token|secret|client_secret|body|payload)\b.*`)
+	floatingIPDiagnosticText   = regexp.MustCompile(`(?is)\b(?:username|name|description)\b\s*(?:[:=]|["']).*`)
+	floatingIPDiagnosticEmail  = regexp.MustCompile(`[^\s<>()"'\[\],;]+@[^\s<>()"'\[\],;]+`)
+	floatingIPDiagnosticID     = regexp.MustCompile(`(?i)\b(?:ins|secg|net|sub|vol)-[a-z0-9][a-z0-9_-]*|\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b`)
+	floatingIPDiagnosticIPv6   = regexp.MustCompile(`[0-9a-fA-F:.]+(?:%[a-zA-Z0-9_.-]+)?`)
+	floatingIPDiagnosticIPv4   = regexp.MustCompile(`\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?:/[0-9]{1,2})?\b`)
+	floatingIPDiagnosticOpaque = regexp.MustCompile(`[a-zA-Z0-9_+/=-]{32,}`)
+	floatingIPDiagnosticNumber = regexp.MustCompile(`[0-9]{6,}`)
+	floatingIPDiagnosticURL    = regexp.MustCompile(`(?i)https?://[^\s<>"']+`)
+	floatingIPDiagnosticJWT    = regexp.MustCompile(`\beyJ[a-zA-Z0-9_-]*(?:\.[a-zA-Z0-9_-]+){2,4}\b`)
+)
+
+// SDK errors already redact sent credentials. Remove payloads and known
+// harness inputs before masking account data and bounding the remaining text.
+func floatingIPRedactDiagnostic(message string, known []string) string {
+	message = floatingIPDiagnosticBody.ReplaceAllString(message, "[redacted]")
+	values := slices.Clone(known)
+	slices.SortFunc(values, func(a, b string) int { return len(b) - len(a) })
+	for _, value := range values {
+		if value != "" {
+			message = strings.ReplaceAll(message, value, "[redacted]")
+		}
+	}
+	message = floatingIPDiagnosticSecret.ReplaceAllString(message, "[redacted]")
+	message = floatingIPDiagnosticText.ReplaceAllString(message, "[redacted]")
+	message = floatingIPDiagnosticURL.ReplaceAllString(message, "[redacted]")
+	message = floatingIPDiagnosticJWT.ReplaceAllString(message, "[redacted]")
+	message = floatingIPDiagnosticEmail.ReplaceAllString(message, "[redacted]")
+	message = floatingIPDiagnosticID.ReplaceAllString(message, "[redacted]")
+	message = floatingIPDiagnosticIPv6.ReplaceAllStringFunc(message, func(candidate string) string {
+		if strings.Count(candidate, ":") >= 2 {
+			candidate = strings.TrimRight(candidate, ".")
+			for _, address := range []string{candidate, strings.TrimPrefix(candidate, ":"), strings.TrimSuffix(candidate, ":")} {
+				if _, err := netip.ParseAddr(address); err == nil {
+					return "[redacted]"
+				}
+			}
+		}
+		return candidate
+	})
+	message = floatingIPDiagnosticIPv4.ReplaceAllString(message, "[redacted]")
+	message = floatingIPDiagnosticOpaque.ReplaceAllString(message, "[redacted]")
+	message = floatingIPDiagnosticNumber.ReplaceAllString(message, "[redacted]")
+	message = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, message)
+	message = strings.Join(strings.Fields(message), " ")
+	runes := []rune(message)
+	if len(runes) > 300 {
+		message = string(runes[:297]) + "..."
+	}
+	return message
 }
 
 func (r *floatingIPRun) getServer(ctx context.Context, id string) (*compute.GetServerOutput, error) {
@@ -433,6 +577,7 @@ func (r *floatingIPRun) getServer(ctx context.Context, id string) (*compute.GetS
 func (r *floatingIPRun) quote(ctx context.Context, input *compute.CreateServerInput) {
 	r.t.Helper()
 	quote, err := r.compute.QuoteCreateServer(ctx, input)
+	r.logWriteFailure("compute.QuoteCreateServer", err)
 	if err != nil || quote == nil || !floatingIPPriceOK(quote.OptimumPrice) {
 		// A failed quote never authorizes a delete of already created parents.
 		r.ledger.blocked = true
@@ -708,6 +853,7 @@ func (r *floatingIPRun) parents(ctx context.Context, input *compute.CreateServer
 	if vpc != nil {
 		r.ledger.remember("vpc", vpc.VPC.UUID)
 	}
+	r.logWriteFailure("network.CreateVPC", err)
 	if err != nil || vpc == nil || vpc.VPC.Name != r.name || r.ledger.ids["vpc"] == "" || r.ledger.blocked {
 		r.ledger.blocked = true
 		r.t.Fatal("VPC create or ownership failed")
@@ -720,6 +866,7 @@ func (r *floatingIPRun) parents(ctx context.Context, input *compute.CreateServer
 	if subnet != nil {
 		r.ledger.remember("subnet", subnet.Subnet.UUID)
 	}
+	r.logWriteFailure("network.CreateSubnet", err)
 	if err != nil || subnet == nil || subnet.Subnet.Name != r.name || subnet.Subnet.NetworkID != input.VPCID ||
 		subnet.Subnet.ZoneID != input.ZoneID || r.ledger.ids["subnet"] == "" || r.ledger.blocked {
 		r.ledger.blocked = true
@@ -728,11 +875,12 @@ func (r *floatingIPRun) parents(ctx context.Context, input *compute.CreateServer
 	input.SubnetID = r.ledger.ids["subnet"]
 	r.ledger.attempted["group"] = true
 	r.guard.arm(http.MethodPost, "/secgroups")
-	group, err := r.network.CreateSecurityGroup(ctx, &network.CreateSecurityGroupInput{Name: r.name, Description: "Floating IP live test with no ingress"})
+	group, err := r.network.CreateSecurityGroup(ctx, &network.CreateSecurityGroupInput{Name: r.name, Description: floatingIPGroupDescription})
 	r.guard.disarm()
 	if group != nil {
 		r.ledger.remember("group", group.SecurityGroup.ID)
 	}
+	r.logWriteFailure("network.CreateSecurityGroup", err)
 	if err != nil || group == nil || group.SecurityGroup.Name != r.name || group.SecurityGroup.IsSystem || group.SecurityGroup.System ||
 		r.ledger.ids["group"] == "" || r.ledger.blocked {
 		r.ledger.blocked = true
@@ -759,6 +907,7 @@ func (r *floatingIPRun) parents(ctx context.Context, input *compute.CreateServer
 	if imported != nil {
 		r.ledger.remember("key", imported.SSHKey.ID)
 	}
+	r.logWriteFailure("compute.ImportSSHKey", err)
 	if err != nil || imported == nil || imported.SSHKey.Name != r.name || r.ledger.ids["key"] == "" || r.ledger.blocked {
 		r.ledger.blocked = true
 		r.t.Fatal("key import or ownership failed")
@@ -881,6 +1030,17 @@ func (r *floatingIPRun) cleanup(ctx context.Context) bool {
 			_, err = r.network.GetVPC(ctx, &network.GetVPCInput{VPCID: id})
 			return floatingIPAbsent(err)
 		}},
+	}
+	operations := map[string]string{
+		"server": "compute.DeleteServer", "volume": "volume.DeleteVolume", "group": "network.DeleteSecurityGroup",
+		"key": "compute.DeleteSSHKey", "subnet": "network.DeleteSubnet", "vpc": "network.DeleteVPC",
+	}
+	for i, step := range steps {
+		steps[i].remove = func(ctx context.Context, id string) error {
+			err := step.remove(ctx, id)
+			r.logWriteFailure(operations[step.kind], err)
+			return err
+		}
 	}
 	if !r.ledger.clean(ctx, steps) {
 		return false
