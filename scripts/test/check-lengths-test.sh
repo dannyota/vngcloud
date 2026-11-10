@@ -5,6 +5,19 @@ root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 tmp=$(mktemp -d)
 tmp=$(cd "$tmp" && pwd -P)
 trap 'rm -rf "$tmp"' EXIT
+if [[ ${CHECK_LENGTHS_ISOLATION_CHILD:-0} != 1 ]]; then
+  mkdir -p "$tmp/child-tmp"
+  status=0
+  CHECK_LENGTHS_ISOLATION_CHILD=1 TMPDIR="$tmp/child-tmp" GIT_DIR="$tmp/hostile.git" \
+    bash "$root/scripts/test/check-lengths-test.sh" > "$tmp/child-out" 2> "$tmp/child-err" || status=$?
+  if [[ $status != 0 || -e "$tmp/hostile.git" ]]; then
+    printf 'hostile GIT_DIR affected the test: status %s\n' "$status" >&2
+    cat "$tmp/child-out" "$tmp/child-err" >&2
+    exit 1
+  fi
+fi
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
+unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_CEILING_DIRECTORIES GIT_NAMESPACE
 export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
 mkdir -p "$tmp/repo/scripts" "$tmp/bin"
 cp "$root/scripts/check-lengths.sh" "$tmp/repo/scripts/check-lengths.sh"
@@ -75,17 +88,28 @@ repo = Path(sys.argv[1])
     "line\n" * 5 + "Code generated example DO NOT EDIT\n" + "line\n" * 445
 )
 PY
-status=0
-bash "$tmp/repo/scripts/check-lengths.sh" > "$tmp/out" 2> "$tmp/err" || status=$?
 cat > "$tmp/expected-out" <<'EXPECTED'
 too long: over-limit.md has 451 lines (max 450)
 too long: sixth-line.md has 451 lines (max 450)
 too long: over-limit.go has 701 lines (max 700)
 EXPECTED
 printf 'check-lengths: 3 file(s) over the limit\n' > "$tmp/expected-err"
-if [[ $status != 1 ]] || ! cmp -s "$tmp/expected-out" "$tmp/out" || ! cmp -s "$tmp/expected-err" "$tmp/err"; then
-  printf 'expected three violations, got status %s\n' "$status" >&2
-  cat "$tmp/out" "$tmp/err" >&2
-  exit 1
-fi
+run_violations() {
+  local status=0
+  bash "$tmp/repo/scripts/check-lengths.sh" > "$tmp/out" 2> "$tmp/err" || status=$?
+  if [[ $status != 1 ]] || ! cmp -s "$tmp/expected-out" "$tmp/out" || ! cmp -s "$tmp/expected-err" "$tmp/err"; then
+    printf 'expected three violations, got status %s\n' "$status" >&2
+    cat "$tmp/out" "$tmp/err" >&2
+    exit 1
+  fi
+}
+mkdir -p "$tmp/padded-bin"
+cat > "$tmp/padded-bin/wc" <<'SH'
+#!/usr/bin/env bash
+count=$(/usr/bin/wc "$@")
+printf '%10d\n' "$count"
+SH
+chmod +x "$tmp/padded-bin/wc"
+PATH="$tmp/padded-bin:$PATH" run_violations
+run_violations
 echo 'check-lengths tests: ok'
