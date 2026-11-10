@@ -30,19 +30,16 @@ Auto-allocation after create has a separate [release gate](#releases).
 
 ## Cost
 
-Use live quotes, never hard-coded prices. Two hypotheses: `attachFloating`
-includes the IP with no extra charge, or adds an Elastic IP charge.
-[Console/ledger evidence](vserver-floating-ips-api.md#billing) supports
-inclusion; the standalone quote does not decide the create charge.
+Use live quotes, never hard-coded prices. The
+[credit-history decision](vserver-floating-ips-api.md#credit-history-decision-procedure)
+recorded inclusion: a create with `attachFloating` debits only the server
+quote. Create therefore quotes and guards the server only and shows a zero
+`FLOATING IP` line ([guard](#quote-and-price-guard)). The server-plus-IP sum
+below stays the conservative path for configurations outside those terms,
+such as later auto-allocation or reservation changes.
 
-Accepted owner decision: keep the server-plus-IP sum until the
-[credit-history decision](vserver-floating-ips-api.md#credit-history-decision-procedure).
-Label the IP line provisional. This may refuse a cheaper create but avoids
-omitting a possible charge. Server-only pricing risks understatement;
-blocking implementation adds no evidence. See [acceptance](#owner-decisions).
-
-The 347,800 + 120,000 = 467,800 VND example is a conservative reference,
-not an expected debit. Keep that gross quote cap even if prices rise.
+The 347,800 + 120,000 = 467,800 VND sum was the pre-L4 reference; L4 ran
+in `han-1` under an owner-raised 500,000 VND cap.
 `MaxPrice` guards the quoted monthly estimate, not the final bill: the API
 accepts no price cap or quote token. Prices can change before send. Detach
 is not proof billing stopped; no guaranteed refund or spending ceiling.
@@ -121,8 +118,8 @@ redirects. `MonthlyPrice` is the guarded estimate, not a confirmed debit;
 its type stays unchanged. No user data reaches quotes. Shape validation
 precedes requests; exposure checks precede quotes and refresh before send.
 
-If the manager accepts inclusion, an independently reviewed pre-tag fix
-removes the IP request/contribution from totals, `MaxPrice`, and
+The manager accepted inclusion, so create with `AttachFloatingIP` sends no
+IP quote and removes its contribution from totals, `MaxPrice`, and
 `MonthlyPrice`. Keep a zero `FLOATING IP` line, nil current price, and
 `Included in server order for the verified configuration` description.
 This is an SDK annotation; preserve `ErrUnpriced`. The follow-up defines
