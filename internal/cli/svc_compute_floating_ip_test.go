@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 	"testing"
 
@@ -42,11 +41,11 @@ func TestFloatingIPCLIQuoteAndGuard(t *testing.T) {
 		orders                          int
 	}{
 		{name: "quote", quote: true},
-		{name: "low cap", cap: "347800", code: "PriceAboveMax"},
-		{name: "exact cap", cap: "467800", orders: 1},
-		{name: "open login", open: true, cap: "467800", code: "OpenLogin"},
-		{name: "override", open: true, override: true, cap: "467800", orders: 1},
-		{name: "readonly", readonly: true, cap: "467800", code: "ReadOnly"},
+		{name: "low cap", cap: "347799", code: "PriceAboveMax"},
+		{name: "exact cap", cap: "347800", orders: 1},
+		{name: "open login", open: true, cap: "347800", code: "OpenLogin"},
+		{name: "override", open: true, override: true, cap: "347800", orders: 1},
+		{name: "readonly", readonly: true, cap: "347800", code: "ReadOnly"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			orders, quotes, groups := 0, 0, 0
@@ -78,15 +77,10 @@ func TestFloatingIPCLIQuoteAndGuard(t *testing.T) {
 						ResourceType string `json:"resourceType"`
 					}
 					_ = json.NewDecoder(r.Body).Decode(&body)
-					if body.ResourceType == "elastic-ip" {
-						raw, err := os.ReadFile("../../testdata/pricing/quote_elastic_ip_zone.json")
-						if err != nil {
-							t.Error(err)
-						}
-						_, _ = w.Write(raw)
-					} else {
-						_, _ = w.Write([]byte(`{"optimumPrice":347800,"originalPrice":347800,"discountPrice":0,"discountPercent":0,"propertiesPrice":[]}`))
+					if body.ResourceType != "server" {
+						t.Errorf("unexpected quote resource %q", body.ResourceType)
 					}
+					_, _ = w.Write([]byte(`{"optimumPrice":347800,"originalPrice":347800,"discountPrice":0,"discountPercent":0,"propertiesPrice":[]}`))
 				},
 			}
 			for _, id := range []string{"sg-1", "sg-2"} {
@@ -127,8 +121,24 @@ func TestFloatingIPCLIQuoteAndGuard(t *testing.T) {
 				t.Fatalf("orders=%d want=%d", orders, tc.orders)
 			}
 			if tc.quote {
-				if groups != 0 || quotes != 2 || !strings.Contains(stdout.String(), "467800") {
+				if groups != 0 || quotes != 1 || !strings.Contains(stdout.String(), "347800") {
 					t.Fatalf("quote groups=%d quotes=%d stdout=%s", groups, quotes, stdout)
+				}
+				var out pricing.GetQuoteOutput
+				if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+					t.Fatal(err)
+				}
+				if len(out.Properties) != 1 || out.Properties[0] != (pricing.PriceProperty{Name: "FLOATING IP", Description: "Included in server order for the verified configuration"}) {
+					t.Fatalf("properties=%+v", out.Properties)
+				}
+			}
+			if tc.orders != 0 {
+				var out compute.CreateServerOutput
+				if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+					t.Fatal(err)
+				}
+				if quotes != 1 || out.MonthlyPrice != 347800 {
+					t.Fatalf("quotes=%d output=%+v", quotes, out)
 				}
 			}
 			if tc.readonly && fixture.requestCount() != 0 {
@@ -139,12 +149,12 @@ func TestFloatingIPCLIQuoteAndGuard(t *testing.T) {
 }
 
 func TestGoldenComputeFloatingIP(t *testing.T) {
-	quote := &pricing.GetQuoteOutput{OptimumPrice: 467800, OriginalPrice: 467800, Properties: []pricing.PriceProperty{
+	quote := &pricing.GetQuoteOutput{OptimumPrice: 347800, OriginalPrice: 347800, Properties: []pricing.PriceProperty{
 		{Name: "INSTANCE TYPE", OptimumPrice: 283800, MonthlyPrice: 283800},
 		{Name: "ROOT DISK", OptimumPrice: 64000, MonthlyPrice: 64000},
-		{Name: "FLOATING IP: Elastic IP", Description: "Conservative Elastic IP estimate; extra create charge unconfirmed", OptimumPrice: 120000, MonthlyPrice: 120000},
+		{Name: "FLOATING IP", Description: "Included in server order for the verified configuration"},
 	}}
-	create := &compute.CreateServerOutput{Server: compute.Server{UUID: "server-1", Name: "web-1", Status: "ACTIVE", PublicIP: "192.0.2.1"}, MonthlyPrice: 467800}
+	create := &compute.CreateServerOutput{Server: compute.Server{UUID: "server-1", Name: "web-1", Status: "ACTIVE", PublicIP: "192.0.2.1"}, MonthlyPrice: 347800}
 	for _, format := range []string{"json", "text", "table"} {
 		checkGolden(t, "compute-quote-create-server-floating-ip."+format+".golden", format, "", quote)
 		checkGolden(t, "compute-create-server-floating-ip."+format+".golden", format, "", create)

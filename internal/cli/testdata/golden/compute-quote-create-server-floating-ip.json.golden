@@ -1,6 +1,6 @@
 {
-  "OptimumPrice": 467800,
-  "OriginalPrice": 467800,
+  "OptimumPrice": 347800,
+  "OriginalPrice": 347800,
   "DiscountPrice": 0,
   "DiscountPercent": 0,
   "Properties": [
@@ -21,10 +21,10 @@
       "DiscountPercent": 0
     },
     {
-      "Name": "FLOATING IP: Elastic IP",
-      "Description": "Conservative Elastic IP estimate; extra create charge unconfirmed",
-      "OptimumPrice": 120000,
-      "MonthlyPrice": 120000,
+      "Name": "FLOATING IP",
+      "Description": "Included in server order for the verified configuration",
+      "OptimumPrice": 0,
+      "MonthlyPrice": 0,
       "CurrentPrice": null,
       "DiscountPercent": 0
     }
