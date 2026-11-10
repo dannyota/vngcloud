@@ -1,5 +1,31 @@
 # Release Notes
 
+## v0.95.0 - Floating IP on server create
+
+- `compute create-server --attach-floating-ip` (SDK `CreateServerInput.AttachFloatingIP`)
+  asks GreenNode to allocate a floating IP and attach it to the new server's
+  primary interface. It is opt-in; without it the create request sends
+  `attachFloating: false` and nothing else changes. The SDK waits for the
+  address unless `NoWait` is set, and `Server.PublicIP` shows it.
+- Before quoting and again right before sending, the SDK reads the named
+  security groups and refuses with `ErrOpenLogin` (CLI code `OpenLogin`) when
+  TCP 22, 234, 3389, or 3490 is open to `0.0.0.0/0` or `::/0`, or when a rule
+  uses an encoding it cannot prove safe, such as ICMP or UDP; the message says
+  which. `--allow-open-login` (SDK `AllowOpenLogin`) overrides only that check.
+- Pricing: a paid live run showed that an IP attached at create is included in
+  the server order, with no separate charge. `quote-create-server
+  --attach-floating-ip` therefore quotes the server only and adds one
+  `FLOATING IP` line at 0 VND; `OptimumPrice`, `--max-price`, and
+  `MonthlyPrice` use the server price. `pricing get-quote --resource-type
+  elastic-ip` is unchanged.
+- Server create confirmation now checks the server ID on every read, so a
+  failed wait never reports another server.
+- Compatibility: `CreateServerInput` gains `AttachFloatingIP` and
+  `AllowOpenLogin` before existing fields; positional struct literals stop
+  compiling. Use keyed fields.
+- The wiki moves price quotes, vServer prices, and discovery metadata to a
+  new Price Quotes page.
+
 ## v0.94.0 - Billing history
 
 - Add SDK `billing.ListTransactions` and `billing.ListPayments`, plus
