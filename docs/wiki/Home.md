@@ -18,6 +18,8 @@ rename; the module keeps the `vngcloud` name.
 - [Backup](Backup.md): Backup Center backends and policies in `hcm-3`.
 - [Billing and Pricing](Billing-and-Pricing.md): budgets, cost, balances, and
   price quotes.
+- [Price Quotes](Price-Quotes.md): price quotes, vServer prices, and
+  discovery metadata.
 - [CDN](CDN.md): published GreenNode CDN IP ranges, vCDN certificate and API
   key reads, Web Accelerator reads and writes, and traffic analytics.
 - [Compute](Compute.md): vServer instances, images, and SSH keys, including

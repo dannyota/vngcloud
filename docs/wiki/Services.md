@@ -164,7 +164,7 @@ price guard are on [Compute Servers](Compute-Servers.md).
 `ListFlavorZones` filters the API's full flavor zone list to `Input.ZoneID`
 itself; leave it unset to list every flavor zone. `QuoteCreateServer` prices
 a server `compute.CreateServerInput` would create, without ordering it; see
-[Billing and Pricing](Billing-and-Pricing.md#quoting-a-paid-write).
+[Billing and Pricing](Price-Quotes.md#quoting-a-paid-write).
 
 ## Volume
 
@@ -198,7 +198,7 @@ selects which zone's default to read; without it, the API looks up the
 region's first zone, which can be disabled for the account.
 `QuoteCreateVolume` prices a volume `volume.CreateVolumeInput` would create,
 without ordering it; see
-[Billing and Pricing](Billing-and-Pricing.md#quoting-a-paid-write).
+[Billing and Pricing](Price-Quotes.md#quoting-a-paid-write).
 
 ## Network
 
@@ -282,7 +282,7 @@ lbClient.QuoteResizeLoadBalancer(ctx, in)   // *loadbalancer.ResizeLoadBalancerI
 `loadbalancer.CreateLoadBalancerInput`
 would create, and `QuoteResizeLoadBalancer` prices a package change
 `loadbalancer.ResizeLoadBalancerInput` describes, neither ordering anything;
-see [Billing and Pricing](Billing-and-Pricing.md#quoting-a-paid-write).
+see [Billing and Pricing](Price-Quotes.md#quoting-a-paid-write).
 Every path ID above, including one carried in a body such as `PackageID` or
 `SubnetID`, is checked before any request; a malformed one, `..` or `/` for
 example, returns `vngcloud.ErrInvalidInput`.

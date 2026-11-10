@@ -84,13 +84,13 @@ fresh price guard.
 ## Creating, starting, stopping, rebooting, and deleting servers
 
 Prices are VND totals that include VAT, with no API VAT breakdown; see
-[Billing and Pricing](Billing-and-Pricing.md#price-quotes).
+[Billing and Pricing](Price-Quotes.md#price-quotes).
 
 Creating a server charges the account: a prepaid account pays one month's
 price from its credit wallet when the server is created, and deleting one
 refunds the unused value. The smallest server this SDK can create (1 vCPU,
 2 GB, 20 GB SSD root) quotes about 347,800 VND a month; see [Billing and
-Pricing](Billing-and-Pricing.md#vserver-prices).
+Pricing](Price-Quotes.md#vserver-prices).
 
 ```go
 quote, err := client.QuoteCreateServer(ctx, &compute.CreateServerInput{

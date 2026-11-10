@@ -55,7 +55,7 @@ The rest of this page assumes `cfg` and `ctx` from this setup, plus
 matching `Quote` method, `QuoteCreateLoadBalancer` and
 `QuoteResizeLoadBalancer`, that takes the same Input and prices it without
 ordering anything; see [VAT details in Billing and
-Pricing](Billing-and-Pricing.md#price-quotes). A create quote needs
+Pricing](Price-Quotes.md#price-quotes). A create quote needs
 only `PackageID` and `ZoneID`. The write quotes that same body first and
 refuses with `loadbalancer.ErrPriceAboveMax`, naming both amounts, when the
 quote's `OptimumPrice` is above `Input.MaxPrice`. `MaxPrice` defaults to 0,

@@ -132,14 +132,14 @@ filter, and a negative value fails with `vngcloud.ErrInvalidInput`.
 ## Creating and deleting volumes
 
 Prices are VND totals that include VAT, with no API VAT breakdown; see
-[Billing and Pricing](Billing-and-Pricing.md#price-quotes).
+[Billing and Pricing](Price-Quotes.md#price-quotes).
 
 Creating a volume charges the account: a prepaid account pays one month's
 price from its credit wallet when the volume is created, and deleting one
 refunds the unused value. There is no hourly rate; a quote is VND a month. A
 10 GB SSD volume, the smallest this SDK creates in one call, quotes about
 32,000 VND a month; see [Billing and
-Pricing](Billing-and-Pricing.md#vserver-prices) for the fuller price table.
+Pricing](Price-Quotes.md#vserver-prices) for the fuller price table.
 
 ```go
 quote, err := client.QuoteCreateVolume(ctx, &volume.CreateVolumeInput{
@@ -193,7 +193,7 @@ exists, still creates.
 `CreateVolume` builds one request body from `Input` and sends that same
 body to `QuoteCreateVolume`'s own quote endpoint first, so the quote always
 prices the exact volume the create would make; see [Billing and
-Pricing](Billing-and-Pricing.md#quoting-a-paid-write). It refuses with
+Pricing](Price-Quotes.md#quoting-a-paid-write). It refuses with
 `vngcloud.ErrPriceAboveMax`, ordering nothing, when the quote's
 `OptimumPrice` exceeds `Input.MaxPrice`. The order is a `POST` and is never
 retried after a failure that may have already reached the server: after

@@ -57,7 +57,7 @@ metadata. Quotes reserve no capacity or future price. See
 ## Project pricing
 
 Prices are VND totals that include VAT, with no API VAT breakdown; see
-[Billing and Pricing](Billing-and-Pricing.md#price-quotes).
+[Billing and Pricing](Price-Quotes.md#price-quotes).
 
 `ListProjectTypes` reads the regional catalog, monthly purchase type, and
 quota configuration. It quotes each active monthly offer at its minimum
