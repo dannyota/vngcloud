@@ -1,6 +1,6 @@
 ---
 name: designer
-description: Designs and researches vngcloud SDK and CLI contracts within brief-owned documents. No implementation or review.
+description: Researches and drafts vngcloud SDK and CLI design material when the primary session delegates it. No implementation or review.
 model: fable
 effort: high
 tools: Read, Write, Edit, Grep, Glob, Bash, WebFetch, WebSearch, Agent

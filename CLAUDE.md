@@ -2,7 +2,7 @@
 
 ## Claude routing and invocation
 
-Claude designs, researches, and coordinates only. Design runs on Fable high through `designer`, then the Codex `designer` role (`gpt-6-astra` high) reviews and improves the same documents, except for [low-risk slices](instructions/workflow.md#reviews); when Fable is unavailable, Astra high writes the design. Astra never runs through a Claude subagent. No implementation, troubleshooting, or review runs on a Claude model. Follow [shared routing](AGENTS.md#ai-agent-definitions-and-routing) and [shared duties](instructions/workflow.md#duties), with explicit model and effort on every dispatch.
+Claude, the primary session, writes designs, architecture notes, plans, and documentation itself, reviews them itself, and makes the decisions. Codex `gpt-6-astra` high independently reviews architecture designs and all code; Astra never runs through a Claude subagent. No implementation, troubleshooting, or code review runs on a Claude model. Follow [shared routing](AGENTS.md#ai-agent-definitions-and-routing) and [shared duties](instructions/workflow.md#duties), with explicit model and effort on every dispatch.
 
 The Sonnet/Opus restriction applies only to workers and subagents. The owner chooses the main Claude Code session model without this restriction.
 
@@ -21,16 +21,16 @@ Pick each job's model and effort from [routing](AGENTS.md#ai-agent-definitions-a
 
 |Work|Role|Directory|
 |-|-|-|
-|Design after Fable, or instead of it|`designer`|Owned worktree; network only for first-party sources the brief names|
+|Delegated design research, when the primary session asks for it|`designer`|Owned worktree; network only for first-party sources the brief names|
 |Code, scripts, workflows|`implementer`|Owned worktree|
 |Failures and root cause|`troubleshooter`|Owned worktree|
-|Design and plan review|`design_reviewer`|Source worktree, read-only|
+|Architecture design review|`design_reviewer`|Source worktree, read-only|
 |Code review and fix confirmation|`code_reviewer`|Disposable copy, `--no-git`; source read-only|
 |Exploration, summaries, test runs|`explorer`|Owned worktree|
 
 Each log header prints `session id: <id>`; resume with that ID to answer a worker's question. Every review starts as a new run, never a resumed author session. Fix confirmation may resume the reviewer's own session, since the reviewer did not write the fixes. A reviewer never fixes the reviewed source. Codex mounts `.codex/` read-only, so role-file changes follow the [scratchpad patch rule](instructions/workflow.md#briefs-and-reports).
 
-- `-o` overwrites `<report-file>`; copy the report before a resume. Briefs end with "Return the complete report as your final message"; the Fable `designer` subagent cannot write report files either.
+- `-o` overwrites `<report-file>`; copy the report before a resume. Briefs end with "Return the complete report as your final message".
 - Parallel jobs: `(scripts/codex-agent.sh ...; echo done > <scratchpad>/logs/<task>.done) &`, then wait with one background until-loop on the `.done` files; a bare `&` gives no completion notice.
 
 ## Build-capable code review
@@ -58,5 +58,4 @@ Use a private scratchpad directory for briefs, temporary files, review copies, a
 - Codex sandboxes cannot write the Go module cache, and macOS puts the default `GOCACHE` under `~/Library/Caches`, outside the writable roots. The launcher points `GOCACHE` and `GOLANGCI_LINT_CACHE` at the writable caches; before a Go worker starts, run `go mod download all` in the worktree, then `git restore go.sum`, which the download rewrites.
 - Local tools must match `.tool-versions`; a newer local golangci-lint reports findings CI does not. [Security](instructions/security.md#tools-and-scanners) owns pin and Actions allowlist rules.
 - Wait on a PID, a file, or a background-task notification, never on `pgrep -f '<pattern>'`, which matches its own command line.
-- Fable can stop mid-run at its usage limit (HTTP 429). Check the worktree for partial edits, then send the same brief to the Codex `designer` role.
 - Playwright MCP writes files only under the repository or `.playwright-mcp/`; it refuses the scratchpad. [Live data](instructions/live-data.md) covers sign-in and captures.
