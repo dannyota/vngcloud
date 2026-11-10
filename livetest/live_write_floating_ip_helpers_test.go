@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -19,13 +20,180 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/compute"
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/network"
 	"danny.vn/vngcloud/portal"
+	"danny.vn/vngcloud/pricing"
 )
+
+type floatingIPLoggedFailure struct {
+	Step      string   `json:"step"`
+	Sentinels []string `json:"sentinels"`
+	APIError  *struct {
+		StatusCode int    `json:"statusCode"`
+		Code       string `json:"code"`
+	} `json:"apiError"`
+	Message string `json:"message"`
+}
+
+func TestFloatingIPHarnessFailureDiagnosticsRedactAndClassify(t *testing.T) {
+	var lines []string
+	r := &floatingIPRun{name: "vngcloud-live-fip-1234abcd", failureLog: func(line string) { lines = append(lines, line) }}
+	message := "rejected 01234567-89ab-cdef-0123-456789abcdef ins-canary secg-canary net-canary sub-canary vol-canary " +
+		"203.0.113.7 2001:db8::7 ::ffff:192.0.2.9 fe80::1%eth0 operator@example.test 123456789 " +
+		r.name + " Floating IP live test with no ingress"
+	err := fmt.Errorf("write refused: %w", errors.Join(
+		compute.ErrNotSettled, network.ErrInUse, pricing.ErrDiscoveryIncomplete,
+		&core.APIError{StatusCode: 403, Code: "Forbidden", Message: message, Err: core.ErrPermission},
+	))
+	r.logWriteFailure("compute.CreateServer", err)
+	if len(lines) != 1 {
+		t.Fatal("write failure did not produce exactly one diagnostic")
+	}
+	for _, value := range []string{
+		"01234567-89ab-cdef-0123-456789abcdef", "ins-canary", "secg-canary", "net-canary", "sub-canary", "vol-canary",
+		"203.0.113.7", "2001:db8::7", "192.0.2.9", "fe80::1", "operator@example.test", "123456789",
+		r.name, "Floating IP live test with no ingress",
+	} {
+		if strings.Contains(lines[0], value) {
+			t.Error("diagnostic retained a synthetic sensitive value")
+		}
+	}
+	var logged floatingIPLoggedFailure
+	if json.Unmarshal([]byte(lines[0]), &logged) != nil {
+		t.Fatal("diagnostic is not a JSON line")
+	}
+	if logged.Step != "compute.CreateServer" || logged.APIError == nil || logged.APIError.StatusCode != 403 || logged.APIError.Code != "Forbidden" {
+		t.Error("diagnostic lost its SDK operation or API classification")
+	}
+	for _, name := range []string{"compute.ErrNotSettled", "network.ErrInUse", "pricing.ErrDiscoveryIncomplete", "core.ErrPermission"} {
+		if !slices.Contains(logged.Sentinels, name) {
+			t.Errorf("diagnostic lost sentinel %s", name)
+		}
+	}
+	if !strings.Contains(logged.Message, "rejected") || !strings.Contains(logged.Message, "[redacted]") || strings.ContainsAny(lines[0], "\r\n") {
+		t.Error("diagnostic lost safe context or is not one line")
+	}
+}
+
+func TestFloatingIPHarnessFailureDiagnosticsWithholdPayloadsAndBoundMessage(t *testing.T) {
+	for _, tc := range []struct {
+		message, forbidden string
+	}{
+		{`refused request body: {"password":"payload-canary","name":"body-name-canary"}`, "payload-canary"},
+		{"refused Authorization: Bearer bearer-canary", "bearer-canary"},
+		{"refused token=token-canary", "token-canary"},
+		{"refused name=other-name-canary", "other-name-canary"},
+		{"refused description=other-description-canary", "other-description-canary"},
+		{"refused https://internal.example/private-canary", "internal.example"},
+		{"refused eyJhbGciOiJub25lIn0.eyJzdWIiOiJqd3QtY2FuYXJ5In0.c2lnbmF0dXJl", "eyJhbGciOiJub25lIn0"},
+		{"refused " + strings.Repeat("é", 400) + "\nsecond line", ""},
+	} {
+		var line string
+		r := &floatingIPRun{failureLog: func(value string) { line = value }}
+		r.logWriteFailure("network.CreateSecurityGroup", &core.APIError{
+			StatusCode: 400, Code: "ins-code-canary", Message: tc.message,
+		})
+		var logged floatingIPLoggedFailure
+		if json.Unmarshal([]byte(line), &logged) != nil {
+			t.Fatal("diagnostic is not a JSON line")
+		}
+		if (tc.forbidden != "" && strings.Contains(line, tc.forbidden)) || strings.Contains(line, "ins-code-canary") || strings.Contains(line, "body-name-canary") {
+			t.Error("diagnostic leaked a payload, credential, name, description, or API code value")
+		}
+		if !utf8.ValidString(logged.Message) || utf8.RuneCountInString(logged.Message) > 300 || strings.ContainsAny(line, "\r\n") {
+			t.Error("diagnostic message exceeded its character or line bound")
+		}
+	}
+}
+
+func TestFloatingIPHarnessFailureDiagnosticsPreserveSentinelAliases(t *testing.T) {
+	var line string
+	r := &floatingIPRun{failureLog: func(value string) { line = value }}
+	r.logWriteFailure("compute.CreateServer", errors.Join(compute.ErrOpenLogin, core.ErrNoCredentials))
+	var logged floatingIPLoggedFailure
+	if json.Unmarshal([]byte(line), &logged) != nil {
+		t.Fatal("diagnostic is not a JSON line")
+	}
+	for _, name := range []string{"compute.ErrOpenLogin", "network.ErrOpenLogin", "core.ErrNoCredentials", "core.ErrInvalidConfig"} {
+		if !slices.Contains(logged.Sentinels, name) {
+			t.Errorf("diagnostic lost matching alias %s", name)
+		}
+	}
+}
+
+func TestFloatingIPHarnessFailureDiagnosticsKeepRecoveryReason(t *testing.T) {
+	var line string
+	r := &floatingIPRun{failureLog: func(value string) { line = value }}
+	r.logWriteFailure("compute.CreateServer", fmt.Errorf("match the name exactly before retrying: %w", &core.APIError{
+		StatusCode: 500, Code: "InternalError", Message: "backend refused",
+	}))
+	var logged floatingIPLoggedFailure
+	if json.Unmarshal([]byte(line), &logged) != nil || !strings.Contains(logged.Message, "backend refused") {
+		t.Fatal("diagnostic hid the cause after an SDK recovery hint")
+	}
+}
+
+func TestFloatingIPHarnessWriteFailuresLogOnceWithoutChangingBehavior(t *testing.T) {
+	for _, step := range []string{"create", "delete"} {
+		t.Run(step, func(t *testing.T) {
+			r, peer := newFloatingIPHarnessPeer(t, false)
+			var lines []string
+			r.failureLog = func(line string) { lines = append(lines, line) }
+			attempts := 0
+			r.guard.base = floatingIPHarnessHTTP(func(req *http.Request) (*http.Response, error) {
+				if (step == "create" && req.Method == http.MethodPost && req.URL.Path == "/v2/project-1/servers") ||
+					(step == "delete" && req.Method == http.MethodDelete && req.URL.Path == "/v2/project-1/servers/server-1") {
+					attempts++
+					return &http.Response{StatusCode: 400, Body: io.NopCloser(strings.NewReader(
+						`{"code":"BadRequest","message":"refused ins-canary at 203.0.113.8 for operator@example.test reference 123456789"}`,
+					)), Request: req}, nil
+				}
+				response := httptest.NewRecorder()
+				peer.serve(t, response, req)
+				return response.Result(), nil
+			})
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if step == "create" {
+				err := r.purchase(ctx, &compute.CreateServerInput{
+					Name: r.name, ZoneID: "zone-1", FlavorID: "flavor-1", ImageID: "image-1",
+					VPCID: "vpc-1", SubnetID: "subnet-1", SecurityGroupIDs: []string{"group-1"}, SSHKeyID: "key-1",
+					RootDiskSize: 20, RootDiskTypeID: "ssd-1", AttachFloatingIP: true, MaxPrice: 500000,
+				})
+				if err == nil || r.ledger.ids["server"] != "" {
+					t.Fatal("failed create was accepted or adopted a server")
+				}
+			} else {
+				peer.mu.Lock()
+				peer.created, peer.released = true, true
+				peer.mu.Unlock()
+				r.serverAttempted, r.released = true, true
+				r.rememberServer(compute.Server{UUID: "server-1", BootVolumeID: "volume-1"})
+				r.interfaceID = "nic-1"
+				if r.cleanup(ctx) || r.ledger.ids["volume"] != "volume-1" || r.ledger.ids["group"] != "group-1" || len(peer.deletes) != 0 {
+					t.Fatal("failed cleanup continued to later children or parents")
+				}
+			}
+			if attempts != 1 || len(lines) != 1 || !r.ledger.blocked {
+				t.Fatal("write failure retried, lacked one diagnostic, or lost its cleanup block")
+			}
+			var logged floatingIPLoggedFailure
+			if json.Unmarshal([]byte(lines[0]), &logged) != nil || logged.APIError == nil || logged.APIError.StatusCode != 400 || logged.APIError.Code != "BadRequest" {
+				t.Fatal("SDK write failure lost its API diagnostic")
+			}
+			for _, value := range []string{"ins-canary", "203.0.113.8", "operator@example.test", "123456789"} {
+				if strings.Contains(lines[0], value) {
+					t.Error("SDK failure log leaked a synthetic sensitive value")
+				}
+			}
+		})
+	}
+}
 
 func TestFloatingIPHarnessGates(t *testing.T) {
 	for _, tc := range []struct {
