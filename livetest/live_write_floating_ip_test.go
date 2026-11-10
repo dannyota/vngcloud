@@ -30,7 +30,7 @@ import (
 	"danny.vn/vngcloud/volume"
 )
 
-const floatingIPCap = 467800
+const floatingIPCap = 500000
 
 // TestLiveWriteFloatingIP needs fresh manager approval and verified console
 // release permissions. Credit-history access, checkpoint captures, and billing
@@ -39,7 +39,7 @@ const floatingIPCap = 467800
 func TestLiveWriteFloatingIP(t *testing.T) {
 	run, err := floatingIPGates(os.Getenv("VNGCLOUD_LIVE_WRITE"), os.Getenv("VNGCLOUD_LIVE_FLOATING_IP"), os.Getenv("VNGCLOUD_LIVE_MAX_VND"))
 	if err != nil {
-		t.Fatal("VNGCLOUD_LIVE_MAX_VND must equal 467800")
+		t.Fatal("VNGCLOUD_LIVE_MAX_VND must equal 500000")
 	}
 	if !run {
 		t.Skip("requires VNGCLOUD_LIVE_WRITE=1 and VNGCLOUD_LIVE_FLOATING_IP=1")
@@ -212,7 +212,7 @@ func floatingIPGates(write, floating, cap string) (bool, error) {
 	if write != "1" || floating != "1" {
 		return false, nil
 	}
-	if cap != "467800" {
+	if cap != "500000" {
 		return false, errors.New("unapproved cap")
 	}
 	return true, nil

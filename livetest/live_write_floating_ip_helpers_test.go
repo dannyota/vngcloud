@@ -31,25 +31,29 @@ func TestFloatingIPHarnessGates(t *testing.T) {
 		write, floating, cap string
 		run, refuse          bool
 	}{
-		{"", "1", "467800", false, false},
-		{"1", "", "467800", false, false},
+		{"", "1", "500000", false, false},
+		{"1", "", "500000", false, false},
 		{"1", "1", "", false, true},
-		{"1", "1", "467801", false, true},
-		{"1", "1", "467800.0", false, true},
-		{"1", "1", "467800", true, false},
+		{"1", "1", "467800", false, true},
+		{"1", "1", "499999.99", false, true},
+		{"1", "1", "500000.0", false, true},
+		{"1", "1", "500001", false, true},
+		{"1", "1", "500000", true, false},
 	} {
 		run, err := floatingIPGates(tc.write, tc.floating, tc.cap)
 		if run != tc.run || (err != nil) != tc.refuse {
-			t.Fatalf("gate result = %v, %v; want %v, refusal %v", run, err, tc.run, tc.refuse)
+			t.Errorf("gate result for %q = %v, %v; want %v, refusal %v", tc.cap, run, err, tc.run, tc.refuse)
 		}
 	}
-	for _, price := range []float64{0, -1, 467801} {
+	for _, price := range []float64{0, -1, 500001} {
 		if floatingIPPriceOK(price) {
 			t.Fatal("invalid quote accepted")
 		}
 	}
-	if !floatingIPPriceOK(467800) {
-		t.Fatal("approved cap refused")
+	for _, price := range []float64{469720, 500000} {
+		if !floatingIPPriceOK(price) {
+			t.Errorf("approved quote %.2f refused", price)
+		}
 	}
 }
 
