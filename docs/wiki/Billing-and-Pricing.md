@@ -334,22 +334,21 @@ same priced configuration. A quote ignores the Input's `MaxPrice` and
 `NoWait`, which govern only the write, and never sends user data.
 
 With `CreateServerInput.AttachFloatingIP: true`, `QuoteCreateServer` prices
-the server, then the zone-bearing Elastic IP reference. The quote, guard,
-and `MonthlyPrice` include both: 347,800 + 120,000 = 467,800 VND in the
-reference configuration. This is a conservative estimate; an extra IP
-create charge remains unconfirmed. The IP lines are labeled `FLOATING IP:`
-with `Conservative Elastic IP estimate; extra create charge unconfirmed`.
-A quote with no IP properties gets one labeled fallback, with nil current
-price. Original and discount totals are summed and the combined discount
-percentage is recomputed. Missing, nonfinite, or inconsistent totals give
-no partial quote. Nonpositive components return `vngcloud.ErrUnpriced`.
+only the server. The quote, guard, and `MonthlyPrice` equal the server
+price: the 347,800 VND reference stays 347,800 with the included IP.
+Server totals and properties stay unchanged. One `FLOATING IP` line has
+optimum and monthly price 0, discount percent 0, nil current price, and
+description `Included in server order for the verified configuration`.
+Missing, nonfinite, or inconsistent server totals give no partial quote.
+Nonpositive server prices remain `vngcloud.ErrUnpriced`.
 
-The default still makes one server quote. Public opt-in makes two price
-requests and no exposure reads; `AllowOpenLogin` is ignored on quotes.
-Both price responses retain their 1 MiB bound and credential protection.
-The API cannot bind an order to this quote or `MaxPrice`. Live attribution
-must settle the price model before release; retention, reservation, and IP
-refunds remain unconfirmed. See
+Both default and public opt-in make one server price request and no
+exposure reads; `AllowOpenLogin` is ignored on quotes. The response retains
+its 1 MiB bound and credential protection. `pricing get-quote` with
+`--resource-type elastic-ip` remains available unchanged; server create
+does not use that quote. The API cannot bind an order to this quote or
+`MaxPrice`. Inclusion covers the verified create terms; retention,
+reservation, delayed charges, and IP refunds remain unconfirmed. See
 [Floating IP create](Compute-Servers.md#floating-ip-create).
 
 `computeClient.QuoteResizeServer` and `volumeClient.QuoteResizeVolume` price

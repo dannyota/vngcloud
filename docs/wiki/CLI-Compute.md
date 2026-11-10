@@ -33,9 +33,11 @@ The command that finds each ID create-server takes is on [IDs for Create Server]
 
 If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it.
 
---attach-floating-ip adds a conservative Elastic IP reference to the server
-quote, MaxPrice, and MonthlyPrice. The extra create charge is unconfirmed;
-347800 + 120000 = 467800 VND is a reference estimate, not a confirmed debit.
+--attach-floating-ip uses only the server quote for MaxPrice and MonthlyPrice.
+It appends one FLOATING IP line priced at 0, with nil current price and
+description: Included in server order for the verified configuration.
+A 347800 VND server reference remains 347800 with the included IP.
+Verified terms: han-1, HAN01-1B, s2-general-1x2, 20 GB NVME root.
 The quote makes no exposure reads and has no override flag. The default
 create explicitly sends attachFloating false. Prices can change before send;
 MaxPrice cannot lock the final bill.
@@ -462,9 +464,11 @@ shows the volume type ID where the size belongs; the size is the
 
 The command that finds each ID create-server takes is on [IDs for Create Server](IDs-for-Create-Server.md).
 
---attach-floating-ip adds a conservative Elastic IP reference to the server
-quote, MaxPrice, and MonthlyPrice. The extra create charge is unconfirmed;
-347800 + 120000 = 467800 VND is a reference estimate, not a confirmed debit.
+--attach-floating-ip uses only the server quote for MaxPrice and MonthlyPrice.
+It appends one FLOATING IP line priced at 0, with nil current price and
+description: Included in server order for the verified configuration.
+A 347800 VND server reference remains 347800 with the included IP.
+Verified terms: han-1, HAN01-1B, s2-general-1x2, 20 GB NVME root.
 The quote makes no exposure reads and has no override flag. The default
 create explicitly sends attachFloating false. Prices can change before send;
 MaxPrice cannot lock the final bill.

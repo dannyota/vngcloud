@@ -79,10 +79,12 @@ const computeGetServerPublicIPNote = computePublicIPNote + "\n\n" +
 const computeListServerPublicIPNote = computePublicIPNote + "\n\n" +
 	"Select addresses with `--query 'Items[].PublicIP'`."
 
-// computeFloatingIPNote describes the conservative public-create safeguards.
-const computeFloatingIPNote = "--attach-floating-ip adds a conservative Elastic IP reference to the server\n" +
-	"quote, MaxPrice, and MonthlyPrice. The extra create charge is unconfirmed;\n" +
-	"347800 + 120000 = 467800 VND is a reference estimate, not a confirmed debit.\n" +
+// computeFloatingIPNote describes included pricing and public-create safeguards.
+const computeFloatingIPNote = "--attach-floating-ip uses only the server quote for MaxPrice and MonthlyPrice.\n" +
+	"It appends one FLOATING IP line priced at 0, with nil current price and\n" +
+	"description: Included in server order for the verified configuration.\n" +
+	"A 347800 VND server reference remains 347800 with the included IP.\n" +
+	"Verified terms: han-1, HAN01-1B, s2-general-1x2, 20 GB NVME root.\n" +
 	"The quote makes no exposure reads and has no override flag. The default\n" +
 	"create explicitly sends attachFloating false. Prices can change before send;\n" +
 	"MaxPrice cannot lock the final bill.\n\n" +

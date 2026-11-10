@@ -29,51 +29,23 @@ type Quote struct {
 	Properties      []Property
 }
 
-const provisionalDescription = "Conservative Elastic IP estimate; extra create charge unconfirmed"
-
-// QuoteCreate prices the server followed by the zone-bearing Elastic IP reference.
-func QuoteCreate(ctx context.Context, serverInfo map[string]any, zone string, fetch func(context.Context, string, map[string]any) (*Quote, error)) (*Quote, error) {
-	const op = "compute.QuoteCreateServer"
+// QuoteCreate validates the server quote and annotates its included floating IP.
+func QuoteCreate(ctx context.Context, fetch func(context.Context) (*Quote, error)) (*Quote, error) {
 	ctx = context.WithValue(ctx, componentKey{}, true)
-	get := func(resource string, info map[string]any) (*Quote, error) {
-		quoteCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
-		q, err := fetch(quoteCtx, resource, info)
-		if err != nil {
-			return nil, err
-		}
-		if err := validateQuote(q); err != nil {
-			return nil, err
-		}
-		return q, nil
-	}
-	server, err := get("server", serverInfo)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	server, err := fetch(ctx)
 	if err != nil {
 		return nil, err
 	}
-	ip, err := get("elastic-ip", map[string]any{"period": 1, "isPoc": false, "zoneId": zone})
-	if err != nil {
+	if err := validateQuote(server); err != nil {
 		return nil, err
 	}
-	out := &Quote{OptimumPrice: server.OptimumPrice + ip.OptimumPrice, OriginalPrice: server.OriginalPrice + ip.OriginalPrice, DiscountPrice: server.DiscountPrice + ip.DiscountPrice, Properties: append([]Property(nil), server.Properties...)}
-	if !finite(out.OptimumPrice) || !finite(out.OriginalPrice) || !finite(out.DiscountPrice) {
-		return nil, InvalidResponse(op, nil)
-	}
-	if out.OriginalPrice != 0 {
-		out.DiscountPercent = 100 * ((out.OriginalPrice - out.OptimumPrice) / out.OriginalPrice)
-	}
-	for _, p := range ip.Properties {
-		p.Name = "FLOATING IP: " + p.Name
-		p.Description = provisionalDescription
-		out.Properties = append(out.Properties, p)
-	}
-	if len(ip.Properties) == 0 {
-		out.Properties = append(out.Properties, Property{Name: "FLOATING IP", Description: provisionalDescription, OptimumPrice: ip.OptimumPrice, MonthlyPrice: ip.OptimumPrice, DiscountPercent: ip.DiscountPercent})
-	}
-	if err := validateQuote(out); err != nil {
-		return nil, err
-	}
-	return out, nil
+	server.Properties = append(server.Properties, Property{
+		Name:        "FLOATING IP",
+		Description: "Included in server order for the verified configuration",
+	})
+	return server, nil
 }
 
 func finite(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) && v >= 0 }

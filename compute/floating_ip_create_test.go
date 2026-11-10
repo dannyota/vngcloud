@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -36,15 +35,10 @@ func floatingCreateHandler(t *testing.T, rules func() string, order func(http.Re
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Error(err)
 			}
-			if body.ResourceType == "elastic-ip" {
-				raw, err := os.ReadFile("../testdata/pricing/quote_elastic_ip_zone.json")
-				if err != nil {
-					t.Error(err)
-				}
-				_, _ = w.Write(raw)
-			} else {
-				_, _ = w.Write([]byte(quoteServerFixture))
+			if body.ResourceType != "server" {
+				t.Errorf("unexpected quote resource %q", body.ResourceType)
 			}
+			_, _ = w.Write([]byte(quoteServerFixture))
 		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/servers"):
 			_, _ = w.Write([]byte(emptyListServersPage))
 		case r.Method == http.MethodPost:
@@ -58,17 +52,18 @@ func floatingCreateHandler(t *testing.T, rules func() string, order func(http.Re
 	})
 }
 
-func TestFloatingCreateExplicitBooleanAndConservativeCap(t *testing.T) {
+func TestFloatingCreateExplicitBooleanAndServerCap(t *testing.T) {
 	for _, tc := range []struct {
 		attach bool
 		cap    float64
 		orders int64
 	}{
-		{false, 347800, 1}, {true, 347800, 0}, {true, 467800, 1},
+		{false, 347800, 1}, {true, 347799, 0}, {true, 347800, 1}, {true, 467800, 1},
 	} {
 		t.Run(fmt.Sprint(tc.attach, tc.cap), func(t *testing.T) {
 			var orders atomic.Int64
-			c := newTestClient(t, floatingCreateHandler(t, func() string { return floatingSafeRules }, func(w http.ResponseWriter, r *http.Request) {
+			var quotes atomic.Int64
+			base := floatingCreateHandler(t, func() string { return floatingSafeRules }, func(w http.ResponseWriter, r *http.Request) {
 				orders.Add(1)
 				body := decodeComputeBody(t, r)
 				if body["attachFloating"] != tc.attach {
@@ -79,7 +74,13 @@ func TestFloatingCreateExplicitBooleanAndConservativeCap(t *testing.T) {
 				}
 				w.WriteHeader(202)
 				_, _ = w.Write([]byte(`{"data":{"uuid":"server-1"}}`))
-			}, nil))
+			}, nil)
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/v1/price" {
+					quotes.Add(1)
+				}
+				base.ServeHTTP(w, r)
+			}))
 			in := validCreateServerInput()
 			in.AttachFloatingIP = tc.attach
 			in.MaxPrice = tc.cap
@@ -89,11 +90,14 @@ func TestFloatingCreateExplicitBooleanAndConservativeCap(t *testing.T) {
 				if !errors.Is(err, vngcloud.ErrPriceAboveMax) || out != nil {
 					t.Fatalf("out=%v err=%v", out, err)
 				}
-			} else if err != nil || out.MonthlyPrice != tc.cap || out.Server.PublicIP != "" {
+			} else if err != nil || out.MonthlyPrice != 347800 || out.Server.PublicIP != "" {
 				t.Fatalf("out=%v err=%v", out, err)
 			}
 			if orders.Load() != tc.orders {
 				t.Fatalf("orders=%d", orders.Load())
+			}
+			if quotes.Load() != 1 {
+				t.Fatalf("quotes=%d, want one server quote", quotes.Load())
 			}
 		})
 	}
@@ -263,7 +267,7 @@ func TestFloatingCreateAddressWaitFailureKeepsPriceAndIdentity(t *testing.T) {
 			if tc.failed {
 				want = ErrFailed
 			}
-			if !errors.Is(err, want) || out == nil || out.MonthlyPrice != 467800 || out.Server.UUID != "server-1" {
+			if !errors.Is(err, want) || out == nil || out.MonthlyPrice != 347800 || out.Server.UUID != "server-1" {
 				t.Fatalf("out=%v err=%v", out, err)
 			}
 			if tc.status == 401 {

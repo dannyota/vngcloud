@@ -18,8 +18,8 @@ func (c *Client) floatingCreateQuote(ctx context.Context, in *CreateServerInput,
 	if !in.AttachFloatingIP {
 		return c.serverQuote(ctx, &pricing.GetQuoteInput{ResourceType: pricing.ResourceServer, Action: pricing.ActionCreate, ResourceInfo: info})
 	}
-	quote, err := floatingip.QuoteCreate(ctx, info, in.ZoneID, func(ctx context.Context, resource string, info map[string]any) (*floatingip.Quote, error) {
-		q, err := c.serverQuote(ctx, &pricing.GetQuoteInput{ResourceType: resource, Action: pricing.ActionCreate, ResourceInfo: info})
+	quote, err := floatingip.QuoteCreate(ctx, func(ctx context.Context) (*floatingip.Quote, error) {
+		q, err := c.serverQuote(ctx, &pricing.GetQuoteInput{ResourceType: pricing.ResourceServer, Action: pricing.ActionCreate, ResourceInfo: info})
 		if err != nil {
 			return nil, err
 		}

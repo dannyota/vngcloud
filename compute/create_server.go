@@ -85,7 +85,7 @@ type CreateServerInput struct {
 	// renews from credit without a command.
 	AutoRenew bool
 
-	// AttachFloatingIP opts into a public floating IP and its conservative quote.
+	// AttachFloatingIP opts into a public floating IP included in the server quote.
 	AttachFloatingIP bool
 	// AllowOpenLogin bypasses only login exposure evaluation. It requires AttachFloatingIP.
 	AllowOpenLogin bool
