@@ -31,7 +31,30 @@ wait, is NotSettled or WriteFailed, and this create must not be repeated.
 
 The command that finds each ID create-server takes is on [IDs for Create Server](IDs-for-Create-Server.md).
 
-If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it. Prices are VND totals that include VAT; the API gives no VAT breakdown.
+If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it.
+
+--attach-floating-ip uses only the server quote for MaxPrice and MonthlyPrice.
+It appends one FLOATING IP line priced at 0, with nil current price and
+description: Included in server order for the verified configuration.
+A 347800 VND server reference remains 347800 with the included IP.
+Verified terms: han-1, HAN01-1B, s2-general-1x2, 20 GB NVME root.
+The quote makes no exposure reads and has no override flag. The default
+create explicitly sends attachFloating false. Prices can change before send;
+MaxPrice cannot lock the final bill.
+
+Public create checks all named groups before quoting and again before send.
+Union coverage from anywhere on TCP 22, 234, 3389, or 3490, or unproven rule
+encodings, returns OpenLogin. Reads allow 1 to 64 groups, 4096 rules total,
+8 MiB per response, and 30 s for the guard. --allow-open-login on create
+bypasses only exposure evaluation and requires public opt-in. Permissions,
+identity, limits, changed snapshots, and price guards still refuse.
+
+Use narrow source prefixes and consider disabling guest passwords through
+user data or guest configuration. A later rule change can open access after
+the final read. Public create waits up to 2 min more after ACTIVE for an
+internal address and IP ID; --no-wait leaves settlement unobserved. Verify
+console detach/release controls and permissions before a live create; IP
+management commands are unavailable and server delete does not prove release. Prices are VND totals that include VAT; the API gives no VAT breakdown.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -52,6 +75,8 @@ If this resource is managed by OpenTofu or Terraform, a write made here drifts f
 | `--data-disk-encryption-type-id` | `string` |  |
 | `--server-group-id` | `string` |  |
 | `--auto-renew` | `bool` |  |
+| `--attach-floating-ip` | `bool` |  |
+| `--allow-open-login` | `bool` |  |
 | `--max-price` | `float64` |  |
 | `--no-wait` | `bool` |  |
 | `--user-data-file` | `string` |  |
@@ -437,7 +462,30 @@ shows the volume type ID where the size belongs; the size is the
 
 --root-disk-encryption-type-id and --data-disk-encryption-type-id encrypt that disk. The ID comes from volume list-encryption-types: aes-xts-plain64_128 or aes-xts-plain64_256. An unknown ID is refused by the server. --data-disk-encryption-type-id needs --data-disk-size and --data-disk-type-id. Either flag sets encryptionVolume, which the billing gateway prices as a surcharge on the flavor, 85,140 VND a month on s2-general-1x2 live, not on disk size.
 
-The command that finds each ID create-server takes is on [IDs for Create Server](IDs-for-Create-Server.md). Prices are VND totals that include VAT; the API gives no VAT breakdown.
+The command that finds each ID create-server takes is on [IDs for Create Server](IDs-for-Create-Server.md).
+
+--attach-floating-ip uses only the server quote for MaxPrice and MonthlyPrice.
+It appends one FLOATING IP line priced at 0, with nil current price and
+description: Included in server order for the verified configuration.
+A 347800 VND server reference remains 347800 with the included IP.
+Verified terms: han-1, HAN01-1B, s2-general-1x2, 20 GB NVME root.
+The quote makes no exposure reads and has no override flag. The default
+create explicitly sends attachFloating false. Prices can change before send;
+MaxPrice cannot lock the final bill.
+
+Public create checks all named groups before quoting and again before send.
+Union coverage from anywhere on TCP 22, 234, 3389, or 3490, or unproven rule
+encodings, returns OpenLogin. Reads allow 1 to 64 groups, 4096 rules total,
+8 MiB per response, and 30 s for the guard. --allow-open-login on create
+bypasses only exposure evaluation and requires public opt-in. Permissions,
+identity, limits, changed snapshots, and price guards still refuse.
+
+Use narrow source prefixes and consider disabling guest passwords through
+user data or guest configuration. A later rule change can open access after
+the final read. Public create waits up to 2 min more after ACTIVE for an
+internal address and IP ID; --no-wait leaves settlement unobserved. Verify
+console detach/release controls and permissions before a live create; IP
+management commands are unavailable and server delete does not prove release. Prices are VND totals that include VAT; the API gives no VAT breakdown.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -458,6 +506,8 @@ The command that finds each ID create-server takes is on [IDs for Create Server]
 | `--data-disk-encryption-type-id` | `string` |  |
 | `--server-group-id` | `string` |  |
 | `--auto-renew` | `bool` |  |
+| `--attach-floating-ip` | `bool` |  |
+| `AllowOpenLogin` (via `--cli-input-json` only) | `bool` |  |
 | `MaxPrice` (via `--cli-input-json` only) | `float64` |  |
 | `NoWait` (via `--cli-input-json` only) | `bool` |  |
 

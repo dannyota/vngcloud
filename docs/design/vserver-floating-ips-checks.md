@@ -1,12 +1,11 @@
 # vServer Floating IPs: Checks
 
-Status: Decisions accepted; evidence gates remain open.
+Status: Owner decisions accepted; evidence and independent review gates open.
 See [vServer floating IPs](vserver-floating-ips.md).
 
-These are implementation and independent-review obligations, not results
-of this design pass. The [API](vserver-floating-ips-api.md) owns evidence
-classes and missing contracts. Unit checks use `httptest`, synthetic
-identities, documentation addresses, and injected clocks, never the cloud.
+These are implementation and review obligations; the
+[API](vserver-floating-ips-api.md) owns evidence. Unit checks use `httptest`,
+synthetic IDs, documentation addresses, and injected clocks, not the cloud.
 
 ## Fixture provenance
 
@@ -50,15 +49,19 @@ only the envelope, never row shape or attachment state.
   before requests. Quote requires only priced fields and still ignores
   `MaxPrice`/`NoWait`, including invalid guard-only price values.
 - Default quote keeps its type, values, and one request. Opt-in sends
-  the selected server and IP bodies in order; retain property order and
-  fallback fields. Check discount arithmetic, absent/null optimum,
+  the observed server and zone-bearing IP bodies in order; retain numeric
+  values and labeled provisional IP lines/fallback. Check absent/null optimum,
   zero/negative prices, missing/inconsistent totals, overflow, and IP errors.
   Test each quote at 1 MiB and 1 MiB + 1 byte; oversized bodies are not
   captured. Failures return no partial sum and send no order.
 - Guard example: 347800 + 120000 = 467800. A cap of 347800 orders nothing;
   467800 allows one order. `MonthlyPrice` reports 467800. The message
-  names total and cap. Never assert that this prevents a backend price
-  change after quote; an instrumented peer can demonstrate that limit.
+  names estimate and cap, never a confirmed charge. Test discount arithmetic
+  and price drift after quote; the guard cannot lock the backend price.
+- Included follow-up: one quote, zero IP annotation, total/`MonthlyPrice`
+  347800, cap 347799 refuses and 347800 sends once. Unverified terms keep
+  the sum. Separate outcome keeps 467800 and evidence-backed labels.
+  CLI goldens match; neither case reads transactions or switches at runtime.
 - Drift: shared priced keys match their create values, including zone.
   User data and its base64 form stay out of both quotes, logs, errors,
   captures, and CLI output. Malicious quote property text reflecting a
@@ -82,17 +85,18 @@ only the envelope, never row shape or attachment state.
   `ListAllSecurityGroupRules`, which does not establish full membership.
 - Reject TCP ingress covering 22, 234, 3389, or 3490 from either `/0`.
   Test alternate CIDR spelling, two `/1` rules in separate groups,
-  overlapping ranges, IPv4 and IPv6 independently, unknown direction,
-  unknown protocol, all-port ranges, missing fields, invalid ranges,
-  malformed CIDRs, and remote groups. Integer wire ports are not strings.
-- Narrow prefixes, known egress, UDP/ICMP, and TCP ranges excluding the
-  listed ports pass this specific test. Do not infer guest hardening.
-  `AllowOpenLogin` bypasses exposure refusal only; permission, identity,
-  response-limit, attachment, and price failures still stop the write.
-- Recheck before send: membership, interface, or rules changed since the
-  first check refuses. Interleave a rule change after the final read to
-  demonstrate the unavoidable race; do not assert zero exposure under
-  concurrent changes. No group or guest mutation is an SDK side effect.
+  overlapping ranges, IPv4 and IPv6 separately, unknown direction or
+  protocol, `any` and `TCP`/`tcp` casing, `any` with a partial range, null
+  ports or prefixes, invalid ranges, malformed CIDRs, and a CIDR rule with
+  `remoteGroupId`. Wire ports are integers.
+- Narrow prefixes, known egress, and TCP ranges excluding the listed ports
+  pass; this infers no guest hardening. `AllowOpenLogin` bypasses exposure
+  refusal only; permission, identity, response-limit, attachment, and
+  price failures still stop the write.
+- Recheck before send: changed membership, interface, or rules refuse.
+  Interleave a rule change after the final read to show the unavoidable
+  race; never assert zero exposure under concurrent changes. No group or
+  guest mutation is an SDK side effect.
 
 ### R3
 
@@ -184,8 +188,8 @@ only the envelope, never row shape or attachment state.
 Only the manager runs these under a separate read-only brief following
 [live data](../../instructions/live-data.md). No credit balance is assumed.
 
-1. Execute the exact [quote probe](vserver-floating-ips-api.md#elastic-ip-quote)
-   and record its source-backed pricing interpretation, not just 200.
+1. The [quote-body probe](vserver-floating-ips-api.md#elastic-ip-quote) is
+   complete; raw fixture decode and create-charge attribution remain open.
 2. After that contract is implemented, `QuoteCreateServer` with public
    IP opt-in must return the two-request sum. A capturing transport
    allows only specified reads and price POSTs. `CreateServer` with
@@ -195,81 +199,75 @@ Only the manager runs these under a separate read-only brief following
    paging envelope. No row claim follows from an empty list.
 4. Once R3 exists, bad-ID get must fail before requests and a synthetic
    well-formed absent ID must return `NotFound` only after a complete walk.
-5. Group-rule reads verify the unpaged `data` array, field presence, and
-   protocol/port encodings used by the guard. Never modify the account's
-   default group or send a public create to demonstrate its exposure.
+5. Group-rule reads verified the unpaged `data` array and the guard's
+   [encodings](vserver-floating-ips-api.md#security-group-rules). Never
+   modify the default group or create publicly to show its exposure.
 
 ## Live run
 
-L4 has an accepted scope and cap, not run authorization. The manager
-must approve each run, naming account, region `hcm-3`, enabled zone,
-mode, resources, and cleanup route under the accepted quote cap.
-The manager needs the quote contract and an established cleanup method
-before buying anything. Use `VNGCLOUD_LIVE_WRITE=1`,
-`VNGCLOUD_LIVE_FLOATING_IP=1`, and `VNGCLOUD_LIVE_MAX_VND=467800` in a
-manager-owned live test with a 60 min outer timeout. A new run needs new
-approval. It never reuses a prior run's consent or silently raises a cap.
+L4 scope/cap is not run authorization. Each approval names account, region
+(`hcm-3`, or `han-1` while the HCM VPC quota is full), enabled zone, mode,
+resources, and cleanup under the cap. Require quote evidence and cleanup
+before purchase. Set `VNGCLOUD_LIVE_WRITE=1`, `VNGCLOUD_LIVE_FLOATING_IP=1`,
+and `VNGCLOUD_LIVE_MAX_VND=500000` in a manager-owned test with a 60 min
+timeout. Each run needs new approval; never reuse consent or raise the cap.
 
-One run buys exactly one `s2-general-1x2` server, a 20 GB root volume,
-and one floating IP through `AttachFloatingIP`. No data disk, resize,
-second IP, or auto-attach is allowed. The expected gross charge is
-347,800 + 120,000 = 467,800 VND; the approved gross quote cap is the same.
-Requote before purchase; stop if the sum exceeds the approved cap.
-Pass that sum as `MaxPrice`; the API cannot lock the actual charge.
-Do not count an expected refund as credit
-for another purchase. IP refund is a measurement, not an assumption.
+Buy one `s2-general-1x2` server with a 20 GB 3000 IOPS SSD root (NVME only
+where a region has no SSD, as `han-1`) by its verified zone-specific
+`RootDiskTypeID`, and one IP through `AttachFloatingIP`. No data disk,
+resize, second IP, or auto-attach. Keep 500,000 VND as the gross quote
+cap. Requote before purchase; refuse above the cap; never take a default
+type. Pass the fresh sum as `MaxPrice`. No refund funds another purchase.
+Measure IP refunds; never assume them.
 
-Use the [paid-run parent rules](vserver-paid-writes-checks.md#parents):
-a run-owned restrictive group, imported throwaway key, subnet, and
-approved VPC. No ingress is needed to verify control-plane addressing.
-Keep the override false. All guest-login, banner, password, and port
-probes are outside this run; an SSH banner does not list auth methods.
+Follow [parent rules](vserver-paid-writes-checks.md#parents): run-owned
+restrictive group, imported throwaway key, subnet, approved VPC. No ingress
+is needed; keep override false. Guest-login/banner/password/port probes
+are excluded; an SSH banner does not list auth methods.
 
 ### Modes and release independence
 
 - R2-only: verify create and its raw reads, then the manager uses the
   approved console detach/release route before deleting the server.
-  Before starting, confirm the console exposes those controls and the
-  manager has their permissions. If a usable cleanup route is missing,
-  R2's live run stays blocked. The CLI never implements a private API
-  bypass to perform cleanup.
+  Confirm controls and permissions before starting; otherwise the run
+  stays blocked. The CLI never uses a private API bypass for cleanup.
 - Combined: build R3 after R2's quote/schema gates and perform the steps
   below on the same server/IP. This saves a purchase but is optional;
   R2 does not depend on unshipped R3 for cleanup or a release tag.
 - R3-only: use released R2 to create the same single-server fixture in
   a separately approved run, then perform the management steps. Its own
-  cap remains 467800; combined approval is not standing purchase consent.
+  cap remains 500000; combined approval is not standing purchase consent.
 
 ### Steps
 
-1. Save balances and current-period cost privately. Record the initial
-   inventory for comparison, never as an ownership claim. Quote, check
-   the cap, create once, and register cleanup as soon as IDs are known.
-   Save raw create and server responses, ID linkage, settlement timing,
-   and the charge compared with the full quote. Unexpected charge stops
-   further experimental steps; approved cleanup remains necessary.
+1. Verify credit-history access/coverage; apply the API
+   [decision procedure](vserver-floating-ips-api.md#credit-history-decision-procedure)
+   in every mode. Save baseline inventory/balances/cost privately; inventory
+   never proves ownership. Quote, check cap, create once, register known IDs
+   for cleanup. Save create/server outputs (decoded, since the SDK withholds
+   sensitive captures), raw WAN rows, linkage, timing, and debit vs estimate. Charges outside either hypothesis or above quote stop
+   experiments; approved cleanup remains necessary.
 2. Capture the exact WAN row linked by the created server's internal
    `floatingIpId` and interface UUID. Sanitize this pair for decode tests.
    If linkage is absent or ambiguous, stop for manager reconciliation;
    do not adopt an IP merely because it appeared during the run.
 3. In combined/R3 mode, attach that same ID to the same server: no-op,
    no mutation. Detach without delete: record 204, timing, exact server
-   fields, unattached WAN encoding, and balance. Retain the one IP.
+   fields, unattached WAN encoding, and ledger delta. Retain the one IP.
 4. Reattach the retained ID once. Record status, identity, timing, and
    any additional charge. An unexpected charge stops the test and gates
    R3; do not call this free just because no allocation was requested.
 5. Detach with `Delete`: confirm detach first, then delete that ID and
-   confirm full-list absence. Record the refund, if any. Exercise direct
+   confirm full-list absence. Record gross debits and refunds separately;
+   neither net zero nor absence proves no past charge. Exercise direct
    delete of the absent ID as a no-op error check, with no extra resource.
 6. Delete the server with `DeleteVolumes:false`; verify boot-volume and
    server absence and remove only run-owned parents. Record ending
-   balances and current-period cost. A later billing read reconciles
-   resource charges privately, without keeping resources overnight.
+   balances/cost. Reconcile posting under the bounded API procedure without
+   retaining resources overnight; unresolved billing blocks the tag.
 
-There is no second allocation and no test of server-delete IP cascade.
-Auto-attach is not essential to test the requested public server opt-in
-or reuse. Its paid end-to-end test remains separately gated; synthetic
-unit coverage does not close that gate.
+No second allocation or server-delete cascade test is allowed. Auto-attach
+needs its own paid evidence; synthetic coverage cannot close that gate.
 
 ### Cleanup
 
@@ -381,15 +379,17 @@ attempt to read real credential files for this design.
 
 ### Concurrent paid writes and cleanup: high
 
-`compute/create_server.go:350` checks duplicate names and `:394` sends
+`compute/create_server.go:362` checks duplicate names and `:410` sends
 once. Neither is an atomic uniqueness guarantee. Price checks in
 `internal/core/price.go:28` compare a quote, not a locked backend price.
+The accepted reserve may overstate cost; removing it without attributable
+ledger evidence could understate cost. Test both hypotheses and cap refusal.
 Two callers can read the same state and each send one request; an
 uncertain allocation may also remain invisible briefly. Repeating it can
 buy another IP. A global exactly-once test would promise nonexistent API
 support. A blanket cleanup sweep could delete another actor's IP.
 
-Invariant: explicit opt-in, finite summed price, one mutation send per
+Invariant: explicit opt-in, finite conservative price, one mutation send per
 call, no automatic paid retry/rollback, and identity-based cleanup only
 under owner authority. Fresh reads reduce races but cannot eliminate
 price, rule, attachment, or list-consistency races. Keep the auto-attach

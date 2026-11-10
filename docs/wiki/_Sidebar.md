@@ -9,6 +9,7 @@
 - [Services](Services.md)
 - [Backup](Backup.md)
 - [Billing and Pricing](Billing-and-Pricing.md)
+- [Price Quotes](Price-Quotes.md)
 - [CDN](CDN.md)
 - [Compute](Compute.md)
 - [Compute Servers](Compute-Servers.md)

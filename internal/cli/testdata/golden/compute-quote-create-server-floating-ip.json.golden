@@ -1,0 +1,32 @@
+{
+  "OptimumPrice": 347800,
+  "OriginalPrice": 347800,
+  "DiscountPrice": 0,
+  "DiscountPercent": 0,
+  "Properties": [
+    {
+      "Name": "INSTANCE TYPE",
+      "Description": "",
+      "OptimumPrice": 283800,
+      "MonthlyPrice": 283800,
+      "CurrentPrice": null,
+      "DiscountPercent": 0
+    },
+    {
+      "Name": "ROOT DISK",
+      "Description": "",
+      "OptimumPrice": 64000,
+      "MonthlyPrice": 64000,
+      "CurrentPrice": null,
+      "DiscountPercent": 0
+    },
+    {
+      "Name": "FLOATING IP",
+      "Description": "Included in server order for the verified configuration",
+      "OptimumPrice": 0,
+      "MonthlyPrice": 0,
+      "CurrentPrice": null,
+      "DiscountPercent": 0
+    }
+  ]
+}

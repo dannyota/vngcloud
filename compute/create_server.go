@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/floatingip"
 	"danny.vn/vngcloud/internal/transport"
 	"danny.vn/vngcloud/pricing"
 )
@@ -83,6 +85,11 @@ type CreateServerInput struct {
 	// renews from credit without a command.
 	AutoRenew bool
 
+	// AttachFloatingIP opts into a public floating IP included in the server quote.
+	AttachFloatingIP bool
+	// AllowOpenLogin bypasses only login exposure evaluation. It requires AttachFloatingIP.
+	AllowOpenLogin bool
+
 	// MaxPrice is VND a month; a paid CreateServer refuses to order above
 	// it. QuoteCreateServer ignores it.
 	MaxPrice float64
@@ -117,6 +124,7 @@ type createServerBody struct {
 	UserData              string   `json:"userData,omitempty"`
 	UserDataBase64Encoded bool     `json:"userDataBase64Encoded,omitempty"`
 	IsEnableAutoRenew     bool     `json:"isEnableAutoRenew"`
+	AttachFloating        bool     `json:"attachFloating"`
 }
 
 // serverQuoteBody is the server create quote's resourceInfo: the keys the
@@ -138,6 +146,9 @@ type serverQuoteBody struct {
 // op's name: sizes, the data disk pair, and each ID. A zero RootDiskSize
 // passes here; the quote and the create each require their own set first.
 func checkServerShape(op string, in *CreateServerInput) error {
+	if err := core.CheckPathID(op, "ZoneID", in.ZoneID); err != nil {
+		return err
+	}
 	if in.RootDiskSize < 0 {
 		return fmt.Errorf("%w: %s: RootDiskSize must be greater than 0, got %d", core.ErrInvalidInput, op, in.RootDiskSize)
 	}
@@ -217,12 +228,20 @@ func buildServerQuoteInfo(op string, in *CreateServerInput) (map[string]any, err
 }
 
 // buildCreateServerBody validates in and builds the body CreateServer
-// sends. It requires every field tagged vngcloud:"required". It never sets
-// attachFloating, userName, userPassword, osLicence, or expirePassword:
-// this SDK has no field for a public IP or password login on create.
+// sends. It requires every field tagged vngcloud:"required" and sends an
+// explicit attachFloating boolean. It never sets userName, userPassword,
+// osLicence, or expirePassword. Key input does not prove guest passwords are off.
 func buildCreateServerBody(op string, in *CreateServerInput) (createServerBody, error) {
 	if err := core.CheckRequired(op, in); err != nil {
 		return createServerBody{}, err
+	}
+	if in.AllowOpenLogin && !in.AttachFloatingIP {
+		return createServerBody{}, fmt.Errorf("%w: %s: AllowOpenLogin requires AttachFloatingIP", core.ErrInvalidInput, op)
+	}
+	if in.AttachFloatingIP {
+		if err := floatingip.CheckGroups(op, in.SecurityGroupIDs); err != nil {
+			return createServerBody{}, err
+		}
 	}
 	if in.SSHKeyID == "" && in.UserData.Reveal() == "" {
 		return createServerBody{}, fmt.Errorf("%w: %s: login is required: an SSH key, or user data that installs keys", core.ErrInvalidInput, op)
@@ -256,6 +275,7 @@ func buildCreateServerBody(op string, in *CreateServerInput) (createServerBody, 
 		DataDiskEncryption: in.DataDiskEncryptionTypeID,
 		ServerGroupID:      in.ServerGroupID,
 		IsEnableAutoRenew:  in.AutoRenew,
+		AttachFloating:     in.AttachFloatingIP,
 	}
 	if in.UserData.Reveal() != "" {
 		body.UserData = base64.StdEncoding.EncodeToString([]byte(in.UserData.Reveal()))
@@ -269,25 +289,26 @@ func buildCreateServerBody(op string, in *CreateServerInput) (createServerBody, 
 // CreateServerInput) and checks the shape of every other field that is set,
 // so a bad ID fails here as it will at the create. UserData never reaches
 // the billing gateway. It ignores Input.MaxPrice and Input.NoWait, which
-// govern only an actual create.
-func (c *Client) QuoteCreateServer(ctx context.Context, in *CreateServerInput) (*pricing.GetQuoteOutput, error) {
+// govern only an actual create. AllowOpenLogin is also ignored by quotes.
+func (c *Client) QuoteCreateServer(ctx context.Context, in *CreateServerInput) (out *pricing.GetQuoteOutput, err error) {
 	const op = "compute.QuoteCreateServer"
+	ctx, scope := serverOperationContext(ctx)
+	ctx = floatingip.WithObserver(ctx, scope.observe)
+	defer finishServerOperation(scope, op, &out, &err)
 	info, err := buildServerQuoteInfo(op, in)
 	if err != nil {
 		return nil, err
 	}
-	return c.serverQuote(ctx, &pricing.GetQuoteInput{
-		ResourceType: pricing.ResourceServer,
-		Action:       pricing.ActionCreate,
-		ResourceInfo: info,
-	})
+	scope.addSecrets(in.UserData.Reveal(), base64.StdEncoding.EncodeToString([]byte(in.UserData.Reveal())))
+	return c.floatingCreateQuote(ctx, in, info)
 }
 
 // CreateServerOutput is CreateServer's result. Server is filled from
 // CreateServer's own post-create wait unless NoWait is set, in which case it
 // holds only the UUID and Name the caller gave, since the create response's
 // other fields are not confirmed live. MonthlyPrice is the quote's own
-// OptimumPrice, the price actually checked against Input.MaxPrice.
+// OptimumPrice, the conservative estimate checked against Input.MaxPrice,
+// not a confirmed debit.
 type CreateServerOutput struct {
 	Server       Server
 	MonthlyPrice float64
@@ -340,8 +361,10 @@ type createServerResponse struct {
 // a read returned, falling back to one with only the new UUID and
 // Input.Name if no read ever succeeded. NoWait skips that wait and returns
 // at once with Output.Server holding only the new UUID and Input.Name.
+// Public create allows another 2 minutes for a valid internal address and IP ID.
 func (c *Client) CreateServer(ctx context.Context, in *CreateServerInput) (out *CreateServerOutput, err error) {
 	ctx, scope := serverOperationContext(ctx)
+	ctx = floatingip.WithObserver(ctx, scope.observe)
 	defer finishServerOperation(scope, "compute.CreateServer", &out, &err)
 	const op = "compute.CreateServer"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -358,20 +381,45 @@ func (c *Client) CreateServer(ctx context.Context, in *CreateServerInput) (out *
 	if err != nil {
 		return nil, err
 	}
-	if err := c.refuseIfServerNameExists(ctx, op, in.Name); err != nil {
+	scope.addSecrets(in.UserData.Reveal(), body.UserData)
+	preflightCtx, preflightCancel := context.WithTimeout(ctx, 30*time.Second)
+	if err := c.refuseIfServerNameExists(preflightCtx, op, in.Name); err != nil {
+		preflightCancel()
 		return nil, err
 	}
-
-	quote, err := c.serverQuote(ctx, &pricing.GetQuoteInput{
-		ResourceType: pricing.ResourceServer,
-		Action:       pricing.ActionCreate,
-		ResourceInfo: info,
-	})
+	var snapshot [32]byte
+	if in.AttachFloatingIP {
+		snapshot, err = floatingip.Exposure(preflightCtx, c.c, in.SecurityGroupIDs, in.AllowOpenLogin, scope.unsafe)
+	}
+	preflightCancel()
 	if err != nil {
 		return nil, err
 	}
-	if err := core.CheckPriceAboveMax(op, quote.OptimumPrice, in.MaxPrice); err != nil {
+	quote, err := c.floatingCreateQuote(ctx, in, info)
+	if err != nil {
 		return nil, err
+	}
+	if in.AttachFloatingIP {
+		ctx, err = watchFloatingQuote(ctx, scope, quote)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if err := core.CheckPriceAboveMax(op, quote.OptimumPrice, in.MaxPrice); err != nil {
+		if in.AttachFloatingIP {
+			return nil, fmt.Errorf("conservative monthly estimate: %w", err)
+		}
+		return nil, err
+	}
+	if in.AttachFloatingIP {
+		current, err := floatingip.Exposure(ctx, c.c, in.SecurityGroupIDs, in.AllowOpenLogin, scope.unsafe)
+		if err != nil {
+			return nil, err
+		}
+		if current != snapshot {
+			return nil, fmt.Errorf("%w: security group snapshot changed", ErrUnexpectedStatus)
+		}
 	}
 
 	projectID, err := c.c.RequireProjectID(ctx)
@@ -418,11 +466,17 @@ func (c *Client) CreateServer(ctx context.Context, in *CreateServerInput) (out *
 			Message: "create response had no id; the server may exist, list servers and match the name exactly before creating it again"}
 	}
 
+	if core.CheckPathID(op, "ServerID", resp.Data.UUID) != nil {
+		return nil, wrapAmbiguousServerCreateErr(op, invalidServerResponse(op, status, nil))
+	}
 	fallback := Server{UUID: resp.Data.UUID, Name: in.Name}
 	if in.NoWait {
 		return &CreateServerOutput{Server: fallback, MonthlyPrice: quote.OptimumPrice}, nil
 	}
 	settled, waitErr := c.waitServerActive(ctx, op, resp.Data.UUID)
+	if waitErr == nil && in.AttachFloatingIP {
+		settled, waitErr = c.waitFloatingAddress(ctx, op, resp.Data.UUID, settled)
+	}
 	if settled == nil {
 		settled = &fallback
 	}
