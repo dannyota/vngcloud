@@ -728,7 +728,7 @@ func (r *floatingIPRun) parents(ctx context.Context, input *compute.CreateServer
 	input.SubnetID = r.ledger.ids["subnet"]
 	r.ledger.attempted["group"] = true
 	r.guard.arm(http.MethodPost, "/secgroups")
-	group, err := r.network.CreateSecurityGroup(ctx, &network.CreateSecurityGroupInput{Name: r.name, Description: "Floating IP live test; no ingress"})
+	group, err := r.network.CreateSecurityGroup(ctx, &network.CreateSecurityGroupInput{Name: r.name, Description: "Floating IP live test with no ingress"})
 	r.guard.disarm()
 	if group != nil {
 		r.ledger.remember("group", group.SecurityGroup.ID)

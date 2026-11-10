@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -451,6 +452,81 @@ func TestFloatingIPHarnessSensitivePurchaseReachesConsoleAndCleanup(t *testing.T
 	}
 }
 
+func TestFloatingIPHarnessCreateNamesAndDescriptions(t *testing.T) {
+	textPattern := regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.@ -]{0,254}$`)
+	// The harness's run-name convention is narrower than the text rule.
+	namePattern := regexp.MustCompile(`^vngcloud-live-fip-[0-9a-f]{8}$`)
+	paths := map[string]string{
+		"/v2/project-1/networks": "vpc", "/v2/project-1/networks/vpc-1/subnets": "subnet",
+		"/v2/project-1/secgroups": "group", "/v2/project-1/sshKeys/import": "key",
+		"/v2/project-1/servers": "server",
+	}
+	seen, descriptions := map[string]int{}, map[string]int{}
+	peer := &floatingIPHarnessPeer{deleted: map[string]bool{}}
+	guard := newFloatingIPTransport("hcm-3")
+	guard.base = floatingIPHarnessHTTP(func(req *http.Request) (*http.Response, error) {
+		if kind := paths[req.URL.Path]; kind != "" && req.Method == http.MethodPost {
+			data, err := io.ReadAll(req.Body)
+			closeErr := req.Body.Close()
+			if err != nil || closeErr != nil {
+				return nil, errors.Join(err, closeErr)
+			}
+			var body map[string]json.RawMessage
+			if err := json.Unmarshal(data, &body); err != nil {
+				return nil, err
+			}
+			seen[kind]++
+			var name string
+			if json.Unmarshal(body["name"], &name) != nil || !textPattern.MatchString(name) || !namePattern.MatchString(name) {
+				t.Errorf("%s create name violates the text or run-name rule", kind)
+			}
+			if raw, present := body["description"]; present {
+				descriptions[kind]++
+				var description string
+				if json.Unmarshal(raw, &description) != nil || !textPattern.MatchString(description) {
+					t.Errorf("%s create description violates the text rule", kind)
+				}
+			}
+			req.Body = io.NopCloser(strings.NewReader(string(data)))
+			defer func() { _ = req.Body.Close() }()
+		}
+		response := httptest.NewRecorder()
+		peer.serve(t, response, req)
+		return response.Result(), nil
+	})
+	capture := &floatingIPCapture{dir: t.TempDir()}
+	cfg, err := vngcloud.NewConfig(
+		vngcloud.WithRegion("hcm-3"), vngcloud.WithProjectID("project-1"), vngcloud.WithStaticToken("synthetic-token"),
+		vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{
+			VServer: "https://hcm-3.console.greennode.ai/", Portal: "https://hcm-3.console.greennode.ai/",
+		}),
+		vngcloud.WithTransport(guard), vngcloud.WithRetry(0, 0), vngcloud.WithResponseCapture(capture.hook),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := newFloatingIPRun(t, cfg, guard, capture, "vngcloud-live-fip-1234abcd")
+	input := &compute.CreateServerInput{
+		Name: r.name, ZoneID: "zone-1", FlavorID: "flavor-1", ImageID: "image-1",
+		RootDiskSize: 20, RootDiskTypeID: "ssd-1", AttachFloatingIP: true,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	r.parents(ctx, input)
+	r.quote(ctx, input)
+	if err := r.purchase(ctx, input); err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{"vpc", "subnet", "group", "key", "server"} {
+		if seen[kind] != 1 {
+			t.Errorf("checked %d %s create bodies; want 1", seen[kind], kind)
+		}
+	}
+	if descriptions["group"] != 1 {
+		t.Fatal("group description was not checked")
+	}
+}
+
 func TestFloatingIPHarnessCleanupRechecksBlockedBetweenSDKSteps(t *testing.T) {
 	r, peer := newFloatingIPHarnessPeer(t, true)
 	peer.mu.Lock()
@@ -605,6 +681,22 @@ func (p *floatingIPHarnessPeer) serve(t *testing.T, w http.ResponseWriter, req *
 		return
 	}
 	switch req.URL.Path {
+	case "/v2/project-1/networks":
+		write(map[string]any{"data": map[string]string{"id": "vpc-1", "displayName": "vngcloud-live-fip-1234abcd", "status": "ACTIVE"}})
+	case "/v2/project-1/networks/vpc-1/subnets":
+		if req.Method == http.MethodPost {
+			write(map[string]any{"data": map[string]any{
+				"uuid": "subnet-1", "name": "vngcloud-live-fip-1234abcd", "networkUuid": "vpc-1", "status": "ACTIVE", "zone": map[string]string{"uuid": "zone-1"},
+			}})
+		} else {
+			write([]any{})
+		}
+	case "/v2/project-1/secgroups":
+		w.WriteHeader(http.StatusCreated)
+		write(map[string]any{"data": map[string]any{"id": 1, "uuid": "group-1", "secgroupName": "vngcloud-live-fip-1234abcd"}})
+	case "/v2/project-1/sshKeys/import":
+		w.WriteHeader(http.StatusCreated)
+		write(map[string]any{"data": map[string]string{"id": "key-1", "name": "vngcloud-live-fip-1234abcd"}})
 	case "/v1/price":
 		var body struct {
 			ResourceType string `json:"resourceType"`
@@ -663,7 +755,7 @@ func (p *floatingIPHarnessPeer) serve(t *testing.T, w http.ResponseWriter, req *
 		if p.deleted["group"] {
 			missing()
 		} else {
-			write(map[string]any{"data": map[string]string{"id": "group-1", "status": "ACTIVE"}})
+			write(map[string]any{"data": map[string]string{"id": "group-1", "name": "vngcloud-live-fip-1234abcd", "status": "ACTIVE"}})
 		}
 	case "/v2/project-1/secgroups/group-1/secGroupRules":
 		write(map[string]any{"data": []any{}})
@@ -679,15 +771,17 @@ func (p *floatingIPHarnessPeer) serve(t *testing.T, w http.ResponseWriter, req *
 		if p.deleted["subnet"] {
 			missing()
 		} else {
-			write(map[string]any{"uuid": "subnet-1", "networkUuid": "vpc-1", "status": "ACTIVE"})
+			write(map[string]any{
+				"uuid": "subnet-1", "name": "vngcloud-live-fip-1234abcd", "networkUuid": "vpc-1", "status": "ACTIVE", "zone": map[string]string{"uuid": "zone-1"},
+			})
 		}
 	case "/v2/project-1/networks/vpc-1":
 		if p.deleted["vpc"] {
 			missing()
 		} else {
-			write(map[string]any{"id": "vpc-1", "status": "ACTIVE"})
+			write(map[string]any{"id": "vpc-1", "displayName": "vngcloud-live-fip-1234abcd", "status": "ACTIVE"})
 		}
-	case "/v2/project-1/networks/vpc-1/subnets", "/v2/project-1/volumes/servers/server-1", "/v2/project-1/servers/subnets/subnet-1":
+	case "/v2/project-1/volumes/servers/server-1", "/v2/project-1/servers/subnets/subnet-1":
 		write([]any{})
 	case "/v2/project-1/network-interfaces-elastic", "/v2/project-1/virtualIpAddress", "/v2/project-1/network-acl/list":
 		page([]any{})
