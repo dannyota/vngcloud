@@ -324,6 +324,10 @@ func TestFloatingIPHarnessMissingRegionalSpecStopsBeforeWrites(t *testing.T) {
 		ssdTypes, nvmeTypes string
 		selector, wantID    string
 		want                string
+		catalogZone         string
+		missingZone         bool
+		foreignSSD          bool
+		foreignNVME         bool
 	}{
 		{name: "missing flavor", ssd: true, want: "s2-general-1x2 missing in selected region or zone"},
 		{name: "neither class exists", flavor: true, want: "3000 IOPS NVME root type missing in selected region or zone"},
@@ -361,10 +365,30 @@ func TestFloatingIPHarnessMissingRegionalSpecStopsBeforeWrites(t *testing.T) {
 			name: "selector cannot bypass SSD preference", flavor: true, ssd: true, nvme: true, selector: "nvme-1",
 			want: "3000 IOPS SSD root type missing in selected region or zone",
 		},
+		{
+			name: "refuse foreign NVME catalog", flavor: true, nvme: true, catalogZone: "HAN01-1A",
+			want: "disk catalog type zone does not match selected zone",
+		},
+		{
+			name: "refuse foreign SSD catalog", flavor: true, ssd: true, catalogZone: "HAN01-1A",
+			want: "disk catalog type zone does not match selected zone",
+		},
+		{
+			name: "refuse missing zone identity", flavor: true, nvme: true, missingZone: true,
+			want: "disk catalog type zone does not match selected zone",
+		},
+		{
+			name: "foreign SSD cannot shadow selected NVME", flavor: true, ssd: true, nvme: true, foreignSSD: true,
+			want: "disk catalog type zone does not match selected zone",
+		},
+		{
+			name: "refuse mixed-zone reply even with selected SSD", flavor: true, ssd: true, nvme: true, foreignNVME: true,
+			want: "disk catalog type zone does not match selected zone",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("VNGCLOUD_LIVE_FLOATING_IP_ROOT_DISK_TYPE_ID", tc.selector)
-			writes, nvmeReads := 0, 0
+			writes, nvmeReads, typeReads, defaultCatalogReads := 0, 0, 0, 0
 			guard := newFloatingIPTransport("han-1")
 			guard.base = floatingIPHarnessHTTP(func(req *http.Request) (*http.Response, error) {
 				if req.Method != http.MethodGet {
@@ -383,13 +407,32 @@ func TestFloatingIPHarnessMissingRegionalSpecStopsBeforeWrites(t *testing.T) {
 				case "/v1/project-1/images/os":
 					body = `{"images":[{"id":"image-1","imageVersion":"Ubuntu 24.04","licence":false,"packageLimit":{"diskSize":20}}]}`
 				case "/v1/project-1/volume_type_zones":
-					zones := []map[string]string{}
+					if req.URL.Query().Get("zoneId") == "" {
+						defaultCatalogReads++
+						body = `{"volumeTypeZones":[{"id":"default-zone","name":"NVME","zone":{"name":"HAN01-1A","isEnabled":false}}]}`
+						break
+					}
+					if req.URL.Query().Get("zoneId") != "HAN01-1B" {
+						t.Error("catalog requested a different zone")
+					}
+					zoneName := tc.catalogZone
+					if zoneName == "" && !tc.missingZone {
+						zoneName = "HAN01-1B"
+					}
+					zone := func(foreign bool) map[string]any {
+						name := zoneName
+						if foreign {
+							name = "HAN01-1A"
+						}
+						return map[string]any{"name": name, "isEnabled": name == "HAN01-1B"}
+					}
+					zones := []map[string]any{}
 					// NVME comes first to catch selection based on catalog order.
 					if tc.nvme {
-						zones = append(zones, map[string]string{"id": "nvme-zone-1", "name": "NVME"})
+						zones = append(zones, map[string]any{"id": "nvme-zone-1", "name": "NVME", "zone": zone(tc.foreignNVME)})
 					}
 					if tc.ssd {
-						zones = append(zones, map[string]string{"id": "vtz-1", "name": "SSD"})
+						zones = append(zones, map[string]any{"id": "vtz-1", "name": "SSD", "zone": zone(tc.foreignSSD)})
 					}
 					data, err := json.Marshal(map[string]any{"volumeTypeZones": zones})
 					if err != nil {
@@ -397,16 +440,21 @@ func TestFloatingIPHarnessMissingRegionalSpecStopsBeforeWrites(t *testing.T) {
 					}
 					body = string(data)
 				case "/v1/project-1/vtz-1/volume_types":
+					typeReads++
 					body = `{"volumeTypes":[{"id":"ssd-1","iops":3000,"minSize":1,"maxSize":5000,"zoneId":"HAN01-1B"}]}`
 					if tc.ssdTypes != "" {
 						body = tc.ssdTypes
 					}
 				case "/v1/project-1/nvme-zone-1/volume_types":
+					typeReads++
 					nvmeReads++
 					body = nvmeMatches
 					if tc.nvmeTypes != "" {
 						body = tc.nvmeTypes
 					}
+				case "/v1/project-1/default-zone/volume_types":
+					typeReads++
+					body = `{"volumeTypes":[{"id":"default-zone-type","iops":3000,"minSize":1,"maxSize":25000}]}`
 				default:
 					t.Errorf("unexpected catalog request: %s", req.URL.Path)
 					return nil, errors.New("unexpected catalog request")
@@ -435,6 +483,12 @@ func TestFloatingIPHarnessMissingRegionalSpecStopsBeforeWrites(t *testing.T) {
 			}
 			if tc.ssd && nvmeReads != 0 {
 				t.Fatal("NVME was read despite an SSD type zone being present")
+			}
+			if defaultCatalogReads != 0 {
+				t.Error("root selection read the default-zone catalog")
+			}
+			if tc.want == "disk catalog type zone does not match selected zone" && typeReads != 0 {
+				t.Error("mismatched type-zone metadata allowed a child-type read")
 			}
 		})
 	}

@@ -797,11 +797,17 @@ func (r *floatingIPRun) spec(ctx context.Context, zone string) (*compute.CreateS
 	if input.ImageID == "" {
 		return nil, errors.New("Ubuntu 24.04 image unavailable in selected region or zone")
 	}
-	// Catalog parents can name a disabled zone. Read the chosen class directly;
-	// the successful server quote verifies this type in the selected zone.
-	typeZones, err := r.volume.ListVolumeTypeZones(ctx, nil)
+	// The unfiltered catalog can belong to the default zone. Bind discovery
+	// and each returned Zone.Name to the selected zone code; a successful
+	// quote does not prove that a disk type can be created in that zone.
+	typeZones, err := r.volume.ListVolumeTypeZones(ctx, &volume.ListVolumeTypeZonesInput{ZoneID: zone})
 	if err != nil {
 		return nil, errors.New("disk catalog read failed")
+	}
+	for _, tz := range typeZones.Items {
+		if tz.Zone.Name != zone {
+			return nil, errors.New("disk catalog type zone does not match selected zone")
+		}
 	}
 	class := "NVME"
 	for _, tz := range typeZones.Items {
