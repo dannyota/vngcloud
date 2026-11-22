@@ -70,8 +70,9 @@ type call struct {
 	// errors, since it may carry a secret. once sends the request a single
 	// time, with no retry, resend, or redirect, for a create that must not
 	// run twice.
-	sensitive bool
-	once      bool
+	sensitive  bool
+	once       bool
+	noRedirect bool
 }
 
 // do sends a GET and returns the decoded envelope; see exchange.
@@ -92,7 +93,7 @@ func (c *Client) exchange(ctx context.Context, k call) (*envelope, error) {
 	req := transport.Request{
 		SentCredentials: &credentials,
 		Operation:       k.op, Method: k.method, URL: k.url, Body: k.body, OK: k.ok,
-		Sensitive: k.sensitive, Once: k.once,
+		Sensitive: k.sensitive, Once: k.once, NoRedirect: k.noRedirect,
 	}
 	if k.regionID != "" {
 		req.Headers = map[string]string{"region": k.regionID, "region_id": k.regionID}

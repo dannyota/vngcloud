@@ -111,7 +111,12 @@ func (c *Client) DeleteBucket(ctx context.Context, in *DeleteBucketInput) (*Dele
 // checkBucketEmpty reads the bucket and refuses anything that is not
 // provably empty.
 func (c *Client) checkBucketEmpty(ctx context.Context, op, regionID string, in *DeleteBucketInput) error {
-	env, err := c.do(ctx, "storage.GetBucket", c.route([]string{"ceph", "projects", in.ProjectID, in.Bucket, "details"}, nil), regionID)
+	env, err := c.exchange(ctx, call{
+		op: "storage.GetBucket", method: http.MethodGet,
+		url:      c.route([]string{"ceph", "projects", in.ProjectID, in.Bucket, "details"}, nil),
+		regionID: regionID, ok: []int{http.StatusOK}, noRedirect: true,
+		validate: func(raw json.RawMessage) error { return validateDeletionEvidence(op, raw, false, in.Bucket) },
+	})
 	if err != nil {
 		return fmt.Errorf("%s: reading the bucket before the delete: %w", op, err)
 	}

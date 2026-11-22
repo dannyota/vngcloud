@@ -189,6 +189,99 @@ func TestDeleteBucketRejectsMismatchedName(t *testing.T) {
 	}
 }
 
+func TestDeleteProjectRejectsEvidenceCode403(t *testing.T) {
+	for _, stage := range []string{"projects", "buckets"} {
+		t.Run(stage, func(t *testing.T) {
+			s := &projectWriteServer{before: projectList(newProjectJSON), buckets: `{"success":true,"datas":[]}`}
+			if stage == "projects" {
+				s.before = strings.TrimSuffix(s.before, "}") + `,"code":403}`
+			} else {
+				s.buckets = `{"success":true,"code":403,"datas":[]}`
+			}
+			_, err := newTestClient(t, s.handler(t)).DeleteProject(context.Background(), &DeleteProjectInput{ProjectID: "new-1", NoWait: true})
+			if err == nil || s.deletes != 0 {
+				t.Fatalf("error = %v, deletes = %d, want error and no DELETE", err, s.deletes)
+			}
+		})
+	}
+}
+
+func TestDeleteProjectRejectsBucketListRedirect(t *testing.T) {
+	s := &projectWriteServer{before: projectList(newProjectJSON)}
+	base := s.handler(t)
+	var redirected atomic.Int32
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/internal/v1/ceph/projects/new-1" {
+			http.Redirect(w, r, "/other-project", http.StatusFound)
+			return
+		}
+		if r.URL.Path == "/other-project" {
+			redirected.Add(1)
+			_, _ = w.Write([]byte(`{"success":true,"datas":[]}`))
+			return
+		}
+		base.ServeHTTP(w, r)
+	})
+	_, err := newTestClient(t, h).DeleteProject(context.Background(), &DeleteProjectInput{ProjectID: "new-1", NoWait: true})
+	if err == nil || s.deletes != 0 || redirected.Load() != 0 {
+		t.Fatalf("error = %v, deletes = %d, redirected requests = %d", err, s.deletes, redirected.Load())
+	}
+}
+
+func TestDeleteEvidenceRejectsOtherRedirects(t *testing.T) {
+	for _, stage := range []string{"projects", "bucket-details"} {
+		t.Run(stage, func(t *testing.T) {
+			var deletes, redirected atomic.Int32
+			h := serve(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodDelete {
+					deletes.Add(1)
+					_, _ = w.Write([]byte(okEnvelope))
+					return
+				}
+				if r.URL.Path == "/other" {
+					redirected.Add(1)
+					_, _ = w.Write([]byte(`{"success":true,"data":{"name":"my-bucket","count":0}}`))
+					return
+				}
+				http.Redirect(w, r, "/other", http.StatusFound)
+			})
+			var err error
+			if stage == "projects" {
+				_, err = newTestClient(t, h).DeleteProject(context.Background(), &DeleteProjectInput{ProjectID: "new-1", NoWait: true})
+			} else {
+				_, err = newDeleteClient(t, h).DeleteBucket(context.Background(), &DeleteBucketInput{ProjectID: "proj-1", Bucket: "my-bucket", NoWait: true})
+			}
+			if err == nil || deletes.Load() != 0 || redirected.Load() != 0 {
+				t.Fatalf("error = %v, deletes = %d, redirected requests = %d", err, deletes.Load(), redirected.Load())
+			}
+		})
+	}
+}
+
+func TestDeleteBucketRejectsEvidenceCode403(t *testing.T) {
+	s := &bucketServer{status: 200, body: okEnvelope, detail: func(w http.ResponseWriter) {
+		_, _ = w.Write([]byte(`{"success":true,"code":403,"data":{"name":"my-bucket","count":0}}`))
+	}}
+	_, err := newDeleteClient(t, s.handler(t)).DeleteBucket(context.Background(), &DeleteBucketInput{ProjectID: "proj-1", Bucket: "my-bucket", NoWait: true})
+	if err == nil || s.writes.Load() != 0 {
+		t.Fatalf("error = %v, deletes = %d", err, s.writes.Load())
+	}
+}
+
+func TestDeleteBucketRejectsUnverifiedEvidenceEnvelope(t *testing.T) {
+	for _, field := range []string{`"code":null`, `"code":403`, `"unexpected":true`, `"İsNext":true`, `"isNext":true`} {
+		t.Run(field, func(t *testing.T) {
+			s := &bucketServer{status: 200, body: okEnvelope, detail: func(w http.ResponseWriter) {
+				_, _ = w.Write([]byte(`{"success":true,"data":{"name":"my-bucket","count":0},` + field + `}`))
+			}}
+			_, err := newDeleteClient(t, s.handler(t)).DeleteBucket(context.Background(), &DeleteBucketInput{ProjectID: "proj-1", Bucket: "my-bucket", NoWait: true})
+			if err == nil || s.writes.Load() != 0 {
+				t.Fatalf("error = %v, deletes = %d", err, s.writes.Load())
+			}
+		})
+	}
+}
+
 func TestDeleteProjectRejectsUnsupportedPagination(t *testing.T) {
 	for _, stage := range []string{"projects", "buckets"} {
 		for _, marker := range []string{`"hasMore":true`, `"HASMORE":true`, `"nextPage":1`, `"next":"token"`, `"total":2`, `"totalItems":2`, `"TOTALITEMS":2`, `"unexpected":true`, `"UNEXPECTED":true`, `"İsNext":true`} {

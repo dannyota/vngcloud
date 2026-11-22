@@ -12,6 +12,7 @@ import (
 
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/jsonresponse"
+	"danny.vn/vngcloud/internal/transport"
 )
 
 const (
@@ -27,14 +28,14 @@ type projectRecord struct {
 
 func (c *Client) completeProjects(ctx context.Context, op, id string) ([]projectRecord, error) {
 	env, err := c.exchange(ctx, call{
-		op: op, method: http.MethodGet, regionID: id, ok: []int{http.StatusOK},
+		op: op, method: http.MethodGet, regionID: id, ok: []int{http.StatusOK}, noRedirect: op == "storage.DeleteProject",
 		url: c.route([]string{"projects"}, nil),
 		validate: func(raw json.RawMessage) error {
 			if jsonresponse.ValidateStrict(raw, (*envelope)(nil)) != nil {
 				return projectResponseError(op, "list is null or malformed")
 			}
 			if op == "storage.DeleteProject" {
-				if err := validateDeletionListFields(op, raw, true); err != nil {
+				if err := validateDeletionEvidence(op, raw, true, ""); err != nil {
 					return err
 				}
 			}
@@ -62,7 +63,7 @@ func (c *Client) completeProjects(ctx context.Context, op, id string) ([]project
 	return result, nil
 }
 
-func validateDeletionListFields(op string, raw json.RawMessage, projects bool) error {
+func validateDeletionEvidence(op string, raw json.RawMessage, projects bool, bucket string) error {
 	var fields map[string]json.RawMessage
 	if json.Unmarshal(raw, &fields) != nil || fields == nil {
 		return projectResponseError(op, "list has invalid envelope")
@@ -75,20 +76,48 @@ func validateDeletionListFields(op string, raw json.RawMessage, projects bool) e
 		}
 	}
 	var status struct {
-		Success *bool `json:"success"`
+		Success *bool           `json:"success"`
+		Code    json.RawMessage `json:"code"`
+		Data    json.RawMessage `json:"data"`
+		IsNext  json.RawMessage `json:"isNext"`
 	}
-	if json.Unmarshal(raw, &status) == nil && status.Success != nil && !*status.Success {
+	if json.Unmarshal(raw, &status) != nil || status.Success == nil {
+		return projectResponseError(op, "list has invalid envelope")
+	}
+	if !*status.Success {
 		return nil
+	}
+	if len(status.Code) != 0 && string(status.Code) != "200" {
+		return projectResponseError(op, "response has inconsistent success code")
+	}
+	if len(status.IsNext) != 0 && string(status.IsNext) != "false" {
+		return projectResponseError(op, "list has incomplete or invalid pagination")
 	}
 	for key := range fields {
 		switch strings.ToLower(key) {
-		case "code", "success", "data", "datas", "isnext":
+		case "code", "success", "data", "isnext":
+		case "datas":
+			if bucket != "" {
+				return projectResponseError(op, "response has unsupported envelope field")
+			}
 		case "action":
 			if !projects {
 				return projectResponseError(op, "list has unsupported envelope field")
 			}
 		default:
 			return projectResponseError(op, "list has unsupported envelope field")
+		}
+	}
+	if bucket != "" {
+		var usage bucketUsage
+		if jsonresponse.ValidateStrict(status.Data, &usage) != nil {
+			return projectResponseError(op, "invalid bucket usage")
+		}
+		if err := json.Unmarshal(status.Data, &usage); err != nil {
+			return &core.APIError{Operation: op, StatusCode: http.StatusOK, Err: fmt.Errorf("decode bucket: %w", transport.SanitizeDecodeError(err))}
+		}
+		if usage.Name != bucket {
+			return projectResponseError(op, "bucket identity did not match")
 		}
 	}
 	return nil

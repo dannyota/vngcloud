@@ -87,7 +87,7 @@ func (c *Client) DeleteProject(ctx context.Context, in *DeleteProjectInput) (*De
 func (c *Client) readProjectBuckets(ctx context.Context, op, regionID, projectID string) (*envelope, error) {
 	var raw json.RawMessage
 	var credentials []string
-	status, err := c.c.DoJSONStatus(ctx, transport.Request{Operation: op, Method: http.MethodGet, URL: c.route([]string{"ceph", "projects", projectID}, url.Values{"limit": {listBucketsLimit}}), Redact: []string{projectID}, SentCredentials: &credentials, Headers: map[string]string{"region": regionID, "region_id": regionID}}, &raw)
+	status, err := c.c.DoJSONStatus(ctx, transport.Request{Operation: op, Method: http.MethodGet, NoRedirect: true, URL: c.route([]string{"ceph", "projects", projectID}, url.Values{"limit": {listBucketsLimit}}), Redact: []string{projectID}, SentCredentials: &credentials, Headers: map[string]string{"region": regionID, "region_id": regionID}}, &raw)
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +98,7 @@ func (c *Client) readProjectBuckets(ctx context.Context, op, regionID, projectID
 	if !*env.Success {
 		return nil, c.envelopeError(op, status, &env, credentials...)
 	}
-	if err := validateDeletionListFields(op, raw, false); err != nil {
+	if err := validateDeletionEvidence(op, raw, false, ""); err != nil {
 		return nil, err
 	}
 	if err := validateProjectPagination(op, raw); err != nil {
