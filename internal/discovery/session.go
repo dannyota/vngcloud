@@ -37,6 +37,22 @@ type cachedResponse struct {
 	raw    json.RawMessage
 }
 
+type sessionContext struct {
+	context.Context
+	parent context.Context
+}
+
+func (c sessionContext) Err() error {
+	if err := c.Context.Err(); err != nil {
+		return err
+	}
+	if c.parent.Err() != nil {
+		<-c.Done()
+		return c.Context.Err()
+	}
+	return nil
+}
+
 type testClockKey struct{}
 
 type testClock struct {
@@ -73,7 +89,7 @@ func New(ctx context.Context, maxRequests int) (*Session, error) {
 		return nil, errors.New("MaxRequests must be between 1 and 2000")
 	}
 	child, cancel := context.WithTimeout(ctx, 10*time.Minute)
-	s := &Session{ctx: transport.NewDiscoveryContext(child), cancel: cancel, max: maxRequests, now: time.Now, sleep: sleep, cache: make(map[string]cachedResponse)}
+	s := &Session{ctx: transport.NewDiscoveryContext(sessionContext{Context: child, parent: ctx}), cancel: cancel, max: maxRequests, now: time.Now, sleep: sleep, cache: make(map[string]cachedResponse)}
 	if clock, ok := ctx.Value(testClockKey{}).(testClock); ok {
 		s.now, s.sleep = clock.now, clock.sleep
 	}

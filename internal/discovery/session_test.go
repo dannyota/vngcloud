@@ -122,8 +122,13 @@ func TestSessionDeadlineWaitsForChildCancellation(t *testing.T) {
 		}()
 		close(parent.done)
 		synctest.Wait()
-		if !errors.Is(parent.Err(), context.DeadlineExceeded) || observed.Err() != nil {
+		if !errors.Is(parent.Err(), context.DeadlineExceeded) {
+			t.Fatal("parent deadline did not expire")
+		}
+		select {
+		case <-observed.Done():
 			t.Fatal("did not hold cancellation between parent and child")
+		default:
 		}
 		select {
 		case <-released:
