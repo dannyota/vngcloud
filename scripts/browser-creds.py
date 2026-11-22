@@ -10,6 +10,7 @@ import re
 import secrets
 import stat
 import struct
+import subprocess
 import sys
 import tempfile
 import time
@@ -112,6 +113,17 @@ def main(argv=None):
     parser.add_argument("--profile")
     parser.add_argument("--credentials", default="~/.vngcloud/credentials")
     args = parser.parse_args(argv)
+    try:
+        ignored = subprocess.run(
+            ["git", "check-ignore", "-q", "--", ".playwright-mcp/browser-creds-ignore-check"],
+            cwd=root, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=5, check=False,
+        ).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        ignored = False
+    if not ignored:
+        print("browser-creds: add .playwright-mcp/ to .git/info/exclude before browser login", file=sys.stderr)
+        return 2
     if args.profile is not None:
         try:
             env = load_profile(os.path.expanduser(args.credentials), args.profile)

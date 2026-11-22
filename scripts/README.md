@@ -21,6 +21,12 @@ live write test.
 
 ## Browser login
 
+Add `.playwright-mcp/` to `.git/info/exclude` once per clone.
+
+The helper checks a path inside `.playwright-mcp/` with `git check-ignore -q`
+before reading credentials or creating files. A failed check stops the
+helper with fixed exclusion guidance.
+
 Start `make browser-creds`, or `make browser-creds PROFILE=<name>` for a CLI
 profile. The helper prints a private `browser-login.js` path inside the
 repository's `.playwright-mcp/`, where Playwright MCP can read it. Pass that

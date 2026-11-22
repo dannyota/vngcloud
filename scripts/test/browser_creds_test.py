@@ -22,6 +22,25 @@ creds = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(creds)
 
 
+def git_ignore_stub(test, directory, root):
+    binary = directory / "git-bin"
+    binary.mkdir()
+    git = binary / "git"
+    git.write_text('#!/bin/sh\n'
+                   '[ "$PWD" = "$BROWSER_TEST_GIT_ROOT" ] || exit 19\n'
+                   '[ "$#" = 4 ] || exit 19\n'
+                   '[ "$1" = check-ignore ] && [ "$2" = -q ] && [ "$3" = -- ] || exit 19\n'
+                   'case "$4" in .playwright-mcp/*) ;; *) exit 19 ;; esac\n'
+                   'printf "synthetic git diagnostic\\n" >&2\n'
+                   'exit "${BROWSER_TEST_GIT_STATUS:-0}"\n')
+    git.chmod(0o700)
+    test.enterContext(mock.patch.dict(os.environ, {
+        "PATH": str(binary) + os.pathsep + os.environ["PATH"],
+        "BROWSER_TEST_GIT_ROOT": str(root),
+        "BROWSER_TEST_GIT_STATUS": "0",
+    }))
+
+
 def synthetic_repository(test):
     temp = tempfile.TemporaryDirectory()
     test.addCleanup(temp.cleanup)
@@ -31,6 +50,7 @@ def synthetic_repository(test):
     template = Path(__file__).resolve().parents[1] / "browser-login.js"
     (scripts / "browser-login.js").write_text(template.read_text())
     test.enterContext(mock.patch.object(creds, "__file__", str(scripts / "browser-creds.py")))
+    git_ignore_stub(test, root, root)
     return root
 
 
@@ -39,6 +59,7 @@ class LoadingTest(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.path = Path(self.temp.name) / "credentials"
+        git_ignore_stub(self, Path(self.temp.name), Path(creds.__file__).resolve().parents[1])
 
     def write(self, text, mode=0o600):
         self.path.write_text(text, encoding="utf-8")
@@ -208,6 +229,37 @@ class BrowserDirectoryTest(unittest.TestCase):
         self.assertTrue(called)
         self.assertFalse(self.script.parent.exists())
         self.assertEqual(list(self.base.iterdir()), [])
+
+    def test_unignored_browser_path_refuses_without_creating_anything(self):
+        before = sorted(path.relative_to(self.root) for path in self.root.rglob("*"))
+        for status in ("1", "128"):
+            with self.subTest(status=status), \
+                    mock.patch.dict(os.environ, {"BROWSER_TEST_GIT_STATUS": status}), \
+                    mock.patch.object(creds.os, "mkdir", wraps=os.mkdir) as mkdir:
+                result, output, error, called = self.run_helper()
+                self.assertEqual(result, 2)
+                self.assertEqual(output, "")
+                self.assertEqual(error,
+                                 "browser-creds: add .playwright-mcp/ to .git/info/exclude before browser login\n")
+                self.assertFalse(called)
+                mkdir.assert_not_called()
+                creds.load_env.assert_not_called()
+                self.assertEqual(sorted(path.relative_to(self.root) for path in self.root.rglob("*")), before)
+
+    def test_failed_ignore_check_refuses_without_creating_anything(self):
+        for error in (OSError("synthetic Git failure"), subprocess.TimeoutExpired("git", 5)):
+            with self.subTest(error=type(error).__name__), \
+                    mock.patch.object(subprocess, "run", side_effect=error), \
+                    mock.patch.object(creds.os, "mkdir", wraps=os.mkdir) as mkdir:
+                result, output, diagnostic, called = self.run_helper()
+                self.assertEqual(result, 2)
+                self.assertEqual(output, "")
+                self.assertEqual(diagnostic,
+                                 "browser-creds: add .playwright-mcp/ to .git/info/exclude before browser login\n")
+                self.assertFalse(called)
+                mkdir.assert_not_called()
+                creds.load_env.assert_not_called()
+                self.assertFalse(self.base.exists())
 
     def test_existing_owned_browser_directory_is_private(self):
         self.base.mkdir(mode=0o755)
