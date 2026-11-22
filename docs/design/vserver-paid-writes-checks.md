@@ -60,7 +60,7 @@ real API.
   no request. Both signed zeros wrap `ErrUnpriced` and send no write.
   Positive equality passes, an excess wraps `ErrPriceAboveMax`. Missing,
   null, malformed, or nonfinite prices send no PUT. Assert signed
-  `MonthlyPrice` on success, `NoWait`, failed wait, cancellation after
+  `QuotedAdjustment` on success, `NoWait`, failed wait, cancellation after
   acceptance, and ambiguous send; assert error identities and `GetServer`
   recovery advice. A 202 ignores the body and confirms by reading;
   401/400/404/409 return API errors, 500/502 and connection loss remain
@@ -337,7 +337,7 @@ On a server and a 10 GB volume created as in L2:
 6. Downsize, only with per-run approval for this step: run the
    [credit probe](#free-checks) from `s2-general-2x4` back to
    `s2-general-1x2`, then `ResizeServer` to it with `MaxPrice` 0: the
-   negative quote, the negative `MonthlyPrice`, the statuses, the flavor
+   negative quote, the negative `QuotedAdjustment`, the statuses, the flavor
    read back, and the balance after, against the credit. The run's spent
    total never subtracts a credit.
 7. Clean up as below.

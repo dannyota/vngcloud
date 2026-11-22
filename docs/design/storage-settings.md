@@ -107,7 +107,7 @@ when the bucket already exists. True requests these ordered steps:
 1. Create the bucket with the existing POST and retry rules. On an
    ambiguous POST failure, return the existing recovery error; do not
    proceed to enable encryption on a bucket whose creation is unconfirmed.
-2. Call `PutBucketEncryption` with `Enabled: true`. Its confirmation read
+2. Call `PutBucketEncryption` with `Enabled` pointing to true. Its confirmation read
    must report true. Map the existing create input's `Bucket` to
    `BucketName` without changing the name or project.
 3. Read `GetBucket` for the existing `CreateBucketOutput`. Return success
