@@ -198,8 +198,8 @@ are read-merge writes:
 
 The API has no condition field, so two writers can lose an update between
 steps 1 and 4; the confirm read in step 4 reports it. A rerun is safe:
-each operation reads first. The `PUT` keeps the transport's retries,
-since resending the same list is idempotent.
+each operation reads first. The `PUT` is sent `Once`: a resend could undo
+another writer's change made after an accepted first send.
 
 ## Network ACLs
 
@@ -311,9 +311,9 @@ writes, have no wait: their responses are final.
   `list-network-acls --name`. Server group names are unique. Subnet names
   are not (live), so a subnet is matched by CIDR, which the server keeps
   unique within a VPC; a rerun with the same CIDR cannot make a second one.
-- Updates, replaces, and deletes keep the transport's retries, except the
-  Private DNS `PATCH` and the ACL rules and subnets `PUT`s (`Once`): an ACL
-  PUT's own busy 400 is `ErrBusy`, any other failure `ErrNotSettled`. A
+- Updates, replaces, and deletes keep transport retries, except `Once` Private
+  DNS `PATCH` and routes, ACL rules, and subnets `PUT`s: an ACL PUT's own busy
+  400 is `ErrBusy`, any other failure `ErrNotSettled`. A
   retried delete that finds the resource gone returns `NotFound`; subnet
   and ACL deletes confirm by list instead, as above.
 - The CLI never retries a write.
