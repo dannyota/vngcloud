@@ -1,12 +1,11 @@
 # Create and delete an hcm-3 private endpoint
 
-Status: Proposed. Ship quote, create, and delete together for one vStorage
-endpoint on the Standard package and an existing HCM03-1C subnet. The
-[API evidence](network-endpoints-api.md#recorded-hcm-3-console-quote-and-create-request)
-proves a console quote and an outgoing create request, not a successful write.
-This slice narrows the [endpoint lifecycle proposal](network-endpoints.md);
-its SDK surface and any differing rules require owner acceptance. Other
-regions and the [private data path](network-endpoints-api.md#private-data-plane-gate)
+Status: Proposed with the owner decisions below. Ship quote, create, and
+delete together for one vStorage endpoint on the Standard package and an
+existing HCM03-1C subnet. The [API evidence](network-endpoints-api.md#recorded-hcm-3-create-and-delete-probe)
+records a live create and delete. This slice narrows the
+[endpoint lifecycle proposal](network-endpoints.md). Other regions and the
+[private data path](network-endpoints-api.md#private-data-plane-gate)
 remain gated separately.
 
 ## Scope and alternatives
@@ -206,50 +205,29 @@ and price-cap sentinels and the existing `network.ErrNotSettled` and
 and missing consent 2; authentication 3; proven not-found 4; other API,
 price, and unsettled failures 1. Cancellation retains shared precedence.
 
-## Probe gates and release order
+## Probe record and release order
 
-The manager runs the authorized create-then-delete in `hcm-3` on the
-`default` profile using a disposable VPC/subnet with no VKS or other
-consumers. Before spending credits, approve the cap and residual cost
-bound, verify read-only gates, and establish a safe exact-ID cleanup path.
-The console is a cleanup option only for the provably new probe endpoint
-and with authorized deletion. It cannot prove the SDK delete contract.
-Do not top up, change a payment method, follow checkout, or send a second
-create to investigate a refusal or ambiguous response.
+The [probe record](network-endpoints-api.md#recorded-hcm-3-create-and-delete-probe)
+closes the gates this slice needs: renewal-off create is accepted with HTTP
+201 and an `enp-<uuid>` ID in `data.uuid`; the list row shape, the
+`PROVISIONING`, `ACTIVE`, and `DELETING` states, and absence from the list
+are observed; the delete body maps from create's values, with
+`endpointServiceUuid` equal to the row's `endpointServiceId`; and the
+quoted 712,400 VND is debited at create and fully returned after delete.
 
-- **Scope and eligibility:** Verify the default SDK IAM, VServer, and
-  vNetwork origins, exact project and region mapping, headers and
-  permissions, HCM03-1C mapping, stable service and package identifiers,
-  eligible subnet shape, and VPC project membership. Console selection does
-  not prove these reads.
-- **Renewal-off quote:** Verify the proposed body with
-  `isEnableAutoRenew: false`, positive monthly VND, one Standard property,
-  and any quote-to-debit binding. A false-flag rejection leaves create
-  gated.
-- **Create response and states:** Verify status, acceptance envelope, exact
-  ID field and shape, detail identity, ready/transition/failure semantics,
-  and authoritative DNS-off and renewal-off confirmation. A blocked POST
-  and older detail fixtures cannot establish these.
-- **Delete mapping and provenance:** Find authoritative ownership and
-  VKS-reuse evidence and verify each body field from exact detail and scope,
-  especially `endpointServiceUuid`. Verify the route, accepted reply,
-  detail not-found, and complete inventory absence. Without a safe
-  discriminator, SDK delete stays blocked.
-- **Billing effect:** Attribute the debit and currency, term, taxes, and
-  any metered charges to this ID. Establish settlement and the end of future
-  charges; record refund or residual cost separately. A balance delta alone
-  cannot prove runtime settlement. Unbounded billing, required checkout, a
-  second renewal write, or unexplained charges keep this slice gated.
+Use these values. `ACTIVE` is success; `PROVISIONING` and `DELETING` are
+transitional; any other state is NotSettled. `billingStatus` is not a
+success signal. Delete confirmation is absence of the ID from a complete,
+consistent list of the same project and region; an empty list omits
+`data`. The exact detail GET after delete is unobserved, so a detail 404 is
+corroboration only. No field marks an endpoint as VKS-managed; delete
+follows owner decision 3.
 
-Record sanitized evidence in the [API specification](network-endpoints-api.md)
-and use the [endpoint checks](network-endpoints-checks.md) as the baseline.
-Apply this slice's narrower choices to those checks when accepted. After the
-gates close, the owner accepts the contract and an independent design review
-precedes implementation. Cover strict envelopes, scope joins, quote/body
-parity, price refusal, one dispatch, credential screening, proven absence,
-partial output, and wait bounds with deterministic fixtures. Keep existing
-reads stable. Require adversarial write review, matching wiki and generated
-reference updates, and exact-commit checks before release.
+Cover strict envelopes, scope joins, quote/body parity, price refusal, one
+dispatch, credential screening, proven absence, partial output, and wait
+bounds with deterministic fixtures. Keep existing reads stable. Require
+adversarial write review, matching wiki and generated reference updates,
+and exact-commit checks before release.
 
 ## Owner decisions
 
@@ -259,9 +237,11 @@ reference updates, and exact-commit checks before release.
    The probe may spend up to one month of the quoted Standard price; no
    renewal and no funding change close a gate.
 3. Create returns the endpoint ID from the acceptance reply or fails as
-   NotSettled. Delete requires a platform discriminator that marks an
-   endpoint as not VKS-managed and not reused; if the probe finds none,
-   create ships alone and help directs deletion to the console.
+   NotSettled. The API exposes no VKS-managed or reuse marker. Delete ships
+   for an exact ID the caller names with `--yes`, refuses when
+   `endpointResource` is non-null or `endpointDomains` is non-empty, and
+   help warns that deleting an endpoint a cluster uses breaks that
+   cluster's private access.
 4. The manager closes the probe gates with one console create and one
    console delete in `hcm-3`, on a disposable VPC and subnet in HCM03-1C
    with no consumers. The browser rewrites the outgoing create body to

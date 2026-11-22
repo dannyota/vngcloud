@@ -205,11 +205,44 @@ Clicking CREATE ENDPOINT attempted a POST on the same origin at
 `/vnetwork-gateway/vnetwork/v1/{regionUuid}/{projectUuid}/endpoints`.
 The blocked request used the same envelope and `resourceInfo` as quote,
 plus top-level `"tagDetails": []`. It included neither `period` nor
-`paymentType`, and no separate `/create-order` request appeared. This
-records the outgoing request only. The create response and resource ID,
-created endpoint detail and states, delete request/response, and billing
-effect are not observed live. The verified quote used renewal on; the
-[write proposal](endpoint-create.md#quote-and-create) requires renewal off.
+`paymentType`, and no separate `/create-order` request appeared.
+
+## Recorded hcm-3 create and delete probe
+
+Source: one manager-run console create and delete in `hcm-3` under owner
+decision 4 of the [create design](endpoint-create.md#owner-decisions), on
+a disposable VPC and HCM03-1C subnet with no consumers. The browser
+rewrote the outgoing create body to `isEnableAutoRenew: false`; every
+other write except quote, that create, and its delete stayed blocked.
+
+- **Create.** The POST above with renewal off returned HTTP 201 and
+  `{"message":"Success","code":0,"success":true,"data":{"uuid":"enp-<uuid>","name":"<name>"}}`.
+  The ID has `enp-<uuid>` form. Renewal off was accepted.
+- **Debit.** Cash and available balance each fell by the quoted 712,400 VND
+  at create.
+- **List row.** `GET .../endpoints?params=...` returns `success`, `data`,
+  `page`, `size`, `totalPage`, and `total`. An empty list omits `data` and
+  reports `total: 0`, `totalPage: 0`. The row carries `uuid`,
+  `endpointName`, `endpointServiceId`, `vpcId`, `status`,
+  `billingStatus`, `endpointType` (`Gateway`), `zoneUuid` (`HCM03-1C`),
+  `enableDnsName` (`false`), `endpointResource` (`null`),
+  `endpointDomains` (empty), and objects `category`, `service`, `vpc`,
+  `subnet`, `project`, and `packageId` (with `monthlyPrice` and
+  `currencyUnit`). No field names an owner, manager, or consumer.
+- **States.** `PROVISIONING` with `billingStatus: provisioning`, then
+  `ACTIVE` after about 126 seconds while `billingStatus` stayed
+  `provisioning`. Delete showed `DELETING`/`deleting`, then the row left
+  the list within about 30 seconds.
+- **Delete.** `DELETE .../endpoints/{endpointUuid}` with body
+  `{"endpointUuid","vpcUuid","endpointServiceUuid","regionUuid","projectUuid"}`
+  returned HTTP 200 and `{"message":"Success","code":0,"success":true}`.
+  `endpointServiceUuid` equals create's `serviceUuid`; `vpcUuid`,
+  `regionUuid`, and `projectUuid` equal create's values.
+- **Refund.** After the delete, cash and available balance were back to
+  their pre-create values: the full 712,400 VND was returned.
+
+The exact detail GET after delete and a VKS-managed endpoint were not
+observed.
 
 ## Recorded IAM-user catalog reads
 
