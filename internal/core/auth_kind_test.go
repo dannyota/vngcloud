@@ -29,6 +29,36 @@ func TestIAMUserLoginProvenance(t *testing.T) {
 	}
 }
 
+func TestDefaultAuthEndpoints(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		endpoints EndpointOverrides
+		auth      *IAMUserAuth
+		want      bool
+	}{
+		{name: "default", auth: &IAMUserAuth{RootEmail: "root", Username: "user", Password: "secret"}, want: true},
+		{name: "signin override", endpoints: EndpointOverrides{Signin: "https://invalid.example"}, auth: &IAMUserAuth{RootEmail: "root", Username: "user", Password: "secret"}},
+		{name: "masked signin override", endpoints: EndpointOverrides{Signin: "https://invalid.example"}, auth: &IAMUserAuth{RootEmail: "root", Username: "user", Password: "secret", SigninBaseURL: "https://signin.greennode.ai"}},
+		{name: "token override", endpoints: EndpointOverrides{Token: "https://invalid.example"}, auth: &IAMUserAuth{RootEmail: "root", Username: "user", Password: "secret"}},
+		{name: "auth signin override", auth: &IAMUserAuth{RootEmail: "root", Username: "user", Password: "secret", SigninBaseURL: "https://invalid.example"}},
+		{name: "auth token override", auth: &IAMUserAuth{RootEmail: "root", Username: "user", Password: "secret", TokenURL: "https://invalid.example"}},
+		{name: "auth dashboard override", auth: &IAMUserAuth{RootEmail: "root", Username: "user", Password: "secret", DashboardURI: "https://invalid.example"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, err := newClient(WithRegion("han-1"), WithIAMUser(tc.auth), WithEndpointOverrides(tc.endpoints))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.UsesDefaultAuthEndpoints() != tc.want {
+				t.Fatal("wrong auth endpoint provenance")
+			}
+		})
+	}
+	if (&Client{}).UsesDefaultAuthEndpoints() {
+		t.Fatal("zero client has default auth endpoints")
+	}
+}
+
 func TestServiceAccountInternalProvenance(t *testing.T) {
 	option := WithServiceAccountCredentials("id", "secret", true)
 	for _, tc := range []struct {

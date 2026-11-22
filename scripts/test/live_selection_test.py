@@ -9,6 +9,14 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class SelectionTest(unittest.TestCase):
+    def test_glb_gate_and_package_are_documented(self):
+        source = (ROOT / "livetest/live_write_glb_test.go").read_text()
+        readme = (ROOT / "scripts/README.md").read_text()
+        for gate in ("VNGCLOUD_LIVE_WRITE", "VNGCLOUD_LIVE_GLB", "VNGCLOUD_LIVE_GLB_PACKAGE_ID"):
+            self.assertIn(gate, source)
+        self.assertIn("| `GLB` | `GLB` |", readme)
+        self.assertIn("VNGCLOUD_LIVE_GLB_PACKAGE_ID", readme)
+
     def test_billing_recipe_cannot_select_another_mutation(self):
         makefile = (ROOT / "Makefile").read_text()
         recipe = re.search(r"(?m)^live-write:.*\n\t@?(.*)$", makefile).group(1)

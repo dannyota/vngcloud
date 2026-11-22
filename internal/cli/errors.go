@@ -11,6 +11,7 @@ import (
 	"danny.vn/vngcloud/compute"
 	"danny.vn/vngcloud/containerregistry"
 	"danny.vn/vngcloud/dns"
+	"danny.vn/vngcloud/globalloadbalancer"
 	"danny.vn/vngcloud/iam"
 	"danny.vn/vngcloud/loadbalancer"
 	"danny.vn/vngcloud/monitor"
@@ -265,6 +266,9 @@ func classify(err error) errorEnvelope {
 	}
 	if errors.Is(err, cdn.ErrUnexpectedStatus) {
 		return errorEnvelope{Code: "UnexpectedStatus", Message: err.Error()}
+	}
+	if errors.Is(err, globalloadbalancer.ErrNotSettled) {
+		return errorEnvelope{Code: "NotSettled", Message: err.Error()}
 	}
 	if errors.Is(err, cdn.ErrNotSettled) {
 		return errorEnvelope{Code: "NotSettled", Message: err.Error()}

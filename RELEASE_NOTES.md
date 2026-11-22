@@ -1,5 +1,9 @@
 # Release Notes
 
+## Unreleased
+
+- Add global load balancer create and delete with confirmation waits.
+
 ## v0.98.0 - Core, storage, SDK input, and CLI hardening
 
 - Harden compute, network, and portal identity, credential, inventory,

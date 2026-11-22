@@ -50,6 +50,8 @@ func TestGoldenGlobalLoadBalancerGetLoadBalancer(t *testing.T) {
 // flags the table names.
 func TestGlobalLoadBalancerCommandsMatchDesignTable(t *testing.T) {
 	wantFlags := map[string][]string{
+		"create-load-balancer": {"name", "package-id", "description"},
+		"delete-load-balancer": {"load-balancer-id"},
 		"list-packages":        nil,
 		"list-regions":         nil,
 		"list-load-balancers":  {"name", "offset", "limit"},

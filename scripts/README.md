@@ -59,6 +59,7 @@ These tests require these operation gates in addition to the shared gate:
 | Test suffix after `TestLiveWrite` | Gate suffix after `VNGCLOUD_LIVE_` |
 | --- | --- |
 | Empty, the billing test | `BILLING` |
+| `GLB` | `GLB` |
 | `Monitor` | `MONITOR` |
 | `DNS` | `DNS` |
 | `MonitorChannel` | `MONITOR_CHANNEL` |
@@ -71,6 +72,10 @@ These tests require these operation gates in addition to the shared gate:
 | `StorageBucketSettings` | `STORAGE_BUCKET_SETTINGS` |
 | `ContainerRegistryRepository` | `VCR_REPOSITORY` |
 | `ContainerRegistryUser` | `VCR_USER` |
+
+`TestLiveWriteGLB` also requires `VNGCLOUD_LIVE_GLB_PACKAGE_ID` naming an
+approved enabled package. The manager selects the package; the test does not
+compare prices.
 
 `VNGCLOUD_LIVE_VCR` does not enable either registry test. A resource ID, URL,
 quota, or shared gate grants no write consent.

@@ -19,13 +19,14 @@ const defaultUserAgent = "danny.vn/vngcloud"
 
 // Client shares authentication, endpoints, and project discovery state.
 type Client struct {
-	iamUserLogin        bool
-	serviceAccountLogin bool
-	region              string
-	vnetworkOverride    bool
-	endpoints           endpoints.Set
-	transport           *transport.Client
-	logger              *slog.Logger
+	iamUserLogin         bool
+	defaultAuthEndpoints bool
+	serviceAccountLogin  bool
+	region               string
+	vnetworkOverride     bool
+	endpoints            endpoints.Set
+	transport            *transport.Client
+	logger               *slog.Logger
 
 	// profileSettings is the resolved profile's config section, set by
 	// LoadConfig only; a Client built by NewConfig or a direct option leaves
@@ -164,16 +165,17 @@ func buildClient(settings clientConfig) (*Client, error) {
 	})
 
 	c := &Client{
-		serviceAccountLogin: settings.credentials == nil && settings.staticToken == "" && settings.serviceAccount != nil,
-		iamUserLogin:        settings.credentials == nil && settings.staticToken == "" && settings.serviceAccount == nil,
-		storageTestClock:    settings.storageTestClock,
-		region:              settings.region,
-		vnetworkOverride:    settings.endpoints.VNetwork != "",
-		projectID:           settings.projectID,
-		cdnAPIKey:           settings.cdnAPIKey,
-		endpoints:           resolvedEndpoints,
-		transport:           tc,
-		logger:              logger,
+		defaultAuthEndpoints: defaultAuthEndpoints(settings.iamUser, resolvedEndpoints, settings.region),
+		serviceAccountLogin:  settings.credentials == nil && settings.staticToken == "" && settings.serviceAccount != nil,
+		iamUserLogin:         settings.credentials == nil && settings.staticToken == "" && settings.serviceAccount == nil,
+		storageTestClock:     settings.storageTestClock,
+		region:               settings.region,
+		vnetworkOverride:     settings.endpoints.VNetwork != "",
+		projectID:            settings.projectID,
+		cdnAPIKey:            settings.cdnAPIKey,
+		endpoints:            resolvedEndpoints,
+		transport:            tc,
+		logger:               logger,
 	}
 	return c, nil
 }

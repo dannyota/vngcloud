@@ -523,6 +523,8 @@ var docOpNotes = map[string]string{
 	"containerregistry list-repository-users": containerRegistryUserNameNote,
 	"containerregistry create-user":           containerRegistryCreateUserNote,
 	"containerregistry delete-user":           containerRegistryDeleteUserNote,
+	"globalloadbalancer create-load-balancer": "Requires --yes. Automated payment uses credits with a prepaid three-day hold; later connection and traffic charges apply. Listener CIDRs must be canonical restricted IPv4 prefixes, never /0. A listener requires a pool. Delete does not promise a refund. On NotSettled inspect inventory and billing before another mutation.",
+	"globalloadbalancer delete-load-balancer": "Requires --yes. Deletion is not a refund promise; later connection and traffic charges may apply. On NotSettled inspect inventory and billing before another mutation.",
 	"globalloadbalancer get-load-balancer":    globalLoadBalancerShapeUnverifiedNote,
 	"globalloadbalancer list-pools":           globalLoadBalancerShapeUnverifiedNote,
 	"globalloadbalancer list-listeners":       globalLoadBalancerShapeUnverifiedNote,

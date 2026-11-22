@@ -12,6 +12,9 @@ import (
 // globalLoadBalancerShapeUnverifiedNote, per the CLI reads design's
 // globalloadbalancer section.
 var globalLoadBalancerOps = []Op[globalloadbalancer.Client]{
+	createGlobalLoadBalancerOp(),
+	Write[globalloadbalancer.Client, globalloadbalancer.DeleteLoadBalancerInput, globalloadbalancer.DeleteLoadBalancerOutput](
+		kebab("DeleteLoadBalancer"), (*globalloadbalancer.Client).DeleteLoadBalancer, Destructive()),
 	Read[globalloadbalancer.Client, globalloadbalancer.ListPackagesInput, globalloadbalancer.ListPackagesOutput](
 		kebab("ListPackages"), (*globalloadbalancer.Client).ListPackages),
 	Read[globalloadbalancer.Client, globalloadbalancer.ListRegionsInput, globalloadbalancer.ListRegionsOutput](
