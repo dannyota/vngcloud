@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"time"
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
@@ -14,10 +15,16 @@ import (
 )
 
 // Client shares the Config's credentials and session with other services.
-type Client struct{ c *core.Client }
+type Client struct {
+	c     *core.Client
+	now   func() time.Time
+	sleep func(context.Context, time.Duration) error
+}
 
 // New creates a client that shares cfg's credential provider.
-func New(cfg vngcloud.Config) *Client { return &Client{c: core.ClientOf(cfg)} }
+func New(cfg vngcloud.Config) *Client {
+	return &Client{c: core.ClientOf(cfg), now: time.Now, sleep: sleepContext}
+}
 
 func (c *Client) validate() error {
 	switch c.c.Region() {

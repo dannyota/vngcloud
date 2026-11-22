@@ -1,12 +1,12 @@
 # VKS
 
 `danny.vn/vngcloud/vks` reads Kubernetes cluster inventory, supported
-versions, and account quota in `hcm-3` and `han-1`.
+versions, and account quota and creates and deletes private clusters in `hcm-3` and `han-1`.
 
 See [Storage Workload Access](Storage-Workload-Access.md) for cloud-side
 identity, bucket permissions, and private S3 key handoff to applications on
 VKS. The application operator deploys credentials and validates pod access;
-this SDK configures no cluster and provides no workload identity federation.
+this SDK provides no workload identity federation.
 
 ```go
 client := vks.New(cfg)
@@ -15,11 +15,35 @@ versions, err := client.ListClusterVersions(ctx, nil)
 quota, err := client.GetQuota(ctx, nil)
 ```
 
-Each call sends one GET with the Config's IAM bearer token to the verified
+Each listed read sends one GET with the Config's IAM bearer token to the verified
 regional console endpoint. The service uses no project ID or project
 header. `Config`'s project ID does not select a VKS workspace. Unsupported
 regions return `vngcloud.ErrInvalidConfig` before login, even with a VKS
 endpoint override. A zero Config returns the same error without a panic.
+
+## Cluster writes
+
+Writes require SDK-owned IAM-user login and the default authentication and
+regional VKS endpoints. Other configurations return `vngcloud.ErrInvalidConfig`
+before login or any request. A caller-supplied HTTP client or transport is
+trusted caller code and lies outside the write endpoint guard.
+
+`CreateCluster` sends one order for a private cluster and private node group.
+There is no quote API. The CLI requires `--yes`: worker servers and disks,
+the private cluster's managed load balancer and four service endpoints incur
+charges. The order is prepaid for one month from credits: a one-node private
+cluster with an `s2-general-2x4` worker debited about 2,137,000 VND at
+create in a recorded run, and deleting it about 5 minutes later refunded all
+but 345 VND. Keep that much credit available. Auto-renew is off. `ACTIVE`
+means provisioned, not workload ready. The run reached `ACTIVE` in about 4
+minutes.
+The disk type, flavor, and subnet must be in the same zone. Use
+`network get-subnet` to find `ZoneID`, then `volume get-default-volume-type
+--zone-id <that zone>` to find the disk type.
+`DeleteCluster` reads the exact cluster before sending one delete and waits for
+absence. Deletion does not promise a refund. `NoWait` returns after acceptance,
+not completion. An uncertain outcome returns `vks.ErrNotSettled`; reconcile
+before retrying a write.
 
 ## Pagination
 
@@ -58,8 +82,10 @@ The three reads require HTTP 200 and the documented envelopes. Missing
 fields, null required fields, wrong types, and malformed pagination fail
 with a fixed malformed-response error. HTTP errors retain status,
 retryability, and the shared authentication, permission, not-found, and
-rate-limit classes. Upstream messages, codes, and arbitrary error causes
-are withheld. Cancellation and deadline errors retain their sentinels.
+rate-limit classes. Read errors withhold upstream messages, codes, and arbitrary
+error causes. A definitive create rejection can include a sanitized provider
+message; known credentials and IDs are redacted or withheld. Cancellation and deadline
+errors retain their sentinels.
 See [Errors](Errors.md).
 
 ## Output and scope
@@ -70,6 +96,6 @@ error responses. The basic example writes decoded inventory under its
 ignored SDK output directory and creates no VKS raw-capture file.
 
 Cluster detail, node groups, nodes, and events are held for later releases.
-Kubeconfig, credentials, cluster writes, upgrades, scaling, workspace
-activation, and fleet operations are excluded. No method follows returned
+Kubeconfig, credentials, upgrades, scaling, workspace activation, and fleet
+operations are excluded. No method follows returned
 Kubernetes endpoints or reads local Kubernetes configuration.

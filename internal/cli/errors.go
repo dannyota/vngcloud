@@ -19,6 +19,7 @@ import (
 	"danny.vn/vngcloud/pricing"
 	"danny.vn/vngcloud/storage"
 	"danny.vn/vngcloud/tagging"
+	"danny.vn/vngcloud/vks"
 	"danny.vn/vngcloud/volume"
 )
 
@@ -314,7 +315,7 @@ func classify(err error) errorEnvelope {
 	// same WriteFailed class, as does loadbalancer.ErrFailed from every vLB
 	// write's post-write wait.
 	if errors.Is(err, dns.ErrFailed) || errors.Is(err, network.ErrFailed) || errors.Is(err, volume.ErrFailed) || errors.Is(err, compute.ErrFailed) ||
-		errors.Is(err, loadbalancer.ErrFailed) || errors.Is(err, storage.ErrFailed) || errors.Is(err, globalloadbalancer.ErrFailed) {
+		errors.Is(err, loadbalancer.ErrFailed) || errors.Is(err, storage.ErrFailed) || errors.Is(err, globalloadbalancer.ErrFailed) || errors.Is(err, vks.ErrFailed) {
 		return errorEnvelope{Code: "WriteFailed", Message: err.Error()}
 	}
 	// compute.ErrNotSettled, containerregistry.ErrNotSettled,
@@ -332,7 +333,7 @@ func classify(err error) errorEnvelope {
 	// still showed when the wait ended; it must not be repeated.
 	if errors.Is(err, dns.ErrNotSettled) || errors.Is(err, network.ErrNotSettled) || errors.Is(err, compute.ErrNotSettled) ||
 		errors.Is(err, containerregistry.ErrNotSettled) || errors.Is(err, iam.ErrNotSettled) || errors.Is(err, volume.ErrNotSettled) ||
-		errors.Is(err, tagging.ErrNotSettled) || errors.Is(err, loadbalancer.ErrNotSettled) || errors.Is(err, storage.ErrNotSettled) {
+		errors.Is(err, tagging.ErrNotSettled) || errors.Is(err, loadbalancer.ErrNotSettled) || errors.Is(err, storage.ErrNotSettled) || errors.Is(err, vks.ErrNotSettled) {
 		return errorEnvelope{Code: "NotSettled", Message: err.Error()}
 	}
 	if errors.Is(err, compute.ErrOpenLogin) {

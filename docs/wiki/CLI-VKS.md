@@ -9,6 +9,48 @@ See [VKS](VKS.md) for the SDK models and scope.
 
 Every list prints `{"Items": [...]}`, so a `--query` starts with `Items`.
 
+## create-cluster
+
+Kind: Write.
+
+Requires --yes. There is no quote API. Worker servers and disks, the private cluster's managed load balancer, and four service endpoints incur charges. The order is prepaid for one month from credits; a one-node private cluster debited about 2,137,000 VND at create in a recorded run, and deleting it refunded the unused value. Keep that much credit available. Auto-renew is off. ACTIVE means provisioned, not workload ready. Cluster names must have 5 to 20 characters; node group names must have 5 to 15. Names use lowercase letters, digits, and hyphens, starting and ending with a letter or digit. The disk type, flavor, and subnet must be in the same zone. Use network get-subnet for ZoneID and volume get-default-volume-type --zone-id <that zone> for the disk type.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--name` | `string` | yes |
+| `--version` | `string` | yes |
+| `--vpc-id` | `string` | yes |
+| `--subnet-id` | `string` | yes |
+| `--pod-cidr` | `string` | yes |
+| `--node-group-name` | `string` | yes |
+| `--num-nodes` | `int` | yes |
+| `--flavor-id` | `string` | yes |
+| `--os` | `string` | yes |
+| `--disk-size` | `int` | yes |
+| `--disk-type-id` | `string` | yes |
+| `--security-group-id` | `[]string` | yes |
+| `--ssh-key-id` | `string` | yes |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud vks create-cluster --name <name> --version <version> --vpc-id <vpc-id> --subnet-id <subnet-id> --pod-cidr <pod-cidr> --node-group-name <node-group-name> --num-nodes <num-nodes> --flavor-id <flavor-id> --os <os> --disk-size <disk-size> --disk-type-id <disk-type-id> --security-group-id <security-group-id> --ssh-key-id <ssh-key-id>
+```
+
+## delete-cluster
+
+Kind: Write, destructive.
+
+Deletion does not promise a refund.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--cluster-id` | `string` | yes |
+| `--no-wait` | `bool` |  |
+
+```sh
+vngcloud vks delete-cluster --cluster-id <cluster-id> --yes
+```
+
 ## get-quota
 
 Kind: Read.

@@ -1,5 +1,12 @@
 # Release Notes
 
+## Unreleased
+
+- Add `vks create-cluster` and `delete-cluster` for a private cluster with
+  one private node group, paid from credits with auto-renew off. A recorded
+  one-node run debited about 2,137,000 VND, reached `ACTIVE` in about 4
+  minutes, and deleting it refunded all but 345 VND.
+
 ## v0.99.0 - Global Load Balancer create
 
 - Add `globalloadbalancer create-load-balancer` and `delete-load-balancer`
