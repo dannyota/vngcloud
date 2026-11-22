@@ -13,6 +13,7 @@ import (
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/discovery"
+	"danny.vn/vngcloud/internal/pricequote"
 	"danny.vn/vngcloud/internal/testutil"
 	"danny.vn/vngcloud/pricing"
 )
@@ -302,5 +303,29 @@ func TestStorageDiscoveryTaxMetadata(t *testing.T) {
 		if err != nil || price.Tax != "as-returned" || *price.MonthlyPrice != 30000 || *price.OriginalPrice != 40000 || *price.DiscountPrice != 10000 {
 			t.Fatalf("price %+v error %v", price, err)
 		}
+	}
+}
+
+func TestStoragePrivateDecoderAdapterOutput(t *testing.T) {
+
+	c := newTestClient(t, storageDiscoveryHandler(t, func(w http.ResponseWriter, _ *http.Request) {
+		testutil.WriteFixture(t, w, fixtures+"discovery_quote_gold.json")
+	}))
+	out, err := c.ListStoragePrices(discoveryTestContext(), &ListStoragePricesInput{Type: "Gold"})
+	if err != nil || len(out.Items) != 1 {
+		t.Fatalf("output %+v error %v", out, err)
+	}
+	var env envelope
+	if err := json.Unmarshal([]byte(testutil.FixtureBody(t, fixtures+"discovery_quote_gold.json")), &env); err != nil {
+		t.Fatal(err)
+	}
+	price, err := pricequote.DecodeMonthly("storage.QuoteCreateProject", 200, env.Data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actual, _ := json.Marshal(out.Items[0].Price)
+	expected, _ := json.Marshal(price)
+	if string(actual) != string(expected) {
+		t.Fatalf("adapter %s helper %s", actual, expected)
 	}
 }

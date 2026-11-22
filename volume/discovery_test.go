@@ -12,6 +12,7 @@ import (
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/discovery"
+	"danny.vn/vngcloud/internal/pricequote"
 	"danny.vn/vngcloud/internal/testutil"
 	"danny.vn/vngcloud/pricing"
 )
@@ -474,5 +475,25 @@ func TestVolumeDiscoveryTaxMetadata(t *testing.T) {
 		if err != nil || price.Tax != "as-returned" || *price.MonthlyPrice != 3200 || *price.OriginalPrice != 4000 || *price.DiscountPrice != 800 {
 			t.Fatalf("price %+v error %v", price, err)
 		}
+	}
+}
+
+func TestVolumePrivateDecoderAdapterOutput(t *testing.T) {
+
+	c := newTestClient(t, volumeDiscoveryHandler(t, nil, func(w http.ResponseWriter, _ *http.Request) {
+		testutil.WriteFixture(t, w, "../testdata/volume/discovery_quote_plain.json")
+	}))
+	out, err := c.ListVolumePrices(discoveryTestContext(), &ListVolumePricesInput{ZoneID: "HCM03-1C", IOPS: 3000, Encryption: "none"})
+	if err != nil || len(out.Items) != 1 {
+		t.Fatalf("output %+v error %v", out, err)
+	}
+	price, err := pricequote.DecodeMonthly("pricing.GetQuote", 200, json.RawMessage(testutil.FixtureBody(t, "../testdata/volume/discovery_quote_plain.json")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	actual, _ := json.Marshal(out.Items[0].Price)
+	expected, _ := json.Marshal(price)
+	if string(actual) != string(expected) {
+		t.Fatalf("adapter %s helper %s", actual, expected)
 	}
 }

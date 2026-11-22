@@ -6,13 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"slices"
 
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/discovery"
-	"danny.vn/vngcloud/internal/routes"
-	"danny.vn/vngcloud/internal/transport"
+	"danny.vn/vngcloud/internal/pricecatalog"
+	"danny.vn/vngcloud/internal/quoteinput"
 	"danny.vn/vngcloud/pricing"
 )
 
@@ -66,7 +65,7 @@ func (c *Client) listNetworkPrices(ctx context.Context, in *ListNetworkPricesInp
 	usable := false
 	for _, kind := range []string{"public", "public-vm", "public-mkp"} {
 		row := NetworkPrice{Kind: "public-vip", Name: "Public Virtual IP (" + kind + ")", Type: kind, Scope: c.c.Region(), Unit: "IP-month", Price: pricing.DiscoveryPrice{Status: "failed", Source: "pricing.GetQuote"}}
-		req := transport.Request{Operation: "pricing.GetQuote", Method: http.MethodPost, URL: c.c.RouteURL(routes.Route{Product: routes.ProductPortal, Version: "v1", Parts: []string{"price"}}), OK: []int{200}, Body: map[string]any{"resourceType": "public-vip", "action": "create", "resourceInfo": map[string]any{"type": kind, "isBuyMorePo": false, "isPoc": false}}}
+		req := pricecatalog.RegionalQuote(c.c, "pricing.GetQuote", quoteinput.PublicIP(kind))
 		var price pricing.DiscoveryPrice
 		_, err = s.DoJSON(c.c, req, nil, func(status int, raw json.RawMessage) error {
 			var e error

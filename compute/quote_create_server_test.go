@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/internal/quoteinput"
 	"danny.vn/vngcloud/internal/testutil"
 	"danny.vn/vngcloud/pricing"
 )
@@ -409,4 +410,28 @@ func TestServerQuoteBodyKeysMatchCreateBody(t *testing.T) {
 		t.Fatalf("quote encryptionVolume = %v, want true", info["encryptionVolume"])
 	}
 	testutil.RequireQuoteKeysInCreate(t, info, body, "period", "isPoc")
+}
+
+func TestServerPrivateBuilderDrift(t *testing.T) {
+	for _, root := range []string{"", "aes_256"} {
+		for _, data := range []bool{false, true} {
+			in := encryptionServerInput(root, "")
+			if data {
+				in.DataDiskSize, in.DataDiskTypeID, in.DataDiskEncryptionTypeID = 10, "type-2", "aes_128"
+			}
+			got, err := buildServerQuoteInfo("quote", in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want, err := quoteinput.ServerInfo(quoteinput.Server{ZoneID: in.ZoneID, FlavorID: in.FlavorID, ImageID: in.ImageID, RootDiskSize: in.RootDiskSize, RootDiskTypeID: in.RootDiskTypeID, RootDiskEncryptionTypeID: root, DataDiskSize: in.DataDiskSize, DataDiskTypeID: in.DataDiskTypeID, DataDiskEncryptionTypeID: in.DataDiskEncryptionTypeID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			actual, _ := json.Marshal(got)
+			expected, _ := json.Marshal(want)
+			if !bytes.Equal(actual, expected) {
+				t.Fatalf("adapter %s helper %s", actual, expected)
+			}
+		}
+	}
 }

@@ -17,6 +17,7 @@ import (
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/endpoints"
+	"danny.vn/vngcloud/internal/quoteinput"
 	"danny.vn/vngcloud/internal/testutil"
 	"danny.vn/vngcloud/internal/transport"
 )
@@ -454,5 +455,32 @@ func TestProjectPricingConflictingIdentities(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestStoragePrivateBuilderDrift(t *testing.T) {
+	for _, quota := range []int64{30, 31, 2000000} {
+		actual, err := json.Marshal(projectPriceRequest(projectPurchaseSpec{quota: quota, purchaseTypeID: 42, projectTypeID: 7}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected, err := json.Marshal(quoteinput.Storage(quota, 42, 7))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(actual) != string(expected) {
+			t.Fatalf("adapter %s helper %s", actual, expected)
+		}
+	}
+}
+
+func TestMonthlyPurchaseAdapterIdentity(t *testing.T) {
+	catalog := &projectCatalog{purchases: []projectPurchaseType{
+		{ID: 4, Name: "Normal", Title: "Pay monthly", Status: 0},
+		{ID: 4, Name: "Normal", Title: "Pay monthly", Status: 1},
+	}}
+	got, err := catalog.monthlyPurchase("quote")
+	if err != nil || got != &catalog.purchases[1] {
+		t.Fatalf("selected purchase %+v error %v", got, err)
 	}
 }

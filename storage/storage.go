@@ -10,24 +10,16 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"sync"
-	"unicode/utf8"
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/discovery"
+	"danny.vn/vngcloud/internal/pricecatalog"
 	"danny.vn/vngcloud/internal/routes"
 	"danny.vn/vngcloud/internal/transport"
 )
-
-// codeInvalidInput is the envelope code the server uses for each input check
-// it reports; errorMsg names the rule.
-const codeInvalidInput = 112
-
-// maxEnvelopeMessage caps the envelope errorMsg copied into an error.
-const maxEnvelopeMessage = 256
 
 // Client is the storage service client.
 type Client struct {
@@ -55,15 +47,7 @@ func (c *Client) route(parts []string, q url.Values) string {
 	return c.c.RouteURL(routes.Route{Product: routes.ProductStorage, Version: "internal/v1", Parts: parts, Query: q})
 }
 
-// envelope is the shape every console API response shares.
-type envelope struct {
-	Success *bool           `json:"success"`
-	Code    json.RawMessage `json:"code"`
-	ErrMsg  string          `json:"errorMsg"`
-	Data    json.RawMessage `json:"data"`
-	Datas   json.RawMessage `json:"datas"`
-	IsNext  bool            `json:"isNext"`
-}
+type envelope = pricecatalog.StorageEnvelope
 
 // call describes one console API request.
 type call struct {
@@ -159,48 +143,8 @@ func emptyResponse(k call, status int) error {
 	return &core.APIError{Operation: k.op, StatusCode: status, Code: "EmptyResponse", Message: msg}
 }
 
-// envelopeError turns a success:false envelope into an *APIError. A code
-// from 400 to 599 also matches that status's sentinel, and code 112, the
-// server's input check, matches ErrInvalidInput.
 func (c *Client) envelopeError(op string, status int, env *envelope, credentials ...string) error {
-	code := codeText(env.Code)
-	if _, valid := transport.ParseErrorCode(env.Code); !valid {
-		code = core.ResolvedCode(status, "")
-	}
-	message, cleanCode := c.c.RedactError(env.ErrMsg, code, credentials...)
-	apiErr := &core.APIError{Operation: op, StatusCode: status, Code: cleanCode, Message: cut(message, maxEnvelopeMessage)}
-	if n, err := strconv.Atoi(code); err == nil && n == codeInvalidInput {
-		apiErr.Err = core.ErrInvalidInput
-	} else if err == nil && n >= 400 && n <= 599 {
-		switch n {
-		case http.StatusUnauthorized:
-			apiErr.Err = core.ErrAuth
-		case http.StatusForbidden:
-			apiErr.Err = core.ErrPermission
-		case http.StatusNotFound:
-			apiErr.Err = core.ErrNotFound
-		case http.StatusTooManyRequests:
-			apiErr.Err = core.ErrRateLimited
-		}
-	}
-	return apiErr
-}
-
-func codeText(raw json.RawMessage) string {
-	code, _ := transport.ParseErrorCode(raw)
-	return code
-}
-
-// cut returns s limited to max bytes without splitting a UTF-8 rune.
-func cut(s string, limit int) string {
-	if len(s) <= limit {
-		return s
-	}
-	s = s[:limit]
-	for !utf8.ValidString(s) {
-		s = s[:len(s)-1]
-	}
-	return s
+	return pricecatalog.StorageRefusal(c.c, op, status, env, credentials...)
 }
 
 // decodeList decodes the envelope's datas (or data) array into items.

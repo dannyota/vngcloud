@@ -6,14 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"net/http"
-	"net/url"
 	"slices"
-	"strings"
 
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/discovery"
+	"danny.vn/vngcloud/internal/pricecatalog"
+	"danny.vn/vngcloud/internal/pricequote"
 	"danny.vn/vngcloud/internal/transport"
 	"danny.vn/vngcloud/pricing"
 )
@@ -58,84 +57,17 @@ func storageDiscoveryError(op string, status int) error {
 	return &core.APIError{Operation: op, StatusCode: status, Code: "InvalidResponse", Message: "invalid discovery response; body withheld"}
 }
 
-// exchangeDiscovery guards each physical exchange before envelope handling.
 func (c *Client) exchangeDiscovery(k call) (*envelope, error) {
 	req := transport.Request{Operation: k.op, Method: k.method, URL: k.url, Body: k.body, OK: k.ok}
 	if k.regionID != "" {
-		req.Headers = map[string]string{"region": k.regionID, "region_id": k.regionID}
+		req.Headers = pricecatalog.StorageHeaders(k.regionID)
 	}
-	var env envelope
-	_, err := k.session.DoJSON(c.c, req, nil, func(status int, raw json.RawMessage) error {
-		var fields map[string]json.RawMessage
-		if json.Unmarshal(raw, &fields) != nil || fields == nil || json.Unmarshal(raw, &env) != nil || env.Success == nil {
-			return storageDiscoveryError(k.op, status)
-		}
-		for _, key := range []string{"page", "paging", "pagination", "pageSize", "totalPage", "totalPages", "totalItem", "next", "nextPage", "hasMore", "continuationToken"} {
-			if _, ok := fields[key]; ok {
-				return storageDiscoveryError(k.op, status)
-			}
-		}
-		if env.IsNext {
-			return storageDiscoveryError(k.op, status)
-		}
-		if !*env.Success {
-			return c.envelopeError(k.op, status, &env)
-		}
-		if k.validate != nil {
-			if err := k.validate(raw); err != nil {
-				return storageDiscoveryError(k.op, status)
-			}
-		}
-		if k.method == http.MethodGet {
-			rawList := env.Datas
-			if len(rawList) == 0 {
-				rawList = env.Data
-			}
-			var items []json.RawMessage
-			if json.Unmarshal(rawList, &items) != nil || items == nil {
-				return storageDiscoveryError(k.op, status)
-			}
-			keys := []string{}
-			if strings.HasSuffix(k.url, "/billing/project_types") {
-				keys = []string{"id", "name", "status", "allowPeriod", "billableResources"}
-			}
-			if strings.HasSuffix(k.url, "/billing/purchase_types") {
-				keys = []string{"id", "name", "title", "status"}
-			}
-			for _, item := range items {
-				if len(keys) == 0 {
-					break
-				}
-				var fields map[string]json.RawMessage
-				if json.Unmarshal(item, &fields) != nil || fields == nil {
-					return storageDiscoveryError(k.op, status)
-				}
-				for _, key := range keys {
-					if len(fields[key]) == 0 || string(fields[key]) == "null" {
-						return storageDiscoveryError(k.op, status)
-					}
-				}
-			}
-			return k.session.AddRows(len(items))
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &env, nil
+	return pricecatalog.StorageExchange(c.c, k.session, req, k.validate)
 }
 
 func (c *Client) discoveryRegion(s *discovery.Session, name string) (string, string, error) {
 	const op = "storage.ListStoragePrices"
-	if name == "" {
-		if c.c.Region() == "hcm-3" {
-			name = "HCM04"
-		} else {
-			name = "HAN02"
-		}
-	}
-	name = strings.ToUpper(name)
+	name = pricecatalog.StorageRegionName(c.c.Region(), name)
 	c.regionMu.Lock()
 	defer c.regionMu.Unlock()
 	if err := s.Context().Err(); err != nil {
@@ -152,15 +84,13 @@ func (c *Client) discoveryRegion(s *discovery.Session, name string) (string, str
 	if err != nil {
 		return "", "", err
 	}
-	ids := map[string]string{}
-	seen := map[string]bool{}
+	values := make([]pricecatalog.StorageRegion, 0, len(regions))
 	for _, r := range regions {
-		key := strings.ToUpper(r.Name)
-		if core.CheckPathID(op, "RegionID", r.ID) != nil || key == "" || ids[key] != "" || seen[r.ID] {
-			return "", "", storageDiscoveryError(op, 200)
-		}
-		ids[key] = r.ID
-		seen[r.ID] = true
+		values = append(values, pricecatalog.StorageRegion{ID: r.ID, Name: r.Name})
+	}
+	ids, err := pricecatalog.StorageRegionIDs(op, values)
+	if err != nil {
+		return "", "", err
 	}
 	if err := s.Context().Err(); err != nil {
 		return "", "", err
@@ -294,7 +224,7 @@ func (c *Client) ListStoragePrices(ctx context.Context, in *ListStoragePricesInp
 			}
 			spec := projectPurchaseSpec{quota: row.QuotaGB, projectTypeID: row.TypeID, purchaseTypeID: row.PurchaseTypeID}
 			var price pricing.DiscoveryPrice
-			req := transport.Request{Operation: "storage.QuoteCreateProject", Method: http.MethodPost, URL: c.projectBillingRoute("v2", []string{"price"}, url.Values{"region_id": {id}}), Headers: map[string]string{"region": id, "region_id": id}, Body: projectPriceRequest(spec), OK: []int{200}}
+			req := pricecatalog.StorageQuote(c.c, "storage.QuoteCreateProject", id, projectPriceRequest(spec))
 			_, err := s.DoJSON(c.c, req, nil, func(status int, raw json.RawMessage) error {
 				var e error
 				price, e = c.decodeStorageDiscoveryPrice(req.Operation, status, raw)
@@ -335,24 +265,7 @@ func finishStorageDiscovery(out *ListStoragePricesOutput, s *discovery.Session, 
 }
 
 func validateStorageDiscoveryCatalog(catalog *projectCatalog) error {
-	const op = "storage.ListStoragePrices"
-	ids := map[int]bool{}
-	names := map[string]bool{}
-	for _, typ := range catalog.types {
-		if typ.ID <= 0 || typ.Name == "" || ids[typ.ID] || names[typ.Name] {
-			return storageDiscoveryError(op, 200)
-		}
-		ids[typ.ID] = true
-		names[typ.Name] = true
-	}
-	ids = map[int]bool{}
-	for _, p := range catalog.purchases {
-		if p.ID <= 0 || p.Name == "" || ids[p.ID] {
-			return storageDiscoveryError(op, 200)
-		}
-		ids[p.ID] = true
-	}
-	return nil
+	return catalog.selection().Validate("storage.ListStoragePrices")
 }
 
 func (c *Client) decodeStorageDiscoveryPrice(op string, status int, raw json.RawMessage) (pricing.DiscoveryPrice, error) {
@@ -363,26 +276,6 @@ func (c *Client) decodeStorageDiscoveryPrice(op string, status int, raw json.Raw
 	if !*env.Success {
 		return pricing.DiscoveryPrice{}, c.envelopeError(op, status, &env)
 	}
-	var value struct {
-		Optimum  *float64 `json:"optimumPrice"`
-		Original *float64 `json:"originalPrice"`
-		Discount *float64 `json:"discountPrice"`
-		Percent  *float64 `json:"discountPercent"`
-		Currency string   `json:"currency"`
-	}
-	if json.Unmarshal(env.Data, &value) != nil || value.Optimum == nil {
-		return pricing.DiscoveryPrice{}, storageDiscoveryError(op, status)
-	}
-	for _, p := range []*float64{value.Optimum, value.Original, value.Discount, value.Percent} {
-		if p != nil && (*p < 0 || math.IsNaN(*p) || math.IsInf(*p, 0)) {
-			return pricing.DiscoveryPrice{}, storageDiscoveryError(op, status)
-		}
-	}
-	if *value.Optimum <= 0 {
-		return pricing.DiscoveryPrice{}, storageDiscoveryError(op, status)
-	}
-	if value.Currency == "" {
-		value.Currency = "VND"
-	}
-	return pricing.DiscoveryPrice{Status: "quoted", Basis: "monthly-total", Currency: value.Currency, Tax: "as-returned", Source: op, MonthlyPrice: value.Optimum, OriginalPrice: value.Original, DiscountPrice: value.Discount, DiscountPercent: value.Percent}, nil
+	value, err := pricequote.DecodeMonthly(op, status, env.Data)
+	return pricing.DiscoveryPrice(value), err
 }

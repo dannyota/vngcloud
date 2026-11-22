@@ -14,6 +14,7 @@ import (
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/discovery"
+	"danny.vn/vngcloud/internal/quoteinput"
 	"danny.vn/vngcloud/internal/testutil"
 	"danny.vn/vngcloud/pricing"
 )
@@ -368,5 +369,40 @@ func TestListNetworkPricesCancellationDuringDecode(t *testing.T) {
 				t.Fatal("missing failed quote row")
 			}
 		})
+	}
+}
+
+func TestNetworkPrivateBuilderAdapterOutput(t *testing.T) {
+
+	c := New(testutil.NewConfig(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		kind := body["resourceInfo"].(map[string]any)["type"].(string)
+		actual, _ := json.Marshal(body)
+		expected, _ := json.Marshal(quoteinput.PublicIP(kind))
+		if string(actual) != string(expected) {
+			t.Fatalf("adapter %s helper %s", actual, expected)
+		}
+		testutil.WriteFixture(t, w, "../testdata/network/discovery_quote_public_vm.json")
+	})))
+	out, err := c.ListNetworkPrices(networkDiscoveryContext(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range out.Items {
+		if row.Kind != "public-vip" {
+			continue
+		}
+		legacy, err := decodeNetworkDiscoveryPrice("pricing.GetQuote", 200, json.RawMessage(testutil.FixtureBody(t, "../testdata/network/discovery_quote_public_vm.json")))
+		if err != nil {
+			t.Fatal(err)
+		}
+		actual, _ := json.Marshal(row.Price)
+		expected, _ := json.Marshal(legacy)
+		if string(actual) != string(expected) {
+			t.Fatalf("adapter %s legacy %s", actual, expected)
+		}
 	}
 }

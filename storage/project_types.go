@@ -3,16 +3,14 @@ package storage
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/url"
 	"slices"
-	"strconv"
-	"strings"
 
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/discovery"
 	"danny.vn/vngcloud/internal/jsonresponse"
+	"danny.vn/vngcloud/internal/pricecatalog"
 	"danny.vn/vngcloud/internal/routes"
 )
 
@@ -141,13 +139,7 @@ func (c *Client) ListProjectTypes(ctx context.Context, in *ListProjectTypesInput
 }
 
 func (c *Client) validateProjectRegion(op, name string) error {
-	if region := c.c.Region(); region != "hcm-3" && region != "han-1" {
-		return fmt.Errorf("%w: %s: unsupported config region %q", core.ErrInvalidInput, op, region)
-	}
-	if name != "" && !strings.EqualFold(name, "HCM04") && !strings.EqualFold(name, "HAN02") {
-		return fmt.Errorf("%w: %s: unknown vStorage region %q", core.ErrInvalidInput, op, name)
-	}
-	return nil
+	return pricecatalog.ValidateStorageRegion(op, c.c.Region(), name)
 }
 
 func (c *Client) projectBillingRoute(version string, parts []string, q url.Values) string {
@@ -232,15 +224,9 @@ func (c *Client) readProjectCatalog(ctx context.Context, op, id string, sessions
 		if err != nil {
 			return nil, err
 		}
-		// Accept decimal digits only; signs and whitespace are not configuration integers.
-		for _, digit := range value {
-			if digit < '0' || digit > '9' {
-				return nil, projectResponseError(op, "invalid configuration "+item.key)
-			}
-		}
-		n, err := strconv.ParseInt(value, 10, 64)
-		if err != nil || n <= 0 {
-			return nil, projectResponseError(op, "invalid configuration "+item.key)
+		n, err := pricecatalog.ConfigurationInteger(op, item.key, value)
+		if err != nil {
+			return nil, err
 		}
 		*item.target = n
 	}
@@ -281,51 +267,47 @@ func (c *Client) projectConfiguration(ctx context.Context, op, id, key string, s
 	if err != nil {
 		return "", err
 	}
-	type configuration struct {
-		Key   string  `json:"key"`
-		Value *string `json:"value"`
-	}
-	items, err := requiredProjectList[configuration](op, env)
+	items, err := completeProjectList(op, env)
 	if err != nil {
 		return "", err
 	}
-	if len(items) != 1 || items[0].Key != key || items[0].Value == nil {
-		return "", projectResponseError(op, "missing or duplicate configuration "+key)
+	raw, err := json.Marshal(items)
+	if err != nil {
+		return "", projectResponseError(op, "malformed catalog data")
 	}
-	return *items[0].Value, nil
+	return pricecatalog.ConfigurationValue(op, key, raw)
+}
+
+func (catalog *projectCatalog) selection() *pricecatalog.StorageCatalog {
+	values := &pricecatalog.StorageCatalog{Types: make([]pricecatalog.StorageType, 0, len(catalog.types)), Purchases: make([]pricecatalog.StoragePurchase, 0, len(catalog.purchases)), MinQuota: catalog.minQuota, MaxQuota: catalog.maxQuota, MaxProjects: catalog.maxProjects, IAMCheckout: catalog.iamCheckout}
+	for _, typ := range catalog.types {
+		resources := make([]pricecatalog.StorageResource, 0, len(typ.BillableResources))
+		for _, r := range typ.BillableResources {
+			resources = append(resources, pricecatalog.StorageResource(r))
+		}
+		values.Types = append(values.Types, pricecatalog.StorageType{ID: typ.ID, Name: typ.Name, Title: typ.Title, Status: typ.Status, AllowPeriod: typ.AllowPeriod, BillableResources: resources})
+	}
+	for _, p := range catalog.purchases {
+		values.Purchases = append(values.Purchases, pricecatalog.StoragePurchase{ID: p.ID, Name: p.Name, Title: p.Title, Status: p.Status})
+	}
+	return values
 }
 
 func (catalog *projectCatalog) validateIdentities(op string) error {
-	types := make(map[int]ProjectType)
-	for _, typ := range catalog.types {
-		if previous, ok := types[typ.ID]; ok && (previous.Name != typ.Name || previous.Title != typ.Title) {
-			return fmt.Errorf("%w: %s: conflicting project type identity", core.ErrInvalidInput, op)
-		}
-		types[typ.ID] = typ
-	}
-	purchases := make(map[int]projectPurchaseType)
-	for _, purchase := range catalog.purchases {
-		if previous, ok := purchases[purchase.ID]; ok && (previous.Name != purchase.Name || previous.Title != purchase.Title) {
-			return fmt.Errorf("%w: %s: conflicting purchase type identity", core.ErrInvalidInput, op)
-		}
-		purchases[purchase.ID] = purchase
-	}
-	return nil
+	return catalog.selection().ValidateIdentities(op)
 }
 
 func (catalog *projectCatalog) monthlyPurchase(op string) (*projectPurchaseType, error) {
-	var selected *projectPurchaseType
-	for i := range catalog.purchases {
-		p := &catalog.purchases[i]
-		if p.Status != 1 || p.Name != "Normal" || p.Title != "Pay monthly" {
-			continue
-		}
-		if selected != nil || p.ID <= 0 {
-			return nil, fmt.Errorf("%w: %s: ambiguous or invalid monthly purchase", core.ErrInvalidInput, op)
-		}
-		selected = p
+	monthly, err := catalog.selection().MonthlyPurchase(op)
+	if err != nil || monthly == nil {
+		return nil, err
 	}
-	return selected, nil
+	for i := range catalog.purchases {
+		if catalog.purchases[i].ID == monthly.ID && catalog.purchases[i].Status == 1 {
+			return &catalog.purchases[i], nil
+		}
+	}
+	return nil, nil
 }
 
 type projectPurchaseSpec struct {
@@ -334,47 +316,6 @@ type projectPurchaseSpec struct {
 }
 
 func (catalog *projectCatalog) resolve(op, name string, quota int64) (projectPurchaseSpec, error) {
-	invalid := func() (projectPurchaseSpec, error) {
-		return projectPurchaseSpec{}, fmt.Errorf("%w: %s: unavailable or ambiguous project type, purchase, or quota", core.ErrInvalidInput, op)
-	}
-	if quota < catalog.minQuota {
-		return projectPurchaseSpec{}, fmt.Errorf("%w: %s: QuotaGB %d is below the region minimum of %d GB", core.ErrInvalidInput, op, quota, catalog.minQuota)
-	}
-	if quota > catalog.maxQuota {
-		return projectPurchaseSpec{}, fmt.Errorf("%w: %s: QuotaGB %d is above the region maximum of %d GB", core.ErrInvalidInput, op, quota, catalog.maxQuota)
-	}
-	var selected *ProjectType
-	for i := range catalog.types {
-		typ := &catalog.types[i]
-		if typ.Name != name {
-			continue
-		}
-		if selected != nil {
-			return invalid()
-		}
-		selected = typ
-	}
-	if selected == nil || selected.ID <= 0 || selected.Status != 1 || !slices.Contains(selected.AllowPeriod, 1) {
-		return invalid()
-	}
-	monthly, err := catalog.monthlyPurchase(op)
-	if err != nil {
-		return projectPurchaseSpec{}, err
-	}
-	if monthly == nil {
-		return invalid()
-	}
-	count := 0
-	for _, r := range selected.BillableResources {
-		if r.PurchaseTypeID == monthly.ID {
-			if r.ProjectTypeID != selected.ID || (r.Period != nil && *r.Period != 1) {
-				return invalid()
-			}
-			count++
-		}
-	}
-	if count != 1 {
-		return invalid()
-	}
-	return projectPurchaseSpec{quota: quota, purchaseTypeID: monthly.ID, projectTypeID: selected.ID}, nil
+	spec, err := catalog.selection().Resolve(op, name, quota)
+	return projectPurchaseSpec{quota: spec.Quota, purchaseTypeID: spec.PurchaseTypeID, projectTypeID: spec.ProjectTypeID}, err
 }

@@ -11,6 +11,7 @@ import (
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/floatingip"
+	"danny.vn/vngcloud/internal/quoteinput"
 	"danny.vn/vngcloud/internal/transport"
 	"danny.vn/vngcloud/pricing"
 )
@@ -127,21 +128,6 @@ type createServerBody struct {
 	AttachFloating        bool     `json:"attachFloating"`
 }
 
-// serverQuoteBody is the server create quote's resourceInfo: the keys the
-// billing gateway prices, as the console sends them. QuoteCreateServer and
-// CreateServer's price guard both build it with buildServerQuoteInfo.
-// EncryptionVolume has no omitempty tag, so false still reaches the wire.
-type serverQuoteBody struct {
-	ZoneID           string `json:"zoneId"`
-	FlavorID         string `json:"flavorId"`
-	ImageID          string `json:"imageId"`
-	RootDiskSize     int    `json:"rootDiskSize"`
-	RootDiskTypeID   string `json:"rootDiskTypeId"`
-	EncryptionVolume bool   `json:"encryptionVolume"`
-	DataDiskSize     int    `json:"dataDiskSize,omitempty"`
-	DataDiskTypeID   string `json:"dataDiskTypeId,omitempty"`
-}
-
 // checkServerShape checks the shape of every field of in that is set, under
 // op's name: sizes, the data disk pair, and each ID. A zero RootDiskSize
 // passes here; the quote and the create each require their own set first.
@@ -203,11 +189,6 @@ func encryptsAnyDisk(in *CreateServerInput) bool {
 	return in.RootDiskEncryptionTypeID != "" || in.DataDiskEncryptionTypeID != ""
 }
 
-// buildServerQuoteInfo validates the priced fields of in and builds the
-// quote's resourceInfo from them alone. QuoteCreateServer and CreateServer's
-// price guard both call it, so the price a caller sees is the price the
-// guard checks (ADR 0002 rule 8). The body type has no field for user data,
-// which is not priced and must never reach the billing gateway.
 func buildServerQuoteInfo(op string, in *CreateServerInput) (map[string]any, error) {
 	if err := core.CheckRequiredFields(op, in, "ZoneID", "FlavorID", "ImageID", "RootDiskSize", "RootDiskTypeID"); err != nil {
 		return nil, err
@@ -215,15 +196,16 @@ func buildServerQuoteInfo(op string, in *CreateServerInput) (map[string]any, err
 	if err := checkServerShape(op, in); err != nil {
 		return nil, err
 	}
-	return core.QuoteResourceInfo(serverQuoteBody{
-		ZoneID:           in.ZoneID,
-		FlavorID:         in.FlavorID,
-		ImageID:          in.ImageID,
-		RootDiskSize:     in.RootDiskSize,
-		RootDiskTypeID:   in.RootDiskTypeID,
-		EncryptionVolume: encryptsAnyDisk(in),
-		DataDiskSize:     in.DataDiskSize,
-		DataDiskTypeID:   in.DataDiskTypeID,
+	return quoteinput.ServerInfo(quoteinput.Server{
+		ZoneID:                   in.ZoneID,
+		FlavorID:                 in.FlavorID,
+		ImageID:                  in.ImageID,
+		RootDiskSize:             in.RootDiskSize,
+		RootDiskTypeID:           in.RootDiskTypeID,
+		RootDiskEncryptionTypeID: in.RootDiskEncryptionTypeID,
+		DataDiskEncryptionTypeID: in.DataDiskEncryptionTypeID,
+		DataDiskSize:             in.DataDiskSize,
+		DataDiskTypeID:           in.DataDiskTypeID,
 	})
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -13,6 +14,57 @@ import (
 
 	"danny.vn/vngcloud/internal/transport"
 )
+
+func TestServerQuoteAllowlistDiskBoundary(t *testing.T) {
+	base := map[string]any{"zoneId": "zone-1", "flavorId": "flavor-1", "imageId": "image-1", "rootDiskTypeId": "type-1", "rootDiskSize": 20, "period": 1, "isPoc": false, "encryptionVolume": false}
+	for _, tc := range []struct {
+		name    string
+		fields  map[string]any
+		allowed bool
+	}{
+		{"plain", nil, true},
+		{"encrypted root", map[string]any{"encryptionVolume": true}, true},
+		{"data", map[string]any{"dataDiskSize": 10, "dataDiskTypeId": "type-2"}, true},
+		{"encrypted data", map[string]any{"encryptionVolume": true, "dataDiskSize": 10, "dataDiskTypeId": "type-2"}, true},
+		{"size only", map[string]any{"dataDiskSize": 10}, false},
+		{"type only", map[string]any{"dataDiskTypeId": "type-2"}, false},
+		{"zero", map[string]any{"dataDiskSize": 0, "dataDiskTypeId": "type-2"}, false},
+		{"negative", map[string]any{"dataDiskSize": -1, "dataDiskTypeId": "type-2"}, false},
+		{"fraction", map[string]any{"dataDiskSize": 1.5, "dataDiskTypeId": "type-2"}, false},
+		{"string size", map[string]any{"dataDiskSize": "10", "dataDiskTypeId": "type-2"}, false},
+		{"bad type", map[string]any{"dataDiskSize": 10, "dataDiskTypeId": "../order"}, false},
+		{"null type", map[string]any{"dataDiskSize": 10, "dataDiskTypeId": nil}, false},
+		{"string encryption", map[string]any{"encryptionVolume": "true"}, false},
+		{"null encryption", map[string]any{"encryptionVolume": nil}, false},
+		{"root key", map[string]any{"rootDiskEncryptionType": "aes_256"}, false},
+		{"data key", map[string]any{"dataDiskEncryptionType": "aes_256"}, false},
+		{"order name", map[string]any{"name": "server-1"}, false},
+		{"renew", map[string]any{"isEnableAutoRenew": false}, false},
+		{"period", map[string]any{"period": 12}, false},
+		{"poc", map[string]any{"isPoc": true}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			info := maps.Clone(base)
+			maps.Copy(info, tc.fields)
+			req := transport.Request{Method: "POST", URL: "https://example.test/base/v1/price", Body: map[string]any{"resourceType": "server", "action": "create", "resourceInfo": info}}
+			if err := Allowed(req); (err == nil) != tc.allowed {
+				t.Fatalf("allowed = %t, error %v", tc.allowed, err)
+			}
+		})
+	}
+	for _, action := range []string{"order", "resize", "renewal", "delete"} {
+		if err := Allowed(transport.Request{Method: "POST", URL: "https://example.test/v1/price", Body: map[string]any{"resourceType": "server", "action": action, "resourceInfo": base}}); err == nil {
+			t.Fatalf("accepted %s", action)
+		}
+	}
+	for _, key := range []string{"zoneId", "flavorId", "imageId", "rootDiskTypeId", "rootDiskSize", "period", "isPoc", "encryptionVolume"} {
+		info := maps.Clone(base)
+		delete(info, key)
+		if err := Allowed(transport.Request{Method: "POST", URL: "https://example.test/v1/price", Body: map[string]any{"resourceType": "server", "action": "create", "resourceInfo": info}}); err == nil {
+			t.Fatalf("accepted missing %s", key)
+		}
+	}
+}
 
 type delayedDeadlineContext struct {
 	context.Context
@@ -492,5 +544,37 @@ func TestSessionRetainsSentCredentialsAcrossReads(t *testing.T) {
 	defer fresh.Close()
 	if _, err := fresh.DoJSON(c, transport.Request{Method: "GET", URL: srv.URL + "/v1/p-1/zones"}, &out); err != nil {
 		t.Fatalf("credentials crossed invocations: %v", err)
+	}
+}
+
+func TestExtendedServerQuoteRefusesMutationRedirects(t *testing.T) {
+	for _, status := range []int{307, 308} {
+		for _, foreign := range []bool{false, true} {
+			calls, redirects := 0, 0
+			target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { redirects++ }))
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				if r.URL.Path != "/v1/price" {
+					redirects++
+					return
+				}
+				location := "/v2/project-1/servers"
+				if foreign {
+					location = target.URL + location
+				}
+				w.Header().Set("Location", location)
+				w.WriteHeader(status)
+			}))
+			c := &transportExchange{transport.New(transport.Config{HTTPClient: srv.Client(), TokenSource: &sessionTokenSource{}})}
+			s, _ := New(context.Background(), 1)
+			_, err := s.DoJSON(c, transport.Request{Method: "POST", URL: srv.URL + "/v1/price", Body: map[string]any{"resourceType": "server", "action": "create", "resourceInfo": map[string]any{"zoneId": "z-1", "flavorId": "f-1", "imageId": "i-1", "rootDiskSize": 20, "rootDiskTypeId": "t-1", "encryptionVolume": true, "dataDiskSize": 10, "dataDiskTypeId": "t-2", "period": 1, "isPoc": false}}}, nil)
+			var api *transport.APIError
+			if !errors.As(err, &api) || api.StatusCode != status || calls != 1 || redirects != 0 {
+				t.Fatalf("status %d foreign %t error %v calls %d redirects %d", status, foreign, err, calls, redirects)
+			}
+			s.Close()
+			srv.Close()
+			target.Close()
+		}
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/quoteinput"
 	"danny.vn/vngcloud/internal/transport"
 	"danny.vn/vngcloud/pricing"
 )
@@ -72,20 +73,6 @@ func checkVolumeShape(op string, in *CreateVolumeInput) error {
 	return nil
 }
 
-// volumeQuoteBody is the volume create quote's resourceInfo: the keys the
-// billing gateway prices. QuoteCreateVolume and CreateVolume's price guard
-// both build it with buildVolumeQuoteInfo.
-type volumeQuoteBody struct {
-	Size           int    `json:"size"`
-	VolumeTypeID   string `json:"volumeTypeId"`
-	ZoneID         string `json:"zoneId"`
-	EncryptionType string `json:"encryptionType,omitempty"`
-}
-
-// buildVolumeQuoteInfo validates the priced fields of in and builds the
-// quote's resourceInfo from them alone. QuoteCreateVolume and CreateVolume's
-// price guard both call it, so the price a caller sees is the price the
-// guard checks (ADR 0002 rule 8).
 func buildVolumeQuoteInfo(op string, in *CreateVolumeInput) (map[string]any, error) {
 	if err := core.CheckRequiredFields(op, in, "ZoneID", "Size", "VolumeTypeID"); err != nil {
 		return nil, err
@@ -93,11 +80,11 @@ func buildVolumeQuoteInfo(op string, in *CreateVolumeInput) (map[string]any, err
 	if err := checkVolumeShape(op, in); err != nil {
 		return nil, err
 	}
-	return core.QuoteResourceInfo(volumeQuoteBody{
-		Size:           in.Size,
-		VolumeTypeID:   in.VolumeTypeID,
-		ZoneID:         in.ZoneID,
-		EncryptionType: in.EncryptionTypeID,
+	return quoteinput.VolumeInfo(quoteinput.Volume{
+		Size:             in.Size,
+		VolumeTypeID:     in.VolumeTypeID,
+		ZoneID:           in.ZoneID,
+		EncryptionTypeID: in.EncryptionTypeID,
 	})
 }
 

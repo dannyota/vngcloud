@@ -6,13 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"slices"
 
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/discovery"
-	"danny.vn/vngcloud/internal/routes"
-	"danny.vn/vngcloud/internal/transport"
+	"danny.vn/vngcloud/internal/pricecatalog"
 	"danny.vn/vngcloud/pricing"
 )
 
@@ -84,63 +82,18 @@ func (c *Client) ListVolumePrices(ctx context.Context, in *ListVolumePricesInput
 	if err != nil {
 		return nil, err
 	}
-	var zones []discoveryZone
-	err = d.read("portal.ListZones", c.volumeURL("v1", []string{project, "zones"}, nil), func(status int, raw json.RawMessage) error {
-		var e error
-		zones, e = discoveryArray[discoveryZone](op, status, raw, "data")
-		if e != nil {
-			return e
-		}
-		seen := map[string]bool{}
-		for _, z := range zones {
-			if core.CheckPathID(op, "ZoneID", z.ID) != nil || z.Enabled == nil || seen[z.ID] {
-				return invalidDiscovery(op, status)
-			}
-			seen[z.ID] = true
-		}
-		return s.AddRows(len(zones))
-	})
+	zones, err := pricecatalog.Zones(c.c, s, project, op)
 	if err != nil {
 		return nil, err
 	}
-	if in.ZoneID != "" && !slices.ContainsFunc(zones, func(z discoveryZone) bool { return z.ID == in.ZoneID }) {
+	if in.ZoneID != "" && !slices.ContainsFunc(zones, func(z pricecatalog.Zone) bool { return z.ID == in.ZoneID }) {
 		return nil, fmt.Errorf("%w: unknown ZoneID", core.ErrInvalidInput)
 	}
-	var parents []VolumeTypeZone
-	err = d.read("volume.ListVolumeTypeZones", c.volumeURL("v1", []string{project, "volume_type_zones"}, nil), func(status int, raw json.RawMessage) error {
-		var e error
-		parents, e = discoveryArray[VolumeTypeZone](op, status, raw, "volumeTypeZones")
-		if e != nil {
-			return e
-		}
-		seen := map[string]bool{}
-		for _, p := range parents {
-			if core.CheckPathID(op, "VolumeTypeZoneID", p.ID) != nil || seen[p.ID] {
-				return invalidDiscovery(op, status)
-			}
-			seen[p.ID] = true
-		}
-		return s.AddRows(len(parents))
-	})
+	parents, err := pricecatalog.VolumeParents(c.c, s, project)
 	if err != nil {
 		return nil, err
 	}
-	var encryptions []EncryptionType
-	err = d.read("volume.ListEncryptionTypes", c.volumeURL("v1", []string{project, "volumes", "encryption_types"}, nil), func(status int, raw json.RawMessage) error {
-		var e error
-		encryptions, e = discoveryArray[EncryptionType](op, status, raw, "")
-		if e != nil {
-			return e
-		}
-		seen := map[string]bool{}
-		for _, v := range encryptions {
-			if v.Key == "" || v.Key == "none" || v.Key == "all" || core.CheckTypeID(op, "Encryption", v.Key) != nil || seen[v.Key] {
-				return invalidDiscovery(op, status)
-			}
-			seen[v.Key] = true
-		}
-		return s.AddRows(len(encryptions))
-	})
+	encryptions, err := pricecatalog.Encryptions(c.c, s, project)
 	if err != nil {
 		return nil, err
 	}
@@ -154,26 +107,12 @@ func (c *Client) ListVolumePrices(ctx context.Context, in *ListVolumePricesInput
 		}
 	}
 	for _, p := range parents {
-		var types []VolumeType
-		err = d.read("volume.ListVolumeTypes", c.volumeURL("v1", []string{project, p.ID, "volume_types"}, nil), func(status int, raw json.RawMessage) error {
-			var e error
-			types, e = discoveryArray[VolumeType](op, status, raw, "volumeTypes")
-			if e != nil {
-				return e
-			}
-			seen := map[string]bool{}
-			for _, v := range types {
-				id := v.VolumeTypeID
-				if id == "" {
-					id = v.ID
-				}
-				if core.CheckPathID(op, "VolumeTypeID", id) != nil || seen[id] || v.Name == "" || v.IOPS < 0 || v.MinSize <= 0 || v.MaxSize < v.MinSize || (v.VolumeTypeZoneID != "" && v.VolumeTypeZoneID != p.ID) {
-					return invalidDiscovery(op, status)
-				}
-				seen[id] = true
-			}
-			return s.AddRows(len(types))
-		})
+		values, readErr := pricecatalog.VolumeTypes(c.c, s, project, p.ID, true)
+		err = readErr
+		types := make([]VolumeType, 0, len(values))
+		for _, v := range values {
+			types = append(types, VolumeType(v))
+		}
 		if err != nil {
 			if !d.record("volume.ListVolumeTypes", p.ID, err) {
 				return nil, err
@@ -254,7 +193,7 @@ func (c *Client) ListVolumePrices(ctx context.Context, in *ListVolumePricesInput
 	}
 	for _, group := range groups {
 		var price pricing.DiscoveryPrice
-		_, err = s.DoJSON(c.c, transport.Request{Operation: "pricing.GetQuote", Method: http.MethodPost, URL: c.c.RouteURL(routes.Route{Product: routes.ProductPortal, Version: "v1", Parts: []string{"price"}}), Body: group.body, OK: []int{200}}, nil, func(status int, raw json.RawMessage) error {
+		_, err = s.DoJSON(c.c, pricecatalog.RegionalQuote(c.c, "pricing.GetQuote", group.body), nil, func(status int, raw json.RawMessage) error {
 			var e error
 			price, e = decodeVolumeDiscoveryPrice("pricing.GetQuote", status, raw)
 			return e
@@ -306,10 +245,6 @@ func volumePriceID(row VolumePrice) string {
 func volumeDiscoveryBody(row VolumePrice) (map[string]any, error) {
 	info, err := buildVolumeQuoteInfo("volume.ListVolumePrices", &CreateVolumeInput{ZoneID: row.ZoneID, VolumeTypeID: volumePriceID(row), Size: row.SizeGB, EncryptionTypeID: row.EncryptionTypeID})
 	return map[string]any{"resourceType": "volume", "action": "create", "resourceInfo": info}, err
-}
-func (d *volumeDiscovery) read(op, url string, validate func(int, json.RawMessage) error) error {
-	_, err := d.session.DoJSON(d.client.c, transport.Request{Operation: op, Method: http.MethodGet, URL: url, OK: []int{200}}, nil, validate)
-	return err
 }
 func (d *volumeDiscovery) stop(err error) bool {
 	return d.client.c.DiscoveryFatal(err) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, discovery.ErrLimit)

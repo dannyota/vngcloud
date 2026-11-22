@@ -6,27 +6,12 @@ import (
 	"slices"
 
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/pricecatalog"
 	"danny.vn/vngcloud/volume"
 )
 
 func (d *flavorDiscovery) zones(project, selected string) ([]flavorDiscoveryZone, error) {
-	op := "portal.ListZones"
-	var zones []flavorDiscoveryZone
-	err := d.read(op, d.client.computeURL("v1", []string{project, "zones"}, nil), func(status int, raw json.RawMessage) error {
-		var e error
-		zones, e = flavorDiscoveryArray[flavorDiscoveryZone](op, status, raw, "data")
-		if e != nil {
-			return e
-		}
-		seen := map[string]bool{}
-		for _, z := range zones {
-			if core.CheckPathID(op, "ZoneID", z.ID) != nil || z.Enabled == nil || seen[z.ID] {
-				return invalidFlavorDiscovery(op, status)
-			}
-			seen[z.ID] = true
-		}
-		return d.session.AddRows(len(zones))
-	})
+	zones, err := pricecatalog.Zones(d.client.c, d.session, project)
 	if err != nil {
 		return nil, err
 	}
@@ -180,85 +165,19 @@ func (d *flavorDiscovery) flavors(op, url, key string, zone flavorDiscoveryZone,
 }
 
 func (d *flavorDiscovery) volumeCatalog(project string) ([]volume.VolumeType, error) {
-	op := "volume.ListVolumeTypeZones"
-	var parents []volume.VolumeTypeZone
-	err := d.read(op, d.client.computeURL("v1", []string{project, "volume_type_zones"}, nil), func(status int, raw json.RawMessage) error {
-		var e error
-		parents, e = flavorDiscoveryArray[volume.VolumeTypeZone](op, status, raw, "volumeTypeZones")
-		if e != nil {
-			return e
-		}
-		seen := map[string]bool{}
-		for _, parent := range parents {
-			if core.CheckPathID(op, "VolumeTypeZoneID", parent.ID) != nil || seen[parent.ID] {
-				return invalidFlavorDiscovery(op, status)
-			}
-			seen[parent.ID] = true
-		}
-		return d.session.AddRows(len(parents))
-	})
+	values, err := pricecatalog.VolumeCatalog(d.client.c, d.session, project)
 	if err != nil {
 		return nil, err
 	}
-	types := []volume.VolumeType{}
-	seen := map[string]volume.VolumeType{}
-	for _, parent := range parents {
-		op = "volume.ListVolumeTypes"
-		var values []volume.VolumeType
-		err = d.read(op, d.client.computeURL("v1", []string{project, parent.ID, "volume_types"}, nil), func(status int, raw json.RawMessage) error {
-			var e error
-			values, e = flavorDiscoveryArray[volume.VolumeType](op, status, raw, "volumeTypes")
-			if e != nil {
-				return e
-			}
-			local := map[string]bool{}
-			for _, v := range values {
-				id := v.VolumeTypeID
-				if id == "" {
-					id = v.ID
-				}
-				if core.CheckPathID(op, "VolumeTypeID", id) != nil || local[id] || v.MinSize <= 0 || v.MaxSize < v.MinSize || (v.VolumeTypeZoneID != "" && v.VolumeTypeZoneID != parent.ID) {
-					return invalidFlavorDiscovery(op, status)
-				}
-				local[id] = true
-				if previous, ok := seen[id]; ok && previous != v {
-					return invalidFlavorDiscovery(op, status)
-				}
-			}
-			return d.session.AddRows(len(values))
-		})
-		if err != nil {
-			return nil, err
-		}
-		for _, v := range values {
-			id := v.VolumeTypeID
-			if id == "" {
-				id = v.ID
-			}
-			if _, ok := seen[id]; !ok {
-				types = append(types, v)
-				seen[id] = v
-			}
-		}
+	types := make([]volume.VolumeType, 0, len(values))
+	for _, v := range values {
+		types = append(types, volume.VolumeType(v))
 	}
 	return types, nil
 }
 
 func (d *flavorDiscovery) images(project, zone string) ([]flavorReferenceImage, error) {
-	op := "compute.ListOSImages"
-	var images []flavorReferenceImage
-	err := d.read(op, d.client.computeURL("v1", []string{project, "images", "os"}, url.Values{"zoneId": {zone}}), func(status int, raw json.RawMessage) error {
-		var e error
-		images, e = flavorDiscoveryArray[flavorReferenceImage](op, status, raw, "images")
-		if e != nil {
-			return e
-		}
-		if e = validateReferenceImages(op, status, images); e != nil {
-			return e
-		}
-		return d.session.AddRows(len(images))
-	})
-	return images, err
+	return pricecatalog.Images(d.client.c, d.session, project, zone)
 }
 
 func (d *flavorDiscovery) nonPublicCatalog(project string, zones []flavorDiscoveryZone, in *ListFlavorPricesInput) error {

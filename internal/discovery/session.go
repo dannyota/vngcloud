@@ -235,6 +235,7 @@ func (s *Session) decode(c Exchanger, op string, status int, raw json.RawMessage
 
 var catalogPath = regexp.MustCompile(`/v1/(projects|[^/]+/(zones|volume_type_zones|volumes/encryption_types|[^/]+/volume_types|images/os|flavor_zones/(codes|families|product|customs)|flavors/customs|[^/]+/flavors|flavors/families/[^/]+/platforms/[^/]+))$`)
 var storagePath = regexp.MustCompile(`/(internal/v1/(regions|billing/(purchase_types|project_types))|billing-api/v1/configurations)$`)
+var quoteTypeID = regexp.MustCompile(`^[A-Za-z0-9-]+$`)
 
 // Allowed accepts only evidenced catalog GETs and fixed create-price POSTs.
 // Endpoints and scope keys must come from trusted configuration and inputs.
@@ -275,7 +276,7 @@ func Allowed(req transport.Request) error {
 	}
 	fields := map[string]string{
 		"volume":         "zoneId volumeTypeId size period isPoc encryptionType",
-		"server":         "zoneId flavorId imageId rootDiskSize rootDiskTypeId period isPoc encryptionVolume",
+		"server":         "zoneId flavorId imageId rootDiskSize rootDiskTypeId period isPoc encryptionVolume dataDiskSize dataDiskTypeId",
 		"public-vip":     "type isBuyMorePo isPoc",
 		"object_storage": "projectType purchaseTypeId quota",
 	}
@@ -294,6 +295,11 @@ func Allowed(req transport.Request) error {
 			return errors.New("discovery quote is missing a required field")
 		}
 	}
+	_, diskSize := body.ResourceInfo["dataDiskSize"]
+	_, diskType := body.ResourceInfo["dataDiskTypeId"]
+	if diskSize != diskType {
+		return errors.New("discovery requires both data disk fields")
+	}
 	for key, value := range body.ResourceInfo {
 		if !strings.Contains(" "+allowed+" ", " "+key+" ") {
 			return errors.New("discovery quote field is outside the read scope")
@@ -303,7 +309,21 @@ func Allowed(req transport.Request) error {
 			if string(value) != "1" {
 				return errors.New("discovery requires monthly quotes")
 			}
-		case "isPoc", "isBuyMorePo", "encryptionVolume":
+		case "encryptionVolume":
+			if string(value) != "false" && string(value) != "true" {
+				return errors.New("discovery encryption flag must be a boolean")
+			}
+		case "dataDiskSize":
+			var size int
+			if json.Unmarshal(value, &size) != nil || size <= 0 {
+				return errors.New("discovery data disk size must be a positive integer")
+			}
+		case "dataDiskTypeId":
+			var id string
+			if json.Unmarshal(value, &id) != nil || !quoteTypeID.MatchString(id) {
+				return errors.New("discovery data disk type is invalid")
+			}
+		case "isPoc", "isBuyMorePo":
 			if string(value) != "false" {
 				return errors.New("discovery quote boolean must be false")
 			}

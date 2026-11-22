@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/internal/quoteinput"
 	"danny.vn/vngcloud/internal/testutil"
 )
 
@@ -178,4 +179,23 @@ func TestVolumeQuoteBodyKeysMatchCreateBody(t *testing.T) {
 		t.Fatal(err)
 	}
 	testutil.RequireQuoteKeysInCreate(t, info, body, "period", "isPoc")
+}
+
+func TestVolumePrivateBuilderDrift(t *testing.T) {
+	for _, key := range []string{"", "aes_256"} {
+		in := &CreateVolumeInput{ZoneID: "zone-1", VolumeTypeID: "type-1", Size: 10, EncryptionTypeID: key}
+		got, err := buildVolumeQuoteInfo("quote", in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want, err := quoteinput.VolumeInfo(quoteinput.Volume{ZoneID: in.ZoneID, VolumeTypeID: in.VolumeTypeID, Size: in.Size, EncryptionTypeID: key})
+		if err != nil {
+			t.Fatal(err)
+		}
+		actual, _ := json.Marshal(got)
+		expected, _ := json.Marshal(want)
+		if string(actual) != string(expected) {
+			t.Fatalf("adapter %s helper %s", actual, expected)
+		}
+	}
 }

@@ -11,6 +11,7 @@ import (
 
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/jsonresponse"
+	"danny.vn/vngcloud/internal/quoteinput"
 	"danny.vn/vngcloud/internal/transport"
 )
 
@@ -111,21 +112,10 @@ func (c *Client) quoteCreateProject(ctx context.Context, in *CreateProjectInput,
 	return c.sendProjectQuote(ctx, op, id, spec)
 }
 
-type projectPriceBody struct {
-	ResourceType string           `json:"resourceType"`
-	Action       string           `json:"action"`
-	ResourceInfo projectPriceInfo `json:"resourceInfo"`
-}
-
-type projectPriceInfo struct {
-	Quota          int64 `json:"quota"`
-	PurchaseTypeID int   `json:"purchaseTypeId"`
-	ProjectType    int   `json:"projectType"`
-}
+type projectPriceBody = quoteinput.StorageBody
 
 func projectPriceRequest(spec projectPurchaseSpec) projectPriceBody {
-	// Order-only fields make the price API return zero.
-	return projectPriceBody{ResourceType: "object_storage", Action: "create", ResourceInfo: projectPriceInfo{Quota: spec.quota, PurchaseTypeID: spec.purchaseTypeID, ProjectType: spec.projectTypeID}}
+	return quoteinput.Storage(spec.quota, spec.purchaseTypeID, spec.projectTypeID)
 }
 
 func (c *Client) sendProjectQuote(ctx context.Context, op, id string, spec projectPurchaseSpec) (*QuoteCreateProjectOutput, error) {

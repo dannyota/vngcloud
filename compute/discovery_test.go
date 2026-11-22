@@ -11,6 +11,7 @@ import (
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/discovery"
+	"danny.vn/vngcloud/internal/pricequote"
 	"danny.vn/vngcloud/internal/testutil"
 	"danny.vn/vngcloud/pricing"
 )
@@ -347,5 +348,25 @@ func TestListFlavorPricesSkipsUnusedReferenceReads(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestFlavorPrivateDecoderAdapterOutput(t *testing.T) {
+
+	c := newTestClient(t, flavorDiscoveryHandler(t, nil, func(w http.ResponseWriter, _ *http.Request) {
+		testutil.WriteFixture(t, w, "../testdata/compute/discovery_quote_server_s2.json")
+	}))
+	out, err := c.ListFlavorPrices(flavorDiscoveryContext(), &ListFlavorPricesInput{ZoneID: "HCM03-1C", Family: "general-purpose", Platform: "code-s2", Name: "s2-general-1x2"})
+	if err != nil || len(out.Items) != 1 {
+		t.Fatalf("output %+v error %v", out, err)
+	}
+	price, err := pricequote.DecodeInstance("pricing.GetQuote", 200, json.RawMessage(testutil.FixtureBody(t, "../testdata/compute/discovery_quote_server_s2.json")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	actual, _ := json.Marshal(out.Items[0].Price)
+	expected, _ := json.Marshal(price)
+	if string(actual) != string(expected) {
+		t.Fatalf("adapter %s helper %s", actual, expected)
 	}
 }
