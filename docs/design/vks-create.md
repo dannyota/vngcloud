@@ -21,9 +21,17 @@ runs the live create and delete on disposable resources before landing. The
    public OpenAPI create body has no API allowlist field, so a public
    control plane cannot be restricted at creation. Public clusters wait for
    a proven allowlist field.
-5. No POC wallet, top-up, or payment-method operation. The sections below
-   describe the stricter long-term design; where they conflict with these
-   decisions, these decisions win.
+5. No POC wallet, top-up, or payment-method operation.
+6. `DeleteCluster` deletes the cluster the caller names by exact ID with
+   `--yes`, public or private, including clusters made in the console.
+7. Delete confirms absence when the preflight read returned the cluster and
+   a later read under the same credentials returns 404.
+8. Provider error messages pass through the same sanitizer as the Global
+   Load Balancer writes: credential-, ID-, and email-shaped text is
+   withheld; benign reasons stay. A login failure before any VKS request is
+   returned unchanged, not as not settled.
+9. The sections below describe the stricter long-term design; where they
+   conflict with these decisions, these decisions win.
 
 ## Recommendation
 
