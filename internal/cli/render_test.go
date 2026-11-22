@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -134,6 +136,47 @@ func TestRenderTableHeterogeneousRows(t *testing.T) {
 	want := "+-------+--------+\n| a     | b      |\n+-------+--------+\n| first |        |\n|       | second |\n+-------+--------+\n"
 	if buf.String() != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", buf.String(), want)
+	}
+}
+
+func TestRenderTableLimits(t *testing.T) {
+	for _, n := range []int{101, 10000} {
+		t.Run(strconv.Itoa(n), func(t *testing.T) {
+			rows := make([]any, n)
+			for i := range rows {
+				rows[i] = map[string]any{fmt.Sprintf("key-%d", i): "value"}
+			}
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			var buf bytes.Buffer
+			err := renderTable(&buf, rows)
+			runtime.ReadMemStats(&after)
+			if err == nil || exitCode(err) != 2 || !strings.Contains(err.Error(), "--output json") {
+				t.Fatalf("error = %v, want usage error directing to --output json", err)
+			}
+			if buf.Len() != 0 {
+				t.Fatal("partial output on refusal")
+			}
+			if allocated := after.TotalAlloc - before.TotalAlloc; allocated > 8<<20 {
+				t.Fatalf("allocated %d bytes", allocated)
+			}
+		})
+	}
+}
+
+func TestRenderTableCellLimit(t *testing.T) {
+	row := make(map[string]any)
+	for i := range 100 {
+		row[fmt.Sprintf("key-%d", i)] = "v"
+	}
+	rows := make([]any, 10001)
+	for i := range rows {
+		rows[i] = row
+	}
+	var buf bytes.Buffer
+	err := renderTable(&buf, rows)
+	if err == nil || exitCode(err) != 2 || !strings.Contains(err.Error(), "--output json") || buf.Len() != 0 {
+		t.Fatalf("error = %v, output = %q", err, buf.String())
 	}
 }
 

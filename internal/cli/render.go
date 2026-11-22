@@ -102,6 +102,9 @@ func renderTable(w io.Writer, result any) error {
 		if m, ok := item.(map[string]any); ok {
 			for key := range m {
 				keys[key] = true
+				if len(keys) > 100 || len(items) > 1000000/len(keys) {
+					return newUsageError("table output exceeds 100 columns or 1000000 cells; use --output json")
+				}
 			}
 		} else {
 			keys["Value"] = true
@@ -109,6 +112,9 @@ func renderTable(w io.Writer, result any) error {
 	}
 	if len(keys) == 0 && len(items) == 0 {
 		keys["Value"] = true
+	}
+	if len(keys) > 0 && len(items) > 1000000/len(keys) {
+		return newUsageError("table output exceeds 100 columns or 1000000 cells; use --output json")
 	}
 	columns := make([]string, 0, len(keys))
 	for key := range keys {
@@ -119,41 +125,57 @@ func renderTable(w io.Writer, result any) error {
 	for i, key := range columns {
 		headers[i] = escapeControlChars(key)
 	}
-	rows := make([][]string, 0, len(items))
-	for _, item := range items {
-		row := make([]string, len(columns))
-		for i, key := range columns {
-			if m, ok := item.(map[string]any); ok {
-				row[i] = cellText(m[key])
-			} else if key == "Value" {
-				row[i] = cellText(item)
-			}
-		}
-		rows = append(rows, row)
-	}
-
 	widths := make([]int, len(headers))
+	indices := make(map[string]int, len(columns))
 	for i, h := range headers {
 		widths[i] = len([]rune(h))
+		indices[columns[i]] = i
 	}
-	for _, row := range rows {
-		for i, cell := range row {
-			if i < len(widths) && len([]rune(cell)) > widths[i] {
-				widths[i] = len([]rune(cell))
+	for _, item := range items {
+		if m, ok := item.(map[string]any); ok {
+			for key, value := range m {
+				i := indices[key]
+				if width := len([]rune(cellText(value))); width > widths[i] {
+					widths[i] = width
+				}
+			}
+		} else {
+			i := indices["Value"]
+			if width := len([]rune(cellText(item))); width > widths[i] {
+				widths[i] = width
 			}
 		}
 	}
 
 	var sb strings.Builder
+	flush := func() error {
+		_, err := io.WriteString(w, sb.String())
+		sb.Reset()
+		return err
+	}
 	writeTableBorder(&sb, widths)
 	writeTableRow(&sb, headers, widths)
 	writeTableBorder(&sb, widths)
-	for _, row := range rows {
+	if err := flush(); err != nil {
+		return err
+	}
+	row := make([]string, len(columns))
+	for _, item := range items {
+		clear(row)
+		if m, ok := item.(map[string]any); ok {
+			for key, value := range m {
+				row[indices[key]] = cellText(value)
+			}
+		} else {
+			row[indices["Value"]] = cellText(item)
+		}
 		writeTableRow(&sb, row, widths)
+		if err := flush(); err != nil {
+			return err
+		}
 	}
 	writeTableBorder(&sb, widths)
-	_, err := io.WriteString(w, sb.String())
-	return err
+	return flush()
 }
 
 func writeTableBorder(sb *strings.Builder, widths []int) {

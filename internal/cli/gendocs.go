@@ -368,7 +368,8 @@ func renderCLIPage(services []docService) string {
 	b.WriteString("Every list command prints a JSON object whose rows are under `Items`, with any page fields " +
 		"such as `Page` and `TotalItem` beside it, so a `--query` for a list starts with `Items[...]`: " +
 		"`--query \"Items[].Name\"`. `--output table` and `--output text` show the rows of `Items` without " +
-		"the wrapper.\n\n")
+		"the wrapper. Tables with more than 100 columns or 1,000,000 cells are refused; use `--output json` " +
+		"for larger results.\n\n")
 
 	b.WriteString("Storage list-objects returns one page with `Items`, `CommonPrefixes`, `MaxKeys`, `IsTruncated`, and `NextContinuationToken`. `MaxKeys` bounds the combined entries and is not a total. Table/text output shows item rows; query page fields explicitly or use JSON to retain the full envelope. Continue only with `IsTruncated` and its opaque token under unchanged filters. No automatic pagination or cross-page snapshot is provided. See [Storage](CLI-Storage.md#list-objects).\n\n")
 	b.WriteString("Storage copy-object uses --replace --yes for one native server-side copy, retaining the source. --output and --query expose only accepted `ETag`, `LastModified`, `VersionID`, `SourceVersionID`, and `ServerSideEncryption`, plus credential-redacted `SourceBucket`, `SourceKey`, `Bucket`, and `Key`. Unsafe or absent timestamps stay JSON null; accepted timestamps are UTC. Controls are escaped across formats and queries. No object bytes, content length, or local checksum are reported. See [Storage](CLI-Storage.md#copy-object) and [Storage Object Copy](Storage-Objects-Copy.md).\n\n")

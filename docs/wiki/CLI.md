@@ -44,7 +44,7 @@ To find the IDs `compute create-server` and `compute quote-create-server` take, 
 
 Storage object commands query accepted metadata only and never print object bytes. They require explicit S3 region and credentials, reject explicit management --region and --project-id, and do not load IAM credentials or caches. See [Storage](CLI-Storage.md#put-object).
 
-Every list command prints a JSON object whose rows are under `Items`, with any page fields such as `Page` and `TotalItem` beside it, so a `--query` for a list starts with `Items[...]`: `--query "Items[].Name"`. `--output table` and `--output text` show the rows of `Items` without the wrapper.
+Every list command prints a JSON object whose rows are under `Items`, with any page fields such as `Page` and `TotalItem` beside it, so a `--query` for a list starts with `Items[...]`: `--query "Items[].Name"`. `--output table` and `--output text` show the rows of `Items` without the wrapper. Tables with more than 100 columns or 1,000,000 cells are refused; use `--output json` for larger results.
 
 Storage list-objects returns one page with `Items`, `CommonPrefixes`, `MaxKeys`, `IsTruncated`, and `NextContinuationToken`. `MaxKeys` bounds the combined entries and is not a total. Table/text output shows item rows; query page fields explicitly or use JSON to retain the full envelope. Continue only with `IsTruncated` and its opaque token under unchanged filters. No automatic pagination or cross-page snapshot is provided. See [Storage](CLI-Storage.md#list-objects).
 
