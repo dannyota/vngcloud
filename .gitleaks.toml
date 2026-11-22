@@ -22,4 +22,4 @@ description = "unsigned canary JWT in the floating IP live test redaction table"
 condition = "AND"
 targetRules = ["jwt"]
 commits = ["0c5966e6fc6e00414a8391ae64155f90fa8e3b96"]
-paths = ['''livetest/live_write_floating_ip_helpers_test\.go''']
+paths = ['''^livetest/live_write_floating_ip_helpers_test\.go$''']
