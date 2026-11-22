@@ -27,6 +27,7 @@ func main() {
 	ctx := context.Background()
 
 	configPath := flag.String("config", "", "path to one basic example config JSON; defaults to examples/basic/config.*.json except config.example.json")
+	estimate := flag.Bool("estimate", false, "include bounded monthly setup estimate reads")
 	flag.Parse()
 
 	configPaths, err := resolveConfigPaths(*configPath)
@@ -105,6 +106,9 @@ func main() {
 			showDNS(ctx, cfg, sdkOutputs)
 			showContainerRegistry(ctx, cfg, sdkOutputs)
 			showPricing(ctx, cfg, region, sdkOutputs)
+			if *estimate {
+				showEstimate(ctx, cfg, sdkOutputs)
+			}
 			if regionIndex == 0 {
 				showCDN(ctx, cfg, sdkOutputs)
 				showBilling(ctx, cfg, sdkOutputs)

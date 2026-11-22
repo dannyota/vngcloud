@@ -275,3 +275,90 @@ See [vServer prices](Price-Quotes.md#vserver-prices).
 ## Discovery metadata
 
 See [Discovery metadata](Price-Quotes.md#discovery-metadata).
+
+## Setup estimates
+
+`pricing.New(cfg).Estimate(ctx, spec)` returns monthly quotes for specified
+servers, separate volumes, public-VIP products, and object storage packages.
+It makes read-only catalog and price calls. It places no order and reserves
+neither capacity nor a future price.
+
+```go
+out, err := priceClient.Estimate(ctx, &pricing.EstimateInput{
+    Servers: []pricing.EstimateServer{{
+        Key: "web", Quantity: 2, ZoneID: "zone-1",
+        FlavorID: "flavor-1", ImageID: "image-1",
+        RootDiskSize: 20, RootDiskTypeID: "type-1",
+        DataDiskSize: 10, DataDiskTypeID: "type-1",
+    }},
+    Volumes: []pricing.EstimateVolume{{
+        Key: "extra", ServerKey: "web", Quantity: 3,
+        ZoneID: "zone-1", VolumeTypeID: "type-1", Size: 50,
+    }},
+    PublicIPs: []pricing.EstimatePublicIP{{
+        Key: "ips", Kind: "public-vip", Type: "public-vm", Quantity: 2,
+    }},
+    Storage: []pricing.EstimateStorage{{
+        Key: "objects", Type: "Gold", QuotaGB: 30, Quantity: 2,
+    }},
+    AllowPartial: true, MaxRequests: 100,
+})
+if out != nil {
+    log.Printf("processing complete: %t", out.Metadata.Complete)
+    log.Printf("requested components complete: %t", out.Total.RequestedComplete)
+}
+if err != nil { log.Print(err) }
+```
+
+Replace synthetic selectors with returned catalog IDs. Servers require an
+explicit unlicensed Ubuntu image with a usable minimum root disk size. Flavor
+IDs go to the quote unchanged; success proves no deployment feasibility.
+Disabled zones yield `inapplicable`. Other images can yield `unknown`.
+Invalid explicit selectors or sizes reject the whole setup before any quote,
+including with `AllowPartial`.
+
+Each server quote includes its root and optional bundled data disk, plus CES
+when returned for encryption. `Breakdown` shows per-unit included charges;
+never add those lines to the server amount. `Volumes` describes additional
+disks. Its quantity is independent of server quantity; `ServerKey` records
+intent without attaching anything. An encrypted associated volume requires
+an encrypted server root. Encryption selectors are returned type keys.
+
+Quantities are required, from 1 to 1000 per row. They project independent unit
+quotes without bulk discounts or shared allowances. Storage quantity counts
+packages, each at `QuotaGB`. Empty storage region resolves from `Config`, with
+`hcm-3` normally using HCM04. Unit prices remain in `Price.MonthlyPrice`;
+`MonthlyAmount` includes quantity. Amounts use VND and VAT as returned.
+
+`KnownMonthlySubtotal` sums valid extended amounts and is nil when none can
+be summed. `RequestedMonthlyTotal` is nil unless every requested row is quoted
+and processing completes. Display either sum with: "monthly, VAT as returned,
+account-scoped estimate; not a commitment". Inspect `Coverage` beside both
+sums. `CostComplete` is always false. Traffic, object egress and requests,
+licences, bandwidth packages, NAT, load balancers, backups, snapshots, PAYG,
+and negotiated discounts or credits remain unknown or excluded.
+
+`floating-ip`, `external-interface`, and `reservation` return unknown prices
+without quotes and forbid `Type`. `public-vip` requires `public`, `public-vm`,
+or `public-mkp`. Unspecified IP costs are excluded, never assumed free.
+
+Fail-fast calls return nil output and the cause. `AllowPartial` retains all
+rows when a valid row survives, with `*pricing.DiscoveryError` preserving
+causes. Authentication, exhausted throttling, cancellation, and limits stop
+scheduling. Unscheduled rows have nil amounts and `not-attempted` coverage.
+Use `errors.Is` for `pricing.ErrDiscoveryIncomplete`,
+`pricing.ErrEstimateLimit`, and `pricing.ErrEstimateOverflow`; use `errors.As`
+for `*pricing.EstimateArithmeticError` or `*vngcloud.APIError`. Multiplication
+overflow fails its row; subtotal overflow clears both sums and preserves
+valid rows in partial output. Neither can serialize a non-finite amount.
+
+One invocation shares a default 500-request limit, at most 2000 logical calls,
+an 8 MiB response cap, a 10000-row budget, a ten-minute deadline, and serial
+attempt pacing of at least 500 ms. At most 1000 input rows and 10000 summed
+quantities are accepted. Quotes are preflighted together; prices are cached
+only within that invocation. `QuotedAt` is UTC completion time.
+
+The basic example includes these reads only with `-estimate`. The
+[estimate contract](https://github.com/dannyota/vngcloud/blob/master/docs/design/cost-estimate.md)
+and [raw fixture provenance](https://github.com/dannyota/vngcloud/blob/master/testdata/pricing/estimate-provenance.md)
+record scope and observed response shapes.
