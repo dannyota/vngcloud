@@ -104,7 +104,10 @@ func loadForEdit(path string) (writeTarget, error) {
 		}
 		renamePath = resolved
 	}
+	return loadResolvedForEdit(renamePath)
+}
 
+func loadResolvedForEdit(renamePath string) (writeTarget, error) {
 	f, err := openRegularFileNonBlocking(renamePath)
 	if errors.Is(err, os.ErrNotExist) {
 		return writeTarget{renamePath: renamePath, dir: filepath.Dir(renamePath)}, nil
@@ -157,7 +160,7 @@ func readAllLimited(f *os.File, limit int64) ([]byte, error) {
 // (renamePath is already the resolved target, never the symlink itself), and
 // a crash leaves either the old or the new content, never a partial file.
 // The temp file is removed on every failure path.
-func writeAtomic(target writeTarget, content []byte, beforeRename func() error) error {
+func writeAtomic(ctx context.Context, target writeTarget, content []byte, beforeRename func() error) error {
 	tmp, err := os.CreateTemp(target.dir, ".vngcloud-configure-*")
 	if err != nil {
 		return fmt.Errorf("%w: %s: %w", vngcloud.ErrInvalidConfig, target.dir, err)
@@ -184,10 +187,15 @@ func writeAtomic(target writeTarget, content []byte, beforeRename func() error) 
 	if err := os.Chmod(name, 0o600); err != nil {
 		return fmt.Errorf("%w: %s: %w", vngcloud.ErrInvalidConfig, target.renamePath, err)
 	}
-	if err := beforeRename(); err != nil {
-		return err
+	var guardErr error
+	err = renameConfigFile(ctx, name, target.renamePath, func() error {
+		guardErr = beforeRename()
+		return guardErr
+	})
+	if guardErr != nil {
+		return guardErr
 	}
-	if err := os.Rename(name, target.renamePath); err != nil {
+	if err != nil {
 		return fmt.Errorf("%w: %s: %w", vngcloud.ErrInvalidConfig, target.renamePath, err)
 	}
 	committed = true
@@ -360,23 +368,32 @@ func readINIValue(content []byte, section, key string) string {
 	return value
 }
 
-func configureLockPath(envVar, defaultName string) (string, error) {
+func configureTarget(envVar, defaultName string) (string, string, error) {
 	path, explicit, err := resolveConfigureFilePath(envVar, defaultName)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if err := ensureParentDir(path, explicit); err != nil {
-		return "", err
+		return "", "", err
 	}
-	target, err := loadForEdit(path)
+	renamePath := path
+	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		renamePath, err = filepath.EvalSymlinks(path)
+		if err != nil {
+			return "", "", fmt.Errorf("%w: %s is a dangling symlink", vngcloud.ErrInvalidConfig, path)
+		}
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", "", err
+	}
+	dir, err := filepath.EvalSymlinks(filepath.Dir(renamePath))
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	dir, err := filepath.EvalSymlinks(filepath.Dir(target.renamePath))
+	resolved, err := filepath.Abs(filepath.Join(dir, filepath.Base(renamePath)))
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	return filepath.Abs(filepath.Join(dir, filepath.Base(target.renamePath)) + ".lock")
+	return resolved, resolved + ".lock", nil
 }
 
 func applyConfigureValues(ctx context.Context, flags *globalFlags, values map[string]string) error {
@@ -385,25 +402,65 @@ func applyConfigureValues(ctx context.Context, flags *globalFlags, values map[st
 			return newUsageError("%s cannot contain a newline", key)
 		}
 	}
-	configLock, err := configureLockPath(envConfigFileVar, defaultConfigName)
-	if err != nil {
-		return err
-	}
-	locks := []string{configLock}
+	targets := make(map[bool]string)
+	var locks []string
 	for key := range values {
-		if configureKeys[key].inCredentials {
-			credentialsLock, err := configureLockPath(envCredsFileVar, defaultCredsName)
-			if err != nil {
-				return err
+		creds := configureKeys[key].inCredentials
+		if _, ok := targets[creds]; ok {
+			continue
+		}
+		envVar, defaultName := fileFor(key)
+		target, lock, err := configureTarget(envVar, defaultName)
+		if err != nil {
+			return err
+		}
+		targets[creds] = target
+		locks = append(locks, lock)
+	}
+	sort.Slice(locks, func(i, j int) bool {
+		a, b := strings.ToLower(locks[i]), strings.ToLower(locks[j])
+		if a == b {
+			return locks[i] < locks[j]
+		}
+		return a < b
+	})
+	files := make([]*os.File, 0, len(locks))
+	defer func() {
+		for _, f := range files {
+			_ = f.Close()
+		}
+	}()
+	var unique []string
+	var infos []os.FileInfo
+	for _, path := range locks {
+		f, err := openConfigLock(ctx, path)
+		if err != nil {
+			return err
+		}
+		files = append(files, f)
+		info, err := f.Stat()
+		if err != nil {
+			return err
+		}
+		duplicate := false
+		for _, previous := range infos {
+			if os.SameFile(info, previous) {
+				duplicate = true
+				break
 			}
-			if credentialsLock != configLock {
-				locks = append(locks, credentialsLock)
-			}
-			break
+		}
+		if !duplicate {
+			unique = append(unique, path)
+			infos = append(infos, info)
 		}
 	}
-	sort.Strings(locks)
-	for _, path := range locks {
+	for _, f := range files {
+		if err := f.Close(); err != nil {
+			return err
+		}
+	}
+	files = nil
+	for _, path := range unique {
 		unlock, err := acquireConfigLock(ctx, path)
 		if err != nil {
 			return err
@@ -413,6 +470,14 @@ func applyConfigureValues(ctx context.Context, flags *globalFlags, values map[st
 	check := func() error {
 		if err := ctx.Err(); err != nil {
 			return err
+		}
+		if path, ok := targets[false]; ok {
+			target, err := loadResolvedForEdit(path)
+			if err != nil {
+				return err
+			}
+			profile := resolvedProfileName(flags)
+			return refuseConfigureReadOnlyValue(profile, readINIValue(target.content, configSectionName(profile), "read_only"))
 		}
 		return refuseConfigureProfileWrite(flags)
 	}
@@ -430,15 +495,7 @@ func applyConfigureValues(ctx context.Context, flags *globalFlags, values map[st
 		if len(keys) == 0 {
 			continue
 		}
-		envVar, defaultName := fileFor(keys[0])
-		file, explicit, err := resolveConfigureFilePath(envVar, defaultName)
-		if err != nil {
-			return err
-		}
-		if err := ensureParentDir(file, explicit); err != nil {
-			return err
-		}
-		target, err := loadForEdit(file)
+		target, err := loadResolvedForEdit(targets[creds])
 		if err != nil {
 			return err
 		}
@@ -446,7 +503,7 @@ func applyConfigureValues(ctx context.Context, flags *globalFlags, values map[st
 		for _, key := range keys {
 			content = setINIValue(content, sectionFor(key, profile), key, values[key])
 		}
-		if err := writeAtomic(target, content, check); err != nil {
+		if err := writeAtomic(ctx, target, content, check); err != nil {
 			return err
 		}
 	}

@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-func acquireConfigLock(ctx context.Context, path string) (func(), error) {
+func openConfigLock(ctx context.Context, path string) (*os.File, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -27,6 +27,14 @@ func acquireConfigLock(ctx context.Context, path string) (func(), error) {
 	if !info.Mode().IsRegular() {
 		_ = f.Close()
 		return nil, errors.New("config lock is not a regular file")
+	}
+	return f, nil
+}
+
+func acquireConfigLock(ctx context.Context, path string) (func(), error) {
+	f, err := openConfigLock(ctx, path)
+	if err != nil {
+		return nil, err
 	}
 	backoff := 10 * time.Millisecond
 	for {

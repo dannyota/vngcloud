@@ -494,6 +494,10 @@ func refuseConfigureProfileWrite(flags *globalFlags) error {
 	if err != nil {
 		return err
 	}
+	return refuseConfigureReadOnlyValue(profile, value)
+}
+
+func refuseConfigureReadOnlyValue(profile, value string) error {
 	on, valid := parseOnOff(value)
 	if !valid {
 		return fmt.Errorf("%w: read_only in profile %q must be 1, true, 0, false, or empty", vngcloud.ErrInvalidConfig, profile)

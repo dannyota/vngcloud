@@ -548,8 +548,12 @@ func renderCLIPage(services []docService) string {
 func renderConfigureSection() string {
 	var b strings.Builder
 	b.WriteString("## configure\n\n")
-	b.WriteString("`vngcloud configure` keeps its IAM-user prompt order; the table also includes noninteractive keys. `configure set <key> <value>`, " +
-		" `configure get <key>`, and `configure list` script the same file edits and reads.\n\n")
+	b.WriteString("`vngcloud configure` keeps its IAM-user prompt order; the table also includes\n" +
+		"noninteractive keys. `configure set <key> <value>`, `configure get <key>`, and\n" +
+		"`configure list` script the same file edits and reads. Interactive answers are\n" +
+		"staged until all prompts complete. Configure edits use a lock file beside each\n" +
+		"file they write and recheck read-only before publishing; cancellation during\n" +
+		"input or a lock wait leaves configuration unchanged.\n\n")
 
 	b.WriteString("| Key | File |\n|-|-|\n")
 	for _, key := range configureListOrder {

@@ -89,10 +89,9 @@ Read-only refuses every write command before any request. Any of these turns it 
 `vngcloud configure` keeps its IAM-user prompt order; the table also includes
 noninteractive keys. `configure set <key> <value>`, `configure get <key>`, and
 `configure list` script the same file edits and reads. Interactive answers are
-staged until all prompts complete. Configure edits lock the config file and each
-credentials file they write, using lock files beside them, and recheck read-only
-before publishing; cancellation during input or a lock wait leaves configuration
-unchanged.
+staged until all prompts complete. Configure edits use a lock file beside each
+file they write and recheck read-only before publishing; cancellation during
+input or a lock wait leaves configuration unchanged.
 
 | Key | File |
 |-|-|

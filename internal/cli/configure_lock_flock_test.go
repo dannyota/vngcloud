@@ -84,6 +84,98 @@ func TestConfigureSharedCredentialsWriters(t *testing.T) {
 	}
 }
 
+func TestConfigureSymlinkTargetDoesNotChangeDuringLockWait(t *testing.T) {
+	home := withCleanEnv(t)
+	first := filepath.Join(home, "first")
+	second := filepath.Join(home, "second")
+	link := filepath.Join(home, "config")
+	for _, path := range []string{first, second} {
+		if err := os.WriteFile(path, []byte("[default]\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(first, link); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(envConfigFileVar, link)
+	f, err := os.OpenFile(first+".lock", os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN) }()
+	done := make(chan error, 1)
+	go func() {
+		root := newRootCmd(nil, io.Discard, io.Discard)
+		root.SetArgs([]string{"configure", "set", "region", "hcm-3"})
+		done <- root.ExecuteContext(context.Background())
+	}()
+	select {
+	case err := <-done:
+		t.Fatalf("writer did not wait: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(second, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_UN); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	a, err := os.ReadFile(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(a), "region = hcm-3") || strings.Contains(string(b), "region = hcm-3") {
+		t.Fatalf("edit applied to wrong target: %q / %q", a, b)
+	}
+}
+
+func TestConfigureWaitsForLockBeforeReadingData(t *testing.T) {
+	home := withCleanEnv(t)
+	path := configPath(home)
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, make([]byte, maxConfigureFileSize+1), 0600); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN) }()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- applyConfigureValues(ctx, &globalFlags{}, map[string]string{"region": "hcm-3"}) }()
+	select {
+	case err := <-done:
+		t.Fatalf("read before lock: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("got %v", err)
+	}
+}
+
 func TestConfigureCanceledLockWaitDoesNotWrite(t *testing.T) {
 	home := withCleanEnv(t)
 	path := configPath(home)
