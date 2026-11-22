@@ -304,6 +304,14 @@ func (c *Client) doAuthenticated(ctx context.Context, req Request, client *http.
 
 	statusCode, contentType, body, sent, err := c.send(ctx, req, client)
 	if err != nil {
+		if statusCode == http.StatusUnauthorized && req.usesToken() && c.tokenSource != nil {
+			if invalidateErr := c.invalidateOnceContext(ctx, sent); invalidateErr != nil {
+				if req.KeepObservedStatus {
+					return statusCode, "", nil, bodyFailure(req, statusCode, invalidateErr)
+				}
+				return 0, "", nil, invalidateErr
+			}
+		}
 		return statusCode, "", nil, err
 	}
 	if statusCode == http.StatusUnauthorized && req.usesToken() && c.tokenSource != nil {

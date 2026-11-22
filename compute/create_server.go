@@ -3,6 +3,7 @@ package compute
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -492,6 +493,18 @@ func (c *Client) refuseIfServerNameExists(ctx context.Context, op, name string) 
 	return core.CheckNoDuplicateName(op, "server", name,
 		func(s Server) string { return s.Name },
 		func(page int) (*core.PagedList[Server], error) {
-			return c.ListServers(ctx, &ListServersInput{Page: page, Size: core.DefaultPageSize})
-		})
+			projectID, err := c.c.RequireProjectID(ctx)
+			if err != nil {
+				return nil, err
+			}
+			var raw json.RawMessage
+			if err := c.doServerJSON(ctx, transport.Request{Operation: "compute.ListServers", Method: http.MethodGet, URL: c.computeURL("v2", []string{projectID, "servers"}, core.PageQuery(page, core.DefaultPageSize)), OK: []int{http.StatusOK}}, &raw); err != nil {
+				return nil, err
+			}
+			out, err := core.DecodePagedList[Server](raw)
+			if err != nil {
+				return nil, fmt.Errorf("%w: %s: incomplete server inventory", core.ErrInvalidInput, op)
+			}
+			return out, nil
+		}, func(s Server) string { return s.UUID })
 }

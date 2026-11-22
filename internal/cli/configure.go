@@ -13,6 +13,7 @@ import (
 	"golang.org/x/term"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/internal/endpoints"
 )
 
 // configureKey describes one configure key: which file it lives in and
@@ -136,12 +137,12 @@ func exactArgs(n int) func(*cobra.Command, []string) error {
 	}
 }
 
-// validateConfigureValue checks the keys with a fixed set of accepted
-// values; every other key accepts anything, since its own consumer (the SDK,
-// or the CLI's flags) validates it, and configure only needs to keep the
-// file well-formed.
 func validateConfigureValue(key, value string) error {
 	switch key {
+	case "region":
+		if value != "" && !endpoints.ValidRegion(value) {
+			return newUsageError("region must be a lowercase DNS label of at most 63 bytes")
+		}
 	case "read_only":
 		if _, ok := parseOnOff(value); !ok {
 			return newUsageError("read_only must be 1, true, 0, false, or empty, got %q", value)

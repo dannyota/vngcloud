@@ -2,9 +2,12 @@ package volume
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strconv"
 
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/quoteinput"
@@ -277,8 +280,21 @@ func (c *Client) refuseIfVolumeNameExists(ctx context.Context, op, name string) 
 	return core.CheckNoDuplicateName(op, "volume", name,
 		func(v Volume) string { return v.Name },
 		func(page int) (*core.PagedList[Volume], error) {
-			return c.ListVolumes(ctx, &ListVolumesInput{Name: name, Page: page, Size: core.DefaultPageSize})
-		})
+			projectID, err := c.c.RequireProjectID(ctx)
+			if err != nil {
+				return nil, err
+			}
+			q := url.Values{"name": {name}, "page": {strconv.Itoa(page)}, "size": {strconv.Itoa(core.DefaultPageSize)}}
+			var raw json.RawMessage
+			if err := c.c.DoJSON(ctx, transport.Request{Operation: "volume.ListVolumes", Method: http.MethodGet, URL: c.volumeURL("v2", []string{projectID, "volumes"}, q), OK: []int{http.StatusOK}}, &raw); err != nil {
+				return nil, err
+			}
+			out, err := core.DecodePagedList[Volume](raw)
+			if err != nil {
+				return nil, fmt.Errorf("%w: %s: incomplete volume inventory", core.ErrInvalidInput, op)
+			}
+			return out, nil
+		}, func(v Volume) string { return v.UUID })
 }
 
 // waitVolumeAvailable is CreateVolume's post-create wait unless NoWait is

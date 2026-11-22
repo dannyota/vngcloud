@@ -35,7 +35,11 @@ func (c *Client) ListNATInstances(ctx context.Context, in *ListNATInstancesInput
 			size = in.Size
 		}
 	}
-	if id := c.c.ProjectID(); id != "" {
+	id, err := c.c.ProjectIDContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if id != "" {
 		if err := core.CheckPathID(listNATOperation, "ProjectID", id); err != nil {
 			return nil, err
 		}

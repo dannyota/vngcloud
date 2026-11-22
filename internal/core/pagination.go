@@ -34,11 +34,13 @@ func NewPagedList[T any](items []T, page, size, totalPage, totalItem int) *Paged
 	return &PagedList[T]{Items: items, Page: page, PageSize: size, TotalPage: totalPage, TotalItem: totalItem}
 }
 
-// CheckNoDuplicateName requires a complete inventory before accepting a name.
-// identity, when supplied, validates nonempty unique resource IDs across pages.
-func CheckNoDuplicateName[T any](op, noun, target string, name func(T) string, fetch func(page int) (*PagedList[T], error), identity ...func(T) string) error {
+// CheckNoDuplicateName requires complete inventory and unique resource IDs.
+func CheckNoDuplicateName[T any](op, noun, target string, name func(T) string, fetch func(page int) (*PagedList[T], error), identity func(T) string) error {
 	incomplete := func() error {
 		return fmt.Errorf("%w: %s: could not confirm no %s has the requested name: incomplete inventory", ErrInvalidInput, op, noun)
+	}
+	if identity == nil {
+		return incomplete()
 	}
 	ids := make(map[string]bool)
 	seen := 0
@@ -60,17 +62,16 @@ func CheckNoDuplicateName[T any](op, noun, target string, name func(T) string, f
 			return incomplete()
 		}
 		for _, item := range out.Items {
-			if len(identity) > 0 {
-				if identity[0] == nil {
-					return incomplete()
-				}
-				id := identity[0](item)
-				if id == "" || ids[id] {
-					return incomplete()
-				}
-				ids[id] = true
+			id := identity(item)
+			if id == "" || ids[id] {
+				return incomplete()
 			}
-			if name(item) == target {
+			ids[id] = true
+			itemName := name(item)
+			if itemName == "" {
+				return incomplete()
+			}
+			if itemName == target {
 				return fmt.Errorf("%w: %s: a %s with the requested name already exists", ErrInvalidInput, op, noun)
 			}
 		}

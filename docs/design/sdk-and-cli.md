@@ -160,9 +160,8 @@ plus the page metadata the code has today (`Page`, `PageSize`, `TotalPage`,
 
 Input and Output fields use Go names only; they carry no JSON tags. A required
 Input field has the tag `vngcloud:"required"`, and the SDK returns an error
-before any request when it is empty. Resource models such as
-`compute.Server` keep their API JSON tags, because they decode responses
-directly.
+before any request when it is empty. Resource models such as `compute.Server`
+keep their API JSON tags, because they decode responses directly.
 
 List inputs carry `Page` and `Size`. The default size is 10000
 (`DefaultPageSize`), so one call returns every item for every API the SDK
@@ -216,13 +215,12 @@ Highest first:
 3. The selected profile in the files.
 
 Empty string values and nil auth/provider options are unset. A non-nil auth
-option reserves its source even when its fields are empty.
-An explicit profile (`--profile` or `WithProfile`) skips step 2 for
-credentials and the project ID, so a `.env` file for one account cannot send
-`--profile prod` calls to that account. Region names no account, so it may
-still come from the environment. An explicit profile with no credential in its
-credentials section, and none from options, is an error naming it.
-`VNGCLOUD_PROFILE` is never explicit.
+option reserves its source even when its fields are empty. An explicit profile
+(`--profile` or `WithProfile`) skips step 2 for credentials and the project ID,
+so a `.env` file for one account cannot send `--profile prod` calls to that
+account. Region names no account, so it may still come from the environment. An
+explicit profile with no credential in its credentials section, and none from
+options, is an error naming it. `VNGCLOUD_PROFILE` is never explicit.
 
 | Variable | Meaning |
 |-|-|
@@ -281,6 +279,11 @@ The existing IAM User cache retains these rules:
 - One operation locks `<hash>.lock`, reads, applies pending invalidation,
   logs in if needed, and writes through a temp file and rename. Another
   process reuses the fresh token rather than the same TOTP code.
+- Before sending a TOTP code, the operation syncs the code's 30-second step
+  to `<hash>.totp` (mode 0600, temp file and rename) under the lock and keeps
+  it in memory. A recorded step at or after the current one waits for the next
+  step until the context ends; an unreadable marker counts as current. A
+  failed marker write refuses login with `ErrTokenCache`.
 - Nonblocking lock attempts use backoff until the context ends. Unix uses
   `flock`; Windows opens with share mode 0 through `syscall.CreateFile`.
   Locks end with their process; lock files remain.
@@ -294,7 +297,6 @@ The existing IAM User cache retains these rules:
 
 Shared waits retain post-lock context checks and token identity under the
 [cancellation rules](pricing-discovery.md#shared-waits-and-cancellation).
-Service-account rotation follows its cache contract above.
 
 ## CLI
 
@@ -406,13 +408,12 @@ configuration, cache, CLI support, tests, and public docs ship together under
 | `v0.36.0` | Load balancer create and resize quotes; see [vLB writes](lb-writes.md) |
 
 Budgets and price quotes come first so that spend can be capped and priced
-before any paid write lands. New code uses the package layout from the
-start, so `v0.3.0` ships the shared `Config` with them. The cost is two
-breaking releases instead of one, and one release in which two API styles
-coexist. Before `v1.0.0`, with the owner as the only SDK user, that cost is
-small. Waiting for the whole restructure would give one break but delay
-budgets by nine service moves. The CLI cannot ship earlier, because it needs
-`LoadConfig`.
+before any paid write lands. New code uses the package layout from the start,
+so `v0.3.0` ships the shared `Config` with them. The cost is two breaking
+releases instead of one, and one release in which two API styles coexist.
+Before `v1.0.0`, with the owner as the only SDK user, that cost is small.
+Waiting for the whole restructure would give one break but delay budgets by
+nine service moves. The CLI cannot ship earlier, because it needs `LoadConfig`.
 
 Install is `go install danny.vn/vngcloud/cmd/vngcloud@<version>`.
 
@@ -431,9 +432,9 @@ the SDK and CLI together:
    reads, then bucket writes, S3 keys, service accounts, bucket policy, and
    bucket settings.
 
-vCDN cache rules and the certificate move to the documented vCDN API,
-which takes an API key made once in the root-only console; see
-[vCDN API](cdn-api.md).
+vCDN cache rules and the certificate move to the documented vCDN API, which
+takes an API key made once in the root-only console; see [vCDN
+API](cdn-api.md).
 
 Discovery found that an IAM User token can call the vMonitor uptime API and
 the vStorage console API. [vMonitor Alerts](monitor-alerts.md) and
@@ -444,7 +445,6 @@ Releases planned in other designs get a version number only when they
 ship, so the table above reserves no rows for them. Not yet shipped:
 vMonitor log alarm writes and the vStorage releases listed above.
 
-Server groups, VPCs and subnets, route tables, and network ACLs follow
-[vServer network writes](vserver-network-writes.md).
-Other compute, volume, and network writes come later; OpenTofu covers them
-for aboutme.
+Server groups, VPCs and subnets, route tables, and network ACLs follow [vServer
+network writes](vserver-network-writes.md). Other compute, volume, and network
+writes come later; OpenTofu covers them for aboutme.

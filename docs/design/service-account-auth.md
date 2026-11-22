@@ -209,13 +209,11 @@ token is reused for the transport's single retry, which can end in
 `ErrAuth`. This age rule throttles rapid reauthentication even though a
 service account has no TOTP. Keep pending rejection state across canceled
 lock waits. Concurrent refreshes for the same key reuse the winner.
-Context cancellation stops exchanges and disk-lock waits. It does not
-promise immediate cancellation while waiting for the shared transport's
-`refreshMu` in `EnsureToken`, `invalidateAndRefresh`, or `invalidateOnce`
-([transport](../../internal/transport/transport.go)). Those locks precede
-the token source; a waiter can remain blocked until the active exchange
-finishes. Preserve that behavior here. Cancellable shared refresh waits
-require a separate design covering every auth kind and `Once` invalidation.
+Context cancellation stops exchanges and disk-lock waits, and a caller
+waiting on the shared refresh in `EnsureToken`, `invalidateAndRefresh`, or
+`invalidateOnce` returns its context error promptly while the holder
+finishes, as [shared waits](pricing-discovery.md#shared-waits-and-cancellation)
+decides for every auth kind and `Once` invalidation.
 
 The product transport retains its one 401 recovery attempt; `Once` requests
 invalidate but never resend. Never refresh on 403. No auth path grants a

@@ -30,7 +30,11 @@ func (c *Client) ListVPNConnections(ctx context.Context, in *ListVPNConnectionsI
 			size = in.Size
 		}
 	}
-	if id := c.c.ProjectID(); id != "" {
+	id, err := c.c.ProjectIDContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if id != "" {
 		if err := core.CheckPathID(listVPNOperation, "ProjectID", id); err != nil {
 			return nil, err
 		}

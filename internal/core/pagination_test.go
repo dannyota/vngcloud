@@ -16,7 +16,7 @@ func TestCheckNoDuplicateNameMatchOnFirstPage(t *testing.T) {
 		}
 		return NewPagedList([]namedItem{{"a"}, {"web-1"}}, 1, 2, 1, 2), nil
 	}
-	err := CheckNoDuplicateName("op", "server", "web-1", func(i namedItem) string { return i.name }, fetch)
+	err := CheckNoDuplicateName("op", "server", "web-1", func(i namedItem) string { return i.name }, fetch, func(i namedItem) string { return i.name })
 	if !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("err = %v, want ErrInvalidInput", err)
 	}
@@ -26,7 +26,7 @@ func TestCheckNoDuplicateNameNoMatchSinglePage(t *testing.T) {
 	fetch := func(page int) (*PagedList[namedItem], error) {
 		return NewPagedList([]namedItem{{"a"}, {"b"}}, 1, 2, 1, 2), nil
 	}
-	if err := CheckNoDuplicateName("op", "server", "web-1", func(i namedItem) string { return i.name }, fetch); err != nil {
+	if err := CheckNoDuplicateName("op", "server", "web-1", func(i namedItem) string { return i.name }, fetch, func(i namedItem) string { return i.name }); err != nil {
 		t.Fatalf("err = %v, want nil", err)
 	}
 }
@@ -35,7 +35,7 @@ func TestCheckNoDuplicateNameEmptyList(t *testing.T) {
 	fetch := func(page int) (*PagedList[namedItem], error) {
 		return NewPagedList([]namedItem{}, 1, 10000, 0, 0), nil
 	}
-	if err := CheckNoDuplicateName("op", "server", "web-1", func(i namedItem) string { return i.name }, fetch); err != nil {
+	if err := CheckNoDuplicateName("op", "server", "web-1", func(i namedItem) string { return i.name }, fetch, func(i namedItem) string { return i.name }); err != nil {
 		t.Fatalf("err = %v, want nil", err)
 	}
 }
@@ -55,7 +55,7 @@ func TestCheckNoDuplicateNameWalksEveryPage(t *testing.T) {
 		items := pages[page-1]
 		return NewPagedList(items, page, 2, len(pages), 6), nil
 	}
-	err := CheckNoDuplicateName("op", "volume", "web-1", func(i namedItem) string { return i.name }, fetch)
+	err := CheckNoDuplicateName("op", "volume", "web-1", func(i namedItem) string { return i.name }, fetch, func(i namedItem) string { return i.name })
 	if !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("err = %v, want ErrInvalidInput", err)
 	}
@@ -71,7 +71,7 @@ func TestCheckNoDuplicateNameFailsClosedOnMissingTotalPage(t *testing.T) {
 	fetch := func(page int) (*PagedList[namedItem], error) {
 		return NewPagedList([]namedItem{{"a"}}, 1, 10000, 0, 1), nil
 	}
-	err := CheckNoDuplicateName("op", "server", "web-1", func(i namedItem) string { return i.name }, fetch)
+	err := CheckNoDuplicateName("op", "server", "web-1", func(i namedItem) string { return i.name }, fetch, func(i namedItem) string { return i.name })
 	if !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("err = %v, want ErrInvalidInput", err)
 	}
@@ -84,7 +84,7 @@ func TestCheckNoDuplicateNameFailsClosedOnUnderreportedTotal(t *testing.T) {
 	fetch := func(page int) (*PagedList[namedItem], error) {
 		return NewPagedList([]namedItem{{"a"}, {"b"}}, 1, 2, 1, 5), nil
 	}
-	err := CheckNoDuplicateName("op", "server", "web-1", func(i namedItem) string { return i.name }, fetch)
+	err := CheckNoDuplicateName("op", "server", "web-1", func(i namedItem) string { return i.name }, fetch, func(i namedItem) string { return i.name })
 	if !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("err = %v, want ErrInvalidInput", err)
 	}
@@ -99,7 +99,7 @@ func TestCheckNoDuplicateNameCapsPages(t *testing.T) {
 		calls++
 		return NewPagedList([]namedItem{{"a"}}, page, 1, 1000000, 1000000), nil
 	}
-	err := CheckNoDuplicateName("op", "server", "web-1", func(i namedItem) string { return i.name }, fetch)
+	err := CheckNoDuplicateName("op", "server", "web-1", func(i namedItem) string { return i.name }, fetch, func(i namedItem) string { return i.name })
 	if !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("err = %v, want ErrInvalidInput", err)
 	}
@@ -113,7 +113,7 @@ func TestCheckNoDuplicateNameFetchErrorPropagates(t *testing.T) {
 	fetch := func(page int) (*PagedList[namedItem], error) {
 		return nil, wantErr
 	}
-	if err := CheckNoDuplicateName("op", "server", "web-1", func(i namedItem) string { return i.name }, fetch); !errors.Is(err, wantErr) {
+	if err := CheckNoDuplicateName("op", "server", "web-1", func(i namedItem) string { return i.name }, fetch, func(i namedItem) string { return i.name }); !errors.Is(err, wantErr) {
 		t.Fatalf("err = %v, want %v", err, wantErr)
 	}
 }

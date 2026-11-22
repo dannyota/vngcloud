@@ -41,7 +41,7 @@ func (c *Client) ListProjects(ctx context.Context, opts *ListProjectsOptions) ([
 	}
 
 	var raw json.RawMessage
-	status, err := c.DoJSONStatus(ctx, transport.Request{
+	status, err := c.DoDiscoveryJSONStatus(ctx, transport.Request{
 		Operation: "project.ListProjects",
 		Method:    "GET",
 		URL: c.RouteURL(routes.Route{
@@ -50,7 +50,7 @@ func (c *Client) ListProjects(ctx context.Context, opts *ListProjectsOptions) ([
 			Parts:   []string{"projects"},
 		}),
 		OK: []int{200},
-	}, &raw)
+	}, &raw, nil)
 	if err != nil {
 		return nil, err
 	}

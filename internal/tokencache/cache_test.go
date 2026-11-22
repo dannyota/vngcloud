@@ -248,11 +248,11 @@ func TestCacheMalformedEmptyAndUnreadableFilesAreMisses(t *testing.T) {
 			t.Skip("this environment does not enforce file mode bits")
 		}
 		var logins atomic.Int64
-		if _, err := c.Get(context.Background(), key, "", loginCounter(&logins, func() time.Time { return now })); err != nil {
-			t.Fatalf("Get() error = %v", err)
+		if _, err := c.Get(context.Background(), key, "", loginCounter(&logins, func() time.Time { return now })); !errors.Is(err, ErrUnavailable) {
+			t.Fatalf("Get() error = %v, want ErrUnavailable", err)
 		}
-		if logins.Load() != 1 {
-			t.Fatalf("logins = %d, want 1", logins.Load())
+		if logins.Load() != 0 {
+			t.Fatalf("logins = %d, want 0", logins.Load())
 		}
 	})
 }

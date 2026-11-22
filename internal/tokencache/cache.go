@@ -8,7 +8,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -115,9 +114,7 @@ func (c *Cache) getEntry(ctx context.Context, tokenPath, lockPath, rejected stri
 
 	fc, ok, err := c.readCheckedFresh(tokenPath, rejected, !strict)
 	if err != nil {
-		if strict || !errors.Is(err, os.ErrPermission) {
-			return Token{}, cacheUnavailable(ctx)
-		}
+		return Token{}, cacheUnavailable(ctx)
 	}
 
 	if err := ctx.Err(); err != nil {

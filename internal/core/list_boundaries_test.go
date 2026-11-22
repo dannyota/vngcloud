@@ -69,7 +69,7 @@ func TestDuplicateGuardRejectsIncompleteInventory(t *testing.T) {
 					}
 				}()
 			}
-			err := CheckNoDuplicateName("create", "resource", "target", func(i namedItem) string { return i.name }, fetch)
+			err := CheckNoDuplicateName("create", "resource", "target", func(i namedItem) string { return i.name }, fetch, func(i namedItem) string { return i.name })
 			if !errors.Is(err, ErrInvalidInput) {
 				t.Fatal("incomplete inventory authorized create")
 			}

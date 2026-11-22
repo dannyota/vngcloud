@@ -40,7 +40,11 @@ func (c *Client) natScope(ctx context.Context, op, zone string) (natScope, error
 			return natScope{}, err
 		}
 	}
-	if id := c.c.ProjectID(); id != "" {
+	id, err := c.c.ProjectIDContext(ctx)
+	if err != nil {
+		return natScope{}, err
+	}
+	if id != "" {
 		if err := core.CheckPathID(op, "ProjectID", id); err != nil {
 			return natScope{}, err
 		}
@@ -274,7 +278,11 @@ func natNumericCode(raw json.RawMessage, expected int) bool {
 
 // Project discovery omits portal identity and suppresses its raw capture.
 func (c *Client) natProjectID(ctx context.Context, op string) (string, error) {
-	if id := c.c.ProjectID(); id != "" {
+	id, err := c.c.ProjectIDContext(ctx)
+	if err != nil {
+		return "", err
+	}
+	if id != "" {
 		return id, nil
 	}
 	var raw json.RawMessage
@@ -301,7 +309,7 @@ func (c *Client) natProjectID(ctx context.Context, op string) (string, error) {
 	if decodeNATEnvelope(raw, &wire, reflect.TypeFor[struct{}]()) != nil || wire.Projects == nil || checkNATNulls(raw, reflect.TypeOf(wire)) != nil {
 		return "", natInvalid(op)
 	}
-	id := ""
+	id = ""
 	for _, project := range wire.Projects {
 		if project.Region != "" && project.Region != c.c.Region() {
 			continue

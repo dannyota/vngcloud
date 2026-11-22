@@ -134,8 +134,12 @@ func TestOversizedJSONPreservesStatusAndClassification(t *testing.T) {
 						t.Error("oversized peer body leaked into error or log")
 					}
 				}
-				if string(out) != `{"unchanged":true}` || captures != 0 || attempts.Load() != 1 || source.calls.Load() != 1 || source.invalidations.Load() != 0 {
-					t.Error("oversized response was decoded, captured, retried, or refreshed")
+				wantInvalidations := int32(0)
+				if status == http.StatusUnauthorized {
+					wantInvalidations = 1
+				}
+				if string(out) != `{"unchanged":true}` || captures != 0 || attempts.Load() != 1 || source.calls.Load() != 1 || source.invalidations.Load() != wantInvalidations {
+					t.Error("oversized response was decoded, captured, retried, refreshed, or incorrectly invalidated")
 				}
 			})
 		}

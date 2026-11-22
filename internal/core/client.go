@@ -214,6 +214,18 @@ func (c *Client) ProjectID() string {
 	return c.projectID
 }
 
+// ProjectIDContext returns the cached project ID without discovery, respecting ctx.
+func (c *Client) ProjectIDContext(ctx context.Context) (string, error) {
+	if err := c.projectMu.LockContext(ctx); err != nil {
+		return "", err
+	}
+	defer c.projectMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	return c.projectID, nil
+}
+
 // ProjectUserID returns the cached project user ID.
 func (c *Client) ProjectUserID() int {
 	c.projectMu.Lock()
