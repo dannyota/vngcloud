@@ -1,0 +1,8 @@
+{
+  "code": 200,
+  "message": "Success",
+  "data": {
+    "uuid": "budget-1",
+    "limitAmount": 9007199254740993
+  }
+}

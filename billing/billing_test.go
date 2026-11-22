@@ -108,8 +108,11 @@ func TestBillingDecodeCauseWithholdsPeerValues(t *testing.T) {
 			}
 			var api *core.APIError
 			var typed *json.UnmarshalTypeError
-			if attempts.Load() != 2 || !errors.As(err, &api) || !errors.As(err, &typed) {
-				t.Fatal("expected refresh, APIError, and JSON type identity")
+			if attempts.Load() != 2 || !errors.As(err, &api) || api.Code != "InvalidResponse" || api.StatusCode != 200 {
+				t.Fatal("expected refresh and InvalidResponse with observed status")
+			}
+			if !errors.As(err, &typed) {
+				return
 			}
 			if errors.Unwrap(err).Error() != "response failed to decode" {
 				t.Error("decoder cause was not replaced with fixed text")
@@ -165,13 +168,15 @@ func newTestClient(t *testing.T, handler http.Handler) *Client {
 	return New(testutil.NewConfig(t, handler))
 }
 
-func TestBillingWritesRemainUnbounded(t *testing.T) {
-	for _, tc := range []struct {
-		name    string
-		method  string
-		fixture string
-		call    func(context.Context, *Client) (any, error)
-	}{
+type billingWriteTestCase struct {
+	name    string
+	method  string
+	fixture string
+	call    func(context.Context, *Client) (any, error)
+}
+
+func billingWriteTestCases() []billingWriteTestCase {
+	return []billingWriteTestCase{
 		{
 			name: "CreateBudget", method: http.MethodPost, fixture: "CreateBudget",
 			call: billingTestMethod((*Client).CreateBudget, &CreateBudgetInput{
@@ -202,60 +207,52 @@ func TestBillingWritesRemainUnbounded(t *testing.T) {
 			name: "DeleteBudgetThreshold", method: http.MethodDelete,
 			call: billingTestMethod((*Client).DeleteBudgetThreshold, &DeleteBudgetThresholdInput{BudgetUUID: "budget-1", ThresholdUUID: "threshold-1"}),
 		},
-	} {
+	}
+}
+
+func TestBillingWriteBodyBounds(t *testing.T) {
+	for _, tc := range billingWriteTestCases() {
 		for _, status := range []int{200, 400, 503} {
-			t.Run(tc.name+"/"+strconv.Itoa(status), func(t *testing.T) {
-				body := `{"code":200,"data":null}`
-				switch {
-				case status == 200 && tc.fixture != "":
-					body = testutil.FixtureBody(t, "../testdata/billing/"+tc.fixture+".json")
-				case status == 400:
-					body = `{"code":400,"message":"Budget not found: synthetic-peer-canary","data":null}`
-				case status == 503:
-					body = `{"code":null,"message":"synthetic-peer-canary"}`
-				}
-				body = paddedBillingBody(body, billingReadTestLimit+1)
-				var calls atomic.Int32
-				client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					calls.Add(1)
-					if r.Method != tc.method {
-						t.Error("write method changed")
+			for _, extra := range []int{0, 1} {
+				t.Run(fmt.Sprintf("%s/%d/limit+%d", tc.name, status, extra), func(t *testing.T) {
+					body := `{"code":200,"data":null}`
+					if status == 200 && tc.fixture != "" {
+						body = testutil.FixtureBody(t, "../testdata/billing/"+tc.fixture+".json")
+					} else if status >= 400 {
+						body = `{"code":null,"message":"synthetic-peer-canary"}`
 					}
-					w.WriteHeader(status)
-					_, _ = w.Write([]byte(body))
-				}))
-				out, err := tc.call(context.Background(), client)
-				if calls.Load() != 1 || errors.Is(err, transport.ErrBodyTooLarge) {
-					t.Error("write was bounded or sent an unexpected number of requests")
-				}
-				if status == 200 {
-					if err != nil || out == nil {
-						t.Fatal("write rejected a success body above the read limit")
-					}
-					switch result := out.(type) {
-					case *CreateBudgetOutput:
-						if result.Budget.UUID != "budget-1" {
-							t.Error("create budget output changed")
+					body = paddedBillingBody(body, billingReadTestLimit+extra)
+					var calls atomic.Int32
+					client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						calls.Add(1)
+						if r.Method != tc.method {
+							t.Error("write method changed")
 						}
-					case *CreateBudgetThresholdOutput:
-						if result.Threshold.UUID != "threshold-1" {
-							t.Error("create threshold output changed")
+						w.WriteHeader(status)
+						_, _ = w.Write([]byte(body))
+					}))
+					out, err := tc.call(context.Background(), client)
+					if calls.Load() != 1 {
+						t.Fatal("write sent more than once")
+					}
+					if status == 200 && extra == 0 {
+						if err != nil || out == nil {
+							t.Fatal("at-limit response rejected")
 						}
+						return
 					}
-					return
-				}
-				var api *vngcloud.APIError
-				if out != nil || !errors.As(err, &api) || api.StatusCode != status || api.Operation != "billing."+tc.name {
-					t.Fatal("write HTTP error lost classification or returned output")
-				}
-				if status == 400 {
-					if api.Code != "NotFound" || api.Message != "Budget not found: synthetic-peer-canary" || !errors.Is(err, vngcloud.ErrNotFound) || api.Retryable {
-						t.Error("write lost budget-not-found mapping above the read limit")
+					var api *vngcloud.APIError
+					if out != nil || !errors.As(err, &api) || api.StatusCode != status || api.Retryable {
+						t.Fatal("write failure lost status or returned output or retry permission")
 					}
-				} else if api.Code != "ServerError" || api.Message != "synthetic-peer-canary" || api.Retryable != (tc.method != http.MethodPost) {
-					t.Error("write HTTP error fields changed above the read limit")
-				}
-			})
+					if status == 200 && (api.Code != "InvalidResponse" || !errors.Is(err, transport.ErrBodyTooLarge)) {
+						t.Error("overflow lost size sentinel or InvalidResponse")
+					}
+					if status != 400 && !strings.Contains(api.Message, "unconfirmed") {
+						t.Error("possibly accepted write lost uncertainty")
+					}
+				})
+			}
 		}
 	}
 }
@@ -636,7 +633,7 @@ func TestNoEnvelopeIsError(t *testing.T) {
 	if apiErr.Operation != "billing.GetBudget" {
 		t.Fatalf("Operation = %q", apiErr.Operation)
 	}
-	if apiErr.Message != "response had no envelope" {
+	if apiErr.Code != "InvalidResponse" || apiErr.StatusCode != 200 {
 		t.Fatalf("Message = %q", apiErr.Message)
 	}
 }

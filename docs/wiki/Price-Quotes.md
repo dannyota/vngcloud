@@ -20,6 +20,10 @@ if err != nil { log.Fatal(err) }
 log.Printf("optimum price: %.0f", quote.OptimumPrice)
 ```
 
+Quotes refuse redirects and cap responses at 1 MiB. Missing, malformed, or
+ambiguous price fields return `InvalidResponse` with the observed HTTP
+status and safe error causes. Credential echoes return no quote output.
+
 `ResourceInfo` is a `map[string]any` describing the resource in the create
 call's own shape; leave it nil for a resource type that needs none. `Action`
 is `pricing.ActionCreate` or `pricing.ActionResize`; empty sends

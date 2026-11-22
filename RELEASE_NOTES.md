@@ -2,6 +2,10 @@
 
 ## v0.97.0 - Pre-1.0 hardening
 
+- Harden billing and pricing responses: withhold credential echoes, reject
+  malformed data and inexact amounts, and retain observed error statuses.
+  Budget writes cap replies at 8 MiB and send once; budgets and quotes refuse
+  redirects. Reconcile unconfirmed budget changes before retrying.
 - Load balancer member writes remerge fresh state after busy refusals and
   never replay ambiguous replacements. Waits enforce deadlines; `NoWait`
   outputs include submitted fields. CDN writes reject missing status or

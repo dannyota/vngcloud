@@ -3,9 +3,11 @@ package billing
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strconv"
 
 	"danny.vn/vngcloud/internal/core"
@@ -78,7 +80,28 @@ func (s *costOverviewSeries) UnmarshalJSON(data []byte) error {
 	}
 	s.grouped = len(fields.Key) > 0 || len(fields.Color) > 0 || len(fields.Points) > 0
 	if s.grouped {
+		if err := billingExactFields(data, reflect.TypeFor[CostSeriesGroup]()); err != nil {
+			return err
+		}
+		if !billingRequired(data, false, "key", "points") {
+			return errors.New("invalid cost series group")
+		}
+		var points []json.RawMessage
+		if json.Unmarshal(fields.Points, &points) != nil {
+			return errors.New("invalid cost series points")
+		}
+		for _, point := range points {
+			if !billingRequired(point, false, "x", "y") {
+				return errors.New("invalid cost series point")
+			}
+		}
 		return json.Unmarshal(data, &s.group)
+	}
+	if err := billingExactFields(data, reflect.TypeFor[CostSeries]()); err != nil {
+		return err
+	}
+	if !billingRequired(data, false, "date", "cost") {
+		return errors.New("invalid flat cost series point")
 	}
 	return json.Unmarshal(data, &s.point)
 }

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -48,6 +49,11 @@ type envelope struct {
 // doRaw sends req and returns the raw response body and HTTP status.
 func (c *Client) doRaw(ctx context.Context, req transport.Request) (json.RawMessage, int, error) {
 	var raw json.RawMessage
+	req.Sensitive = true
+	req.KeepObservedStatus = true
+	if req.MaxBody == 0 {
+		req.MaxBody = 8 << 20
+	}
 	notFound := false
 	req.ClassifyError = func(status int, message string) string {
 		notFound = isNotFoundMessage(status, message)
@@ -57,6 +63,9 @@ func (c *Client) doRaw(ctx context.Context, req transport.Request) (json.RawMess
 		return ""
 	}
 	status, err := c.c.DoJSONStatus(ctx, req, &raw)
+	if err != nil && status/100 == 2 {
+		err = billingInvalid(req.Operation, status, err)
+	}
 	if req.MaxBody > 0 && status/100 == 2 && errors.Is(err, transport.ErrBodyTooLarge) {
 		err = &core.APIError{
 			Operation:  req.Operation,
@@ -83,6 +92,12 @@ func decodeEnvelope(raw json.RawMessage) (envelope, error) {
 	if len(raw) == 0 {
 		return env, nil
 	}
+	if err := validateBillingJSON(raw); err != nil {
+		return envelope{}, err
+	}
+	if err := billingExactFields(raw, reflect.TypeFor[envelope]()); err != nil {
+		return envelope{}, err
+	}
 	if err := json.Unmarshal(raw, &env); err != nil {
 		return envelope{}, err
 	}
@@ -108,10 +123,14 @@ func envelopeSuccess(code string) bool {
 // otherwise decodes Data into out.
 func (c *Client) finishEnvelope(req transport.Request, status int, env envelope, out any) error {
 	code := envelopeCode(env.Code)
+	rawCode := bytes.TrimSpace(env.Code)
+	if len(rawCode) == 0 || (envelopeSuccess(code) && rawCode[0] == '"') {
+		return billingInvalid(req.Operation, status, nil)
+	}
 	_, validCode := transport.ParseErrorCode(env.Code)
 	unsupportedCode := len(bytes.TrimSpace(env.Code)) > 0 && !isJSONNull(env.Code) && !validCode
 	if unsupportedCode {
-		code = core.ResolvedCode(status, "")
+		return billingInvalid(req.Operation, status, nil)
 	}
 	if !envelopeSuccess(code) || unsupportedCode {
 		err := mapNotFound(&core.APIError{
@@ -126,9 +145,18 @@ func (c *Client) finishEnvelope(req transport.Request, status int, env envelope,
 		}
 		return err
 	}
-	if out != nil && len(env.Data) > 0 && !isJSONNull(env.Data) {
+	if out != nil {
+		if err := billingExactFields(env.Data, reflect.TypeOf(out)); err != nil {
+			return billingInvalid(req.Operation, status, err)
+		}
 		if err := json.Unmarshal(env.Data, out); err != nil {
-			return &core.APIError{Operation: req.Operation, Err: transport.SanitizeDecodeError(err)}
+			return billingInvalid(req.Operation, status, err)
+		}
+		if !billingDataValid(req.Operation, env.Data) {
+			return billingInvalid(req.Operation, status, nil)
+		}
+		if billingDecodedCredentials(reflect.ValueOf(out), req.Redact) {
+			return billingInvalid(req.Operation, status, nil)
 		}
 	}
 	return nil
@@ -150,19 +178,24 @@ func (c *Client) do(ctx context.Context, req transport.Request, out any) (int, e
 		return status, err
 	}
 	if len(raw) == 0 {
-		return status, nil
+		if out == nil {
+			return status, nil
+		}
+		return status, billingInvalid(req.Operation, status, nil)
 	}
 
 	env, err := decodeEnvelope(raw)
 	if err != nil {
-		return status, &core.APIError{Operation: req.Operation, Err: transport.SanitizeDecodeError(err)}
+		return status, billingInvalid(req.Operation, status, err)
 	}
 	if env.Code == nil && env.Data == nil {
-		return status, &core.APIError{
-			Operation:  req.Operation,
-			StatusCode: status,
-			Message:    "response had no envelope",
-		}
+		return status, billingInvalid(req.Operation, status, nil)
+	}
+	if !envelopeSuccess(envelopeCode(env.Code)) {
+		return status, c.finishEnvelope(req, status, env, out)
+	}
+	if billingResponseCredentials(raw, req.Redact) {
+		return status, billingInvalid(req.Operation, status, nil)
 	}
 	return status, c.finishEnvelope(req, status, env, out)
 }
@@ -180,20 +213,38 @@ func (c *Client) doBalances(ctx context.Context, req transport.Request, out any)
 		return err
 	}
 	if len(raw) == 0 {
-		return nil
+		return billingInvalid(req.Operation, status, nil)
 	}
 
 	env, err := decodeEnvelope(raw)
 	if err != nil {
-		return &core.APIError{Operation: req.Operation, Err: transport.SanitizeDecodeError(err)}
+		return billingInvalid(req.Operation, status, err)
 	}
 	if env.Code == nil && env.Data == nil {
+		if billingResponseCredentials(raw, req.Redact) {
+			return billingInvalid(req.Operation, status, nil)
+		}
 		if out != nil {
+			if err := billingExactFields(raw, reflect.TypeOf(out)); err != nil {
+				return billingInvalid(req.Operation, status, err)
+			}
 			if err := json.Unmarshal(raw, out); err != nil {
-				return &core.APIError{Operation: req.Operation, Err: transport.SanitizeDecodeError(err)}
+				return billingInvalid(req.Operation, status, err)
 			}
 		}
+		if !billingDataValid(req.Operation, raw) {
+			return billingInvalid(req.Operation, status, nil)
+		}
+		if billingDecodedCredentials(reflect.ValueOf(out), req.Redact) {
+			return billingInvalid(req.Operation, status, nil)
+		}
 		return nil
+	}
+	if !envelopeSuccess(envelopeCode(env.Code)) {
+		return c.finishEnvelope(req, status, env, out)
+	}
+	if billingResponseCredentials(raw, req.Redact) {
+		return billingInvalid(req.Operation, status, nil)
 	}
 	return c.finishEnvelope(req, status, env, out)
 }

@@ -3,12 +3,15 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"danny.vn/vngcloud"
 )
 
 // Synthetic credit total for cases without a matching captured response.
@@ -92,7 +95,8 @@ func TestPricingCreateCreditRefusedSynthetic(t *testing.T) {
 			}
 			root.SetArgs(args)
 			err := root.ExecuteContext(context.Background())
-			if err == nil || exitCode(err) != 1 || classify(err).Code != "RequestFailed" || stdout.Len() != 0 || fixture.requestCount() != 1 {
+			var api *vngcloud.APIError
+			if err == nil || exitCode(err) != 1 || classify(err).Code != "InvalidResponse" || !errors.As(err, &api) || api.StatusCode != http.StatusOK || api.Code != "InvalidResponse" || api.Retryable || stdout.Len() != 0 || fixture.requestCount() != 1 {
 				t.Fatalf("err = %v, stdout = %q, requests = %d", err, stdout, fixture.requestCount())
 			}
 		})

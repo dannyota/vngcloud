@@ -242,7 +242,7 @@ func (c *Client) CreateBudget(ctx context.Context, in *CreateBudgetInput) (*Crea
 		},
 		OK: writeOK,
 	}
-	httpStatus, err := c.do(ctx, req, &budget)
+	httpStatus, err := c.doBudgetWrite(ctx, req, &budget)
 	if err != nil {
 		return nil, err
 	}
@@ -310,7 +310,7 @@ func (c *Client) UpdateBudget(ctx context.Context, in *UpdateBudgetInput) (*Upda
 		Body:      body,
 		OK:        writeOK,
 	}
-	if _, err := c.do(ctx, req, nil); err != nil {
+	if _, err := c.doBudgetWrite(ctx, req, nil); err != nil {
 		return nil, err
 	}
 	return &UpdateBudgetOutput{}, nil
@@ -342,7 +342,7 @@ func (c *Client) DeleteBudget(ctx context.Context, in *DeleteBudgetInput) (*Dele
 		URL:       c.route([]string{"gateway", "api", "v1", "budgets", in.BudgetUUID}, nil),
 		OK:        writeOK,
 	}
-	if _, err := c.do(ctx, req, nil); err != nil {
+	if _, err := c.doBudgetWrite(ctx, req, nil); err != nil {
 		return nil, err
 	}
 	return &DeleteBudgetOutput{}, nil
@@ -417,7 +417,7 @@ func (c *Client) CreateBudgetThreshold(ctx context.Context, in *CreateBudgetThre
 		},
 		OK: writeOK,
 	}
-	httpStatus, err := c.do(ctx, req, &threshold)
+	httpStatus, err := c.doBudgetWrite(ctx, req, &threshold)
 	if err != nil {
 		return nil, err
 	}
@@ -483,7 +483,7 @@ func (c *Client) UpdateBudgetThreshold(ctx context.Context, in *UpdateBudgetThre
 		Body:      body,
 		OK:        writeOK,
 	}
-	if _, err := c.do(ctx, req, nil); err != nil {
+	if _, err := c.doBudgetWrite(ctx, req, nil); err != nil {
 		return nil, err
 	}
 	return &UpdateBudgetThresholdOutput{}, nil
@@ -519,7 +519,7 @@ func (c *Client) DeleteBudgetThreshold(ctx context.Context, in *DeleteBudgetThre
 		URL:       c.route([]string{"gateway", "api", "v1", "budgets", in.BudgetUUID, "thresholds", in.ThresholdUUID}, nil),
 		OK:        writeOK,
 	}
-	if _, err := c.do(ctx, req, nil); err != nil {
+	if _, err := c.doBudgetWrite(ctx, req, nil); err != nil {
 		return nil, err
 	}
 	return &DeleteBudgetThresholdOutput{}, nil

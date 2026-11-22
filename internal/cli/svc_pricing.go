@@ -13,5 +13,11 @@ var pricingOps = []Op[pricing.Client]{
 }
 
 func newPricingCmd(e *env) *cobra.Command {
-	return Service(e, "pricing", "Price quotes for resources", pricing.New, pricingOps...)
+	cmd := Service(e, "pricing", "Price quotes for resources", pricing.New, pricingOps...)
+	for _, child := range cmd.Commands() {
+		if child.Name() == "get-quote" {
+			child.Long = docOpNotes["pricing get-quote"]
+		}
+	}
+	return cmd
 }

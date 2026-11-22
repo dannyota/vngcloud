@@ -21,7 +21,8 @@ func init() {
 	docOpNotes["pricing get-quote"] = vatInclusivePriceNote + " " +
 		"Empty --action sends create. Only exact --action resize accepts a negative OptimumPrice, for any resource type. " +
 		"Missing, null, malformed, and nonfinite prices are refused; zero is a valid quote read. " +
-		"Responses are limited to 1 MiB. " + signedResizeQuoteNote
+		"Responses are limited to 1 MiB. Quotes refuse redirects. " +
+		"Malformed successful replies return InvalidResponse with the observed HTTP status. " + signedResizeQuoteNote
 	docOpNotes["pricing estimate"] = estimateCommandNote
 	docExampleOverride["pricing estimate"] = "vngcloud pricing estimate --cli-input-json file://setup.json --allow-partial --max-requests 100 --output table"
 }

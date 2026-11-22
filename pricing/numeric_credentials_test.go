@@ -71,7 +71,12 @@ func assertQuoteCredentialRefusal(t *testing.T, err error, credentials ...string
 			visit(wrapped.Unwrap())
 		}
 	}
-	visit(err)
+	visit(api.Err)
+	for _, credential := range credentials {
+		if strings.Contains(api.Message, strings.TrimSpace(credential)) || strings.Contains(api.Code, strings.TrimSpace(credential)) {
+			t.Error("credential reached error fields")
+		}
+	}
 }
 
 func TestGetQuoteRejectsNumericCredentialsSynthetic(t *testing.T) {

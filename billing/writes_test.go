@@ -149,7 +149,7 @@ func TestCreateBudgetMissingUUID(t *testing.T) {
 			if !errors.As(err, &apiErr) {
 				t.Fatalf("expected *vngcloud.APIError, got %v", err)
 			}
-			if apiErr.Message != "create response had no uuid" {
+			if apiErr.Code != "InvalidResponse" || !strings.Contains(apiErr.Message, "unconfirmed") {
 				t.Fatalf("Message = %q", apiErr.Message)
 			}
 			if apiErr.Operation != "billing.CreateBudget" {
@@ -186,7 +186,7 @@ func TestCreateBudgetThresholdMissingUUID(t *testing.T) {
 			if !errors.As(err, &apiErr) {
 				t.Fatalf("expected *vngcloud.APIError, got %v", err)
 			}
-			if apiErr.Message != "create response had no uuid" {
+			if apiErr.Code != "InvalidResponse" || !strings.Contains(apiErr.Message, "unconfirmed") {
 				t.Fatalf("Message = %q", apiErr.Message)
 			}
 			if apiErr.Operation != "billing.CreateBudgetThreshold" {
@@ -220,7 +220,7 @@ func TestCreateBudgetNotRetriedAfter502(t *testing.T) {
 	}
 }
 
-func TestUpdateBudgetRetriedAfter502(t *testing.T) {
+func TestUpdateBudgetNotRetriedAfter502(t *testing.T) {
 	calls := 0
 	client := New(testutil.NewRetryConfig(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
@@ -235,11 +235,11 @@ func TestUpdateBudgetRetriedAfter502(t *testing.T) {
 		BudgetUUID: "budget-1",
 		Status:     vngcloud.Ptr(StatusPaused),
 	})
-	if err != nil {
-		t.Fatalf("UpdateBudget() error = %v", err)
+	if err == nil || vngcloud.IsRetryable(err) {
+		t.Fatal("ambiguous update returned success or retry permission")
 	}
-	if calls != 2 {
-		t.Fatalf("calls = %d, want 2", calls)
+	if calls != 1 {
+		t.Fatalf("calls = %d, want 1", calls)
 	}
 }
 

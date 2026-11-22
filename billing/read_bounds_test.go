@@ -200,7 +200,7 @@ func TestBillingReadInvalidBodies(t *testing.T) {
 					} else if !errors.As(err, &syntax) {
 						t.Error("decode failure lost JSON syntax error identity")
 					}
-					if api.StatusCode != 0 || api.Code != "" || api.Retryable {
+					if api.StatusCode != 200 || api.Code != "InvalidResponse" || api.Retryable {
 						t.Error("within-limit decode error classification changed")
 					}
 					for cause := err; cause != nil; cause = errors.Unwrap(cause) {
@@ -229,8 +229,8 @@ func TestBillingReadTruncatedHTTPBody(t *testing.T) {
 				if out != nil || !errors.As(err, &api) || !errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, transport.ErrBodyTooLarge) {
 					t.Fatal("truncated HTTP body lost error identity or returned partial output")
 				}
-				if api.StatusCode != 0 || api.Code != "" || api.Retryable {
-					t.Error("within-limit read failure classification changed")
+				if api.StatusCode != status || api.Retryable || (status == 200 && api.Code != "InvalidResponse") {
+					t.Error("read failure lost observed status")
 				}
 			})
 		}

@@ -2,7 +2,9 @@ package pricing
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"reflect"
 	"regexp"
@@ -10,6 +12,7 @@ import (
 	"strings"
 
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/jsonresponse"
 	"danny.vn/vngcloud/internal/transport"
 )
 
@@ -35,6 +38,12 @@ func decodeQuoteResponse(op string, raw json.RawMessage, credentials []string) (
 		return resp, invalidQuoteResponse(op)
 	}
 	if len(raw) > 0 {
+		if err := jsonresponse.ValidateStrict(raw, &resp); err != nil {
+			return quoteResponse{}, &core.APIError{Operation: op, Err: transport.SanitizeDecodeError(err)}
+		}
+		if err := quoteExactFields(raw, reflect.TypeFor[quoteResponse]()); err != nil {
+			return quoteResponse{}, &core.APIError{Operation: op, Err: transport.SanitizeDecodeError(err)}
+		}
 		if err := json.Unmarshal(raw, &resp); err != nil {
 			return quoteResponse{}, &core.APIError{Operation: op, Err: transport.SanitizeDecodeError(err)}
 		}
@@ -49,6 +58,26 @@ func decodeQuoteResponse(op string, raw json.RawMessage, credentials []string) (
 
 func invalidQuoteResponse(op string) error {
 	return &core.APIError{Operation: op, Code: "InvalidResponse", Message: "invalid quote response; body withheld"}
+}
+
+func invalidObservedQuote(status int, cause error) error {
+	var safe []error
+	for _, sentinel := range []error{context.Canceled, context.DeadlineExceeded, io.EOF, io.ErrUnexpectedEOF, transport.ErrBodyTooLarge, core.ErrUnpriced, core.ErrAuth, core.ErrPermission} {
+		if errors.Is(cause, sentinel) {
+			safe = append(safe, sentinel)
+		}
+	}
+	var syntax *json.SyntaxError
+	var mismatch *json.UnmarshalTypeError
+	if errors.As(cause, &syntax) || errors.As(cause, &mismatch) {
+		clean := transport.SanitizeDecodeError(cause)
+		var fixed *json.SyntaxError
+		if syntax != nil && errors.As(clean, &fixed) {
+			fixed.Offset = syntax.Offset
+		}
+		safe = append(safe, clean)
+	}
+	return &core.APIError{Operation: "pricing.GetQuote", StatusCode: status, Code: "InvalidResponse", Message: "invalid quote response; body withheld", Err: errors.Join(safe...)}
 }
 
 func quoteDecodedReflectsCredentials(value any, credentials []string) bool {

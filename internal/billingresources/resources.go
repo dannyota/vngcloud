@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"net/http"
+	"reflect"
 	"strconv"
 
 	"danny.vn/vngcloud/internal/core"
@@ -63,16 +65,25 @@ func object(raw json.RawMessage) bool {
 func exchange(ctx context.Context, c *core.Client, req transport.Request) (json.RawMessage, int, error) {
 	var raw json.RawMessage
 	var credentials []string
-	req.SentCredentials = &credentials
+	if req.SentCredentials == nil {
+		req.SentCredentials = &credentials
+	}
 	req.NoRedirect = true
 	req.MaxBody = 4 << 20
+	req.KeepObservedStatus = true
 	// Account data and resource tags must not enter routine captures or errors.
 	req.Sensitive = true
 	req.WithholdMessage = "billing response withheld"
 	status, err := c.DoJSONStatus(ctx, req, &raw)
 	if err != nil {
-		if errors.Is(err, transport.ErrBodyTooLarge) {
-			return nil, status, responseError(req.Operation, status)
+		if status/100 == 2 || errors.Is(err, transport.ErrBodyTooLarge) {
+			safe := &core.APIError{Operation: req.Operation, StatusCode: status, Code: "InvalidResponse", Message: "billing response withheld"}
+			for _, sentinel := range []error{context.Canceled, context.DeadlineExceeded, io.EOF, io.ErrUnexpectedEOF, transport.ErrBodyTooLarge} {
+				if errors.Is(err, sentinel) {
+					safe.Err = errors.Join(safe.Err, sentinel)
+				}
+			}
+			return nil, status, safe
 		}
 		var api *core.APIError
 		if errors.As(err, &api) {
@@ -86,6 +97,9 @@ func exchange(ctx context.Context, c *core.Client, req transport.Request) (json.
 		}
 		return nil, status, err
 	}
+	if reflectsCredentials(raw, *req.SentCredentials) {
+		return nil, status, responseError(req.Operation, status)
+	}
 	var env struct {
 		Code json.RawMessage `json:"code"`
 		Data json.RawMessage `json:"data"`
@@ -98,7 +112,8 @@ func exchange(ctx context.Context, c *core.Client, req transport.Request) (json.
 
 // List requests the observed unfiltered list without inferring pagination.
 func List(ctx context.Context, c *core.Client) (json.RawMessage, error) {
-	data, status, err := exchange(ctx, c, transport.Request{Operation: ListOperation, Method: http.MethodGet, URL: route(c, "resources")})
+	var credentials []string
+	data, status, err := exchange(ctx, c, transport.Request{Operation: ListOperation, Method: http.MethodGet, URL: route(c, "resources"), SentCredentials: &credentials})
 	if err != nil {
 		return nil, err
 	}
@@ -121,6 +136,9 @@ func List(ctx context.Context, c *core.Client) (json.RawMessage, error) {
 		} `json:"extra"`
 	}
 	if decodeExact(data, &typed) != nil {
+		return nil, responseError(ListOperation, status)
+	}
+	if decodedCredentials(reflect.ValueOf(typed), credentials) {
 		return nil, responseError(ListOperation, status)
 	}
 	for _, item := range wire.Items {

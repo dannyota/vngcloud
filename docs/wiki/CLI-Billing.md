@@ -6,6 +6,8 @@
 
 Kind: Write.
 
+Budget and threshold writes are sent once and never follow redirects. Responses are limited to 8 MiB. A lost, oversized, or malformed reply can leave the outcome unconfirmed; read current budgets or thresholds before deliberately retrying. Malformed successful replies return InvalidResponse with the observed HTTP status.
+
 | Flag | Type | Required |
 |-|-|-|
 | `--name` | `string` | yes |
@@ -21,6 +23,8 @@ vngcloud billing create-budget --name <name> --period-type <period-type> --type 
 ## create-budget-threshold
 
 Kind: Write.
+
+Budget and threshold writes are sent once and never follow redirects. Responses are limited to 8 MiB. A lost, oversized, or malformed reply can leave the outcome unconfirmed; read current budgets or thresholds before deliberately retrying. Malformed successful replies return InvalidResponse with the observed HTTP status.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -38,6 +42,8 @@ vngcloud billing create-budget-threshold --budget-uuid <budget-uuid> --threshold
 
 Kind: Write, destructive.
 
+Budget and threshold writes are sent once and never follow redirects. Responses are limited to 8 MiB. A lost, oversized, or malformed reply can leave the outcome unconfirmed; read current budgets or thresholds before deliberately retrying. Malformed successful replies return InvalidResponse with the observed HTTP status.
+
 | Flag | Type | Required |
 |-|-|-|
 | `--budget-uuid` | `string` | yes |
@@ -49,6 +55,8 @@ vngcloud billing delete-budget --budget-uuid <budget-uuid> --yes
 ## delete-budget-threshold
 
 Kind: Write, destructive.
+
+Budget and threshold writes are sent once and never follow redirects. Responses are limited to 8 MiB. A lost, oversized, or malformed reply can leave the outcome unconfirmed; read current budgets or thresholds before deliberately retrying. Malformed successful replies return InvalidResponse with the observed HTTP status.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -271,6 +279,8 @@ vngcloud billing list-transactions --start-date 2024-11-01 \
 
 Kind: Write.
 
+Budget and threshold writes are sent once and never follow redirects. Responses are limited to 8 MiB. A lost, oversized, or malformed reply can leave the outcome unconfirmed; read current budgets or thresholds before deliberately retrying. Malformed successful replies return InvalidResponse with the observed HTTP status.
+
 | Flag | Type | Required |
 |-|-|-|
 | `--budget-uuid` | `string` | yes |
@@ -287,6 +297,8 @@ vngcloud billing update-budget --budget-uuid <budget-uuid>
 ## update-budget-threshold
 
 Kind: Write.
+
+Budget and threshold writes are sent once and never follow redirects. Responses are limited to 8 MiB. A lost, oversized, or malformed reply can leave the outcome unconfirmed; read current budgets or thresholds before deliberately retrying. Malformed successful replies return InvalidResponse with the observed HTTP status.
 
 | Flag | Type | Required |
 |-|-|-|

@@ -141,40 +141,42 @@ func (c *Client) GetQuote(ctx context.Context, in *GetQuoteInput) (*GetQuoteOutp
 			Action:       action,
 			ResourceInfo: in.ResourceInfo,
 		},
-		OK:              []int{200},
-		Idempotent:      true,
-		MaxBody:         1 << 20,
-		Sensitive:       true,
-		SentCredentials: &sentCredentials,
+		OK:                 []int{200},
+		Idempotent:         true,
+		MaxBody:            1 << 20,
+		Sensitive:          true,
+		NoRedirect:         true,
+		KeepObservedStatus: true,
+		SentCredentials:    &sentCredentials,
 	}
-	err := c.c.DoJSON(ctx, req, &raw)
+	status, err := c.c.DoJSONStatus(ctx, req, &raw)
 	operationCredentials, observeErr := floatingip.Credentials(ctx)
 	if observeErr != nil {
-		return nil, floatingip.InvalidResponse(op, errors.Join(err, observeErr))
+		return nil, invalidObservedQuote(status, errors.Join(err, observeErr))
 	}
 	sentCredentials = append(sentCredentials, operationCredentials...)
 	if quoteHasNumericCredential(sentCredentials) {
-		return nil, invalidQuoteResponse(op)
+		return nil, invalidObservedQuote(status, nil)
 	}
 	if err != nil {
-		if errors.Is(err, transport.ErrBodyTooLarge) {
-			return nil, &core.APIError{Operation: op, Message: "quote response exceeds 1 MiB", Err: err}
+		if status/100 == 2 || status/100 == 3 {
+			return nil, invalidObservedQuote(status, err)
 		}
 		return nil, err
 	}
 	if floatingip.ComponentQuote(ctx) {
 		if err := floatingip.ValidateComponentWire(raw); err != nil {
-			return nil, err
+			return nil, invalidObservedQuote(status, err)
 		}
 	}
 	resp, err := decodeQuoteResponse(op, raw, sentCredentials)
 	if err != nil {
-		return nil, err
+		return nil, invalidObservedQuote(status, err)
 	}
 
 	price, err := validQuotePrice(op, action, resp.OptimumPrice)
 	if err != nil {
-		return nil, err
+		return nil, invalidObservedQuote(status, nil)
 	}
 
 	properties := make([]PriceProperty, len(resp.PropertiesPrice))
@@ -191,7 +193,7 @@ func (c *Client) GetQuote(ctx context.Context, in *GetQuoteInput) (*GetQuoteOutp
 		Properties:      properties,
 	}
 	if quoteDecodedReflectsCredentials(out, sentCredentials) {
-		return nil, invalidQuoteResponse(op)
+		return nil, invalidObservedQuote(status, nil)
 	}
 	return out, nil
 }

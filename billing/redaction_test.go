@@ -130,7 +130,7 @@ func TestEnvelopeRejectsStructuredCodes(t *testing.T) {
 			if !errors.As(err, &ae) {
 				t.Fatalf("error = %v", err)
 			}
-			if ae.Code != core.ResolvedCode(status, "") {
+			if ae.Code != "InvalidResponse" {
 				t.Errorf("unsupported code = %q", ae.Code)
 			}
 		}

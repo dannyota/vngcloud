@@ -63,11 +63,8 @@ func newBillingCmd(e *env) *cobra.Command {
 		},
 	})
 	for _, child := range cmd.Commands() {
-		if child.Name() == "list-resources" {
-			child.Long = billingListResourcesNote
-		}
-		if child.Name() == "list-transactions" || child.Name() == "list-payments" {
-			child.Long = billingHistoryNote
+		if note := docOpNotes["billing "+child.Name()]; note != "" {
+			child.Long = note
 		}
 	}
 	return cmd

@@ -65,6 +65,12 @@ calling either with none is an error before any request goes out.
 create response with no UUID is an error too, rather than a budget or
 threshold the SDK cannot name.
 
+All six budget and threshold writes send once, refuse redirects, and cap
+responses at 8 MiB. A lost, malformed, or oversized reply can leave the
+outcome unconfirmed. Read budgets or thresholds and reconcile the state
+before deliberately retrying. Empty update and delete replies remain valid.
+Budget limits decode exactly as int64; fractional or overflowing values fail.
+
 ### Thresholds
 
 A threshold triggers an alert once a budget's spend crosses a percentage.
@@ -184,6 +190,13 @@ Cost, balance, budget, threshold, and alert reads accept responses up to
 8 MiB. A larger 2xx response returns `InvalidResponse` with its HTTP
 status; a larger 4xx or 5xx response keeps its status-based error but is
 not retried and does not refresh the token.
+
+Missing or null read data, ambiguous JSON keys, missing cost values, and
+nonfinite balances return `InvalidResponse` with the observed HTTP status.
+Explicit empty lists and null balance amounts remain valid. Successful
+responses reflecting a sent bearer token are withheld, including raw resource
+fields and credentials used before a refresh. Response bodies stay out of
+routine captures.
 
 ## Transaction and payment history
 

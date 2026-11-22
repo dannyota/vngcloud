@@ -101,7 +101,7 @@ func TestGetCostOverviewBreakdownValuePrecedence(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				_, _ = fmt.Fprintf(w, `{"code":200,"data":{"summary":{"breakdown":[{"key":"vserver","percent":50,%s}]}}}`, tc.fields)
+				_, _ = fmt.Fprintf(w, `{"code":200,"data":{"summary":{"currentCost":0,"breakdown":[{"key":"vserver","percent":50,%s}]}}}`, tc.fields)
 			}))
 			out, err := client.GetCostOverview(context.Background(), &GetCostOverviewInput{StartDate: "2026-11-01", EndDate: "2026-11-09"})
 			if err != nil {
@@ -136,7 +136,7 @@ func TestGetCostOverviewGroupedIntervals(t *testing.T) {
 					if r.URL.Query().Get("groupBy") != groupBy || r.URL.Query().Get("interval") != interval {
 						t.Errorf("query = %s", r.URL.RawQuery)
 					}
-					_, _ = fmt.Fprintf(w, `{"code":200,"data":{"series":[{"key":"first","color":"#005AAB","points":[{"x":"bucket-b","y":0},{"x":"bucket-a","y":12.5}]},{"key":"sparse","color":"#11B895","points":[{"x":"bucket-a","y":2.5}]},{"key":"empty","points":[]}],"groupBy":%q,"interval":%q}}`, groupBy, interval)
+					_, _ = fmt.Fprintf(w, `{"code":200,"data":{"summary":{"currentCost":0},"series":[{"key":"first","color":"#005AAB","points":[{"x":"bucket-b","y":0},{"x":"bucket-a","y":12.5}]},{"key":"sparse","color":"#11B895","points":[{"x":"bucket-a","y":2.5}]},{"key":"empty","points":[]}],"groupBy":%q,"interval":%q}}`, groupBy, interval)
 				}))
 				out, err := client.GetCostOverview(context.Background(), &GetCostOverviewInput{StartDate: "2026-11-01", EndDate: "2026-11-09", GroupBy: groupBy, Interval: interval})
 				if err != nil {
@@ -167,7 +167,11 @@ func TestGetCostOverviewSeriesSerialization(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				_, _ = fmt.Fprintf(w, `{"code":200,"data":%s}`, tc.data)
+				data := `"summary":{"currentCost":0}`
+				if tc.data != `{}` {
+					data += "," + tc.data[1:len(tc.data)-1]
+				}
+				_, _ = fmt.Fprintf(w, `{"code":200,"data":{%s}}`, data)
 			}))
 			out, err := client.GetCostOverview(context.Background(), &GetCostOverviewInput{StartDate: "2026-11-01", EndDate: "2026-11-09"})
 			if err != nil {
@@ -190,8 +194,8 @@ func TestGetCostOverviewSeriesSerialization(t *testing.T) {
 
 func TestGetCostOverviewDecodeErrorWithholdsValues(t *testing.T) {
 	for _, data := range []string{
-		`{"summary":{"breakdown":[{"key":"vserver","value":"private-value-marker"}]}}`,
-		`{"summary":{"breakdown":[{"key":"vserver","percent":"private-value-marker"}]}}`,
+		`{"summary":{"currentCost":0,"breakdown":[{"key":"vserver","value":"private-value-marker"}]}}`,
+		`{"summary":{"currentCost":0,"breakdown":[{"key":"vserver","percent":"private-value-marker"}]}}`,
 		`{"series":[{"key":"vserver","points":"private-value-marker"}]}`,
 		`{"series":[{"key":"vserver","points":[{"x":"bucket","y":"private-value-marker"}]}]}`,
 	} {

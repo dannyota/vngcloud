@@ -1,5 +1,10 @@
 package cli
 
+const billingBudgetWriteNote = "Budget and threshold writes are sent once and never follow redirects. " +
+	"Responses are limited to 8 MiB. A lost, oversized, or malformed reply can leave the outcome " +
+	"unconfirmed; read current budgets or thresholds before deliberately retrying. " +
+	"Malformed successful replies return InvalidResponse with the observed HTTP status."
+
 const billingListResourcesNote = "Lists billing resource renewal state across products without quoting prices. " +
 	"Tables show raw renewal and billing timestamps in epoch milliseconds. Cost has unknown meaning " +
 	"and currency; it is not a price or next charge and is omitted from the table. " +
@@ -28,6 +33,9 @@ service-account access are unverified. Runtime query failures return
 QueryFailed, exit 1, with no report.`
 
 func init() {
+	for _, name := range []string{"create-budget", "update-budget", "delete-budget", "create-budget-threshold", "update-budget-threshold", "delete-budget-threshold"} {
+		docOpNotes["billing "+name] = billingBudgetWriteNote
+	}
 	docOpNotes["billing list-resources"] = billingListResourcesNote
 	docOpNotes["billing list-transactions"] = billingHistoryNote + "\n\nDefault table columns: CreatedAt, Type, TypeCode, Direction, Amount, Balance."
 	docOpNotes["billing list-payments"] = billingHistoryNote + "\n\nDefault table columns: CreatedAt, Gateway, Status, TypeCode, Amount.\nGateway, status, and payment type codes retain unknown values."

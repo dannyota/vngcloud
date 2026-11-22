@@ -145,6 +145,12 @@ func TestListCostResourcesIgnoresLegacyCost(t *testing.T) {
 				StartDate: "2026-09-01",
 				EndDate:   "2026-09-02",
 			})
+			if tc.name == "missing totalCost" {
+				if err == nil || out != nil {
+					t.Fatal("missing totalCost returned a zero cost")
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("ListCostResources() error = %v", err)
 			}

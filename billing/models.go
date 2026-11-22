@@ -6,7 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
+	"reflect"
 	"strconv"
+	"strings"
 )
 
 // Budget enum values, sent and received on the wire as is.
@@ -52,21 +55,29 @@ type Budget struct {
 	AlarmThresholdCount  int      `json:"alarmThresholdCount"`
 }
 
-// budgetLimitAmount decodes limitAmount, which the API sends as a plain
-// integer from CreateBudget and as an integral decimal such as
-// 9999999999.0 from ListBudgets and GetBudget. A fractional value is
-// rejected rather than truncated.
 type budgetLimitAmount int64
 
 func (a *budgetLimitAmount) UnmarshalJSON(data []byte) error {
-	var f float64
-	if err := json.Unmarshal(data, &f); err != nil {
-		return err
+	invalid := errors.New("billing: limitAmount is not an int64 integer")
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 || len(data) > 128 || data[0] == '"' {
+		return invalid
 	}
-	if f != math.Trunc(f) {
-		return errors.New("billing: limitAmount is not an integer")
+	var number json.Number
+	if err := json.Unmarshal(data, &number); err != nil || number.String() == "" {
+		return invalid
 	}
-	*a = budgetLimitAmount(f)
+	if _, exponent, found := strings.Cut(strings.ToLower(number.String()), "e"); found {
+		value, err := strconv.Atoi(exponent)
+		if err != nil || value < -128 || value > 128 {
+			return invalid
+		}
+	}
+	value, ok := new(big.Rat).SetString(number.String())
+	if !ok || !value.IsInt() || !value.Num().IsInt64() {
+		return invalid
+	}
+	*a = budgetLimitAmount(value.Num().Int64())
 	return nil
 }
 
@@ -147,6 +158,8 @@ func (a *Alert) UnmarshalJSON(data []byte) error {
 	a.TriggeredValue = wire.TriggeredValue
 	a.ActualPercentage = wire.ActualPercentage
 	a.DeliveryStatus = wire.DeliveryStatus
+	a.Recipients = nil
+	a.RecipientsRaw = ""
 
 	var recipients []string
 	if err := json.Unmarshal([]byte(wire.Recipients), &recipients); err == nil {
@@ -172,6 +185,9 @@ func (b *CostBreakdown) UnmarshalJSON(data []byte) error {
 		Value   json.RawMessage `json:"value"`
 		Cost    json.RawMessage `json:"cost"`
 		Percent float64         `json:"percent"`
+	}
+	if err := billingExactFields(data, reflect.TypeOf(wire)); err != nil {
+		return err
 	}
 	if err := json.Unmarshal(data, &wire); err != nil {
 		return err
@@ -304,7 +320,7 @@ func decodeMoney(field string, raw json.RawMessage) (*float64, error) {
 			return nil, fmt.Errorf("billing: %s is not a string", field)
 		}
 		f, err := strconv.ParseFloat(s, 64)
-		if err != nil {
+		if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
 			return nil, fmt.Errorf("billing: %s is not a number", field)
 		}
 		return &f, nil
