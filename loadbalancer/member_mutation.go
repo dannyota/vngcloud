@@ -34,9 +34,13 @@ func (c *Client) mutatePoolMembers(ctx context.Context, op, lbID, poolID string,
 		if !c.now().Before(deadline) {
 			return nil, false, fmt.Errorf("%w: %s: pool is not ready; nothing sent", ErrBusy, op)
 		}
-		settled, err := c.sendPoolMembersAndConfirm(ctx, op, lbID, poolID, entries, noWait)
+		err = c.sendPoolMembers(ctx, op, lbID, poolID, entries)
 		if attempt == 0 && isBusyRefusal(err) {
 			continue
+		}
+		var settled *Pool
+		if err == nil && !noWait {
+			settled, err = c.confirmPoolMembers(ctx, op, lbID, poolID, entries)
 		}
 		if settled == nil {
 			settled = pool

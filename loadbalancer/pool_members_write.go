@@ -138,10 +138,10 @@ func checkPoolMemberMonitorPort(op string, monitorPort int) error {
 	return checkPoolMemberPort(op, "MonitorPort", monitorPort)
 }
 
-func (c *Client) sendPoolMembersAndConfirm(ctx context.Context, op, lbID, poolID string, entries []poolMemberEntry, noWait bool) (*Pool, error) {
+func (c *Client) sendPoolMembers(ctx context.Context, op, lbID, poolID string, entries []poolMemberEntry) error {
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	notSent := false
 	req := transport.Request{
@@ -155,16 +155,19 @@ func (c *Client) sendPoolMembersAndConfirm(ctx context.Context, op, lbID, poolID
 	}
 	if err := c.c.DoJSON(ctx, req, nil); err != nil {
 		if !notSent && !is4xxAPIError(err) {
-			return nil, wrapNotSettled(op, "pool "+poolID, err)
+			return wrapNotSettled(op, "pool "+poolID, err)
 		}
-		return nil, err
+		return err
 	}
-	if noWait {
-		return nil, nil
-	}
+	return nil
+}
 
+func (c *Client) confirmPoolMembers(ctx context.Context, op, lbID, poolID string, entries []poolMemberEntry) (*Pool, error) {
+	deadline := c.now().Add(childBound)
+	waitCtx, cancel := context.WithTimeout(ctx, childBound)
+	defer cancel()
 	var pool *Pool
-	if err := c.waitChildSettled(ctx, op, lbID, "pool", poolID, func(ctx context.Context) (string, error) {
+	if err := c.waitChildSettled(waitCtx, op, lbID, "pool", poolID, func(ctx context.Context) (string, error) {
 		out, err := c.GetPool(ctx, &GetPoolInput{LoadBalancerID: lbID, PoolID: poolID})
 		if err != nil {
 			return "", err
@@ -175,11 +178,27 @@ func (c *Client) sendPoolMembersAndConfirm(ctx context.Context, op, lbID, poolID
 		return pool, err
 	}
 
-	membersOut, err := c.ListPoolMembers(ctx, &ListPoolMembersInput{LoadBalancerID: lbID, PoolID: poolID})
+	if err := waitCtx.Err(); err != nil {
+		return pool, wrapNotSettled(op, "pool "+poolID, err)
+	}
+	remaining := deadline.Sub(c.now())
+	if remaining <= 0 {
+		return pool, wrapNotSettled(op, "pool "+poolID, context.DeadlineExceeded)
+	}
+	readCtx, readCancel := context.WithTimeout(waitCtx, remaining)
+	defer readCancel()
+	membersOut, err := c.ListPoolMembers(readCtx, &ListPoolMembersInput{LoadBalancerID: lbID, PoolID: poolID})
 	if err != nil {
 		return pool, fmt.Errorf("%w: %s: pool %s: %w", ErrNotSettled, op, poolID, err)
 	}
-	if !poolMembersEqual(membersOut.Items, entries) {
+	equal := poolMembersEqual(membersOut.Items, entries)
+	if err := readCtx.Err(); err != nil {
+		return pool, wrapNotSettled(op, "pool "+poolID, err)
+	}
+	if !c.now().Before(deadline) {
+		return pool, wrapNotSettled(op, "pool "+poolID, context.DeadlineExceeded)
+	}
+	if !equal {
 		return pool, fmt.Errorf("%w: %s: pool %s: members read after the write do not match what was sent; another writer may have changed the pool",
 			ErrNotSettled, op, poolID)
 	}
