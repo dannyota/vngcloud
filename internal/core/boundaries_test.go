@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"danny.vn/vngcloud/internal/endpoints"
+	"danny.vn/vngcloud/internal/tokencache"
 	"danny.vn/vngcloud/internal/transport"
 )
 
@@ -47,8 +48,8 @@ func TestProjectInventoryRejectsMissingAndDuplicateEvidence(t *testing.T) {
 	}
 }
 
-func TestInvalidIAMTokenDoesNotRepeatLoginWithinTOTPWindow(t *testing.T) {
-	withFakeClock(t)
+func TestInvalidIAMTokenWaitsBeforeNextLogin(t *testing.T) {
+	setClock := withFakeClock(t)
 	var codes, exchanges atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -65,26 +66,24 @@ func TestInvalidIAMTokenDoesNotRepeatLoginWithinTOTPWindow(t *testing.T) {
 	}))
 	defer server.Close()
 	for _, disk := range []bool{false, true} {
-		options := []Option{WithRegion("hcm-3"), WithIAMUser(&IAMUserAuth{RootEmail: "root", Username: "user", Password: "password", SigninBaseURL: server.URL, TokenURL: server.URL + "/token", TOTP: TOTPFunc(func(context.Context) (string, error) { codes.Add(1); return "123456", nil })})}
+		auth := &IAMUserAuth{RootEmail: "root", Username: "user", Password: "password", SigninBaseURL: server.URL, TokenURL: server.URL + "/token", TOTP: TOTPFunc(func(context.Context) (string, error) { codes.Add(1); return "123456", nil })}
+		auth.waitTOTP = func(_ context.Context, delay time.Duration) error { setClock(timeNow().Add(delay)); return nil }
+		source := &iamTokenSource{auth: auth}
 		if disk {
-			options = append(options, WithTokenCache(filepath.Join(t.TempDir(), "cache")))
-		}
-		c, err := newClient(options...)
-		if err != nil {
-			t.Fatal(err)
+			source.cache = tokencache.New(filepath.Join(t.TempDir(), "cache"), timeNow)
 		}
 		before := codes.Load()
 		for range 2 {
-			if err := c.Authenticate(context.Background()); !errors.Is(err, ErrAuth) {
+			if _, err := source.Token(context.Background()); !errors.Is(err, ErrAuth) {
 				t.Fatal("invalid lifespan did not fail authentication")
 			}
 		}
-		if codes.Load()-before != 1 {
-			t.Error("failed exchange reused TOTP window")
+		if codes.Load()-before != 2 {
+			t.Error("expected a new code after waiting")
 		}
 	}
-	if exchanges.Load() != 2 {
-		t.Error("unexpected repeated exchange")
+	if exchanges.Load() != 4 {
+		t.Error("unexpected exchange count")
 	}
 }
 

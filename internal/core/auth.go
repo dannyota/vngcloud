@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"danny.vn/vngcloud/internal/iamuser"
+	"danny.vn/vngcloud/internal/tokencache"
 	"danny.vn/vngcloud/internal/transport"
 )
 
@@ -44,6 +45,9 @@ type IAMUserAuth struct {
 	loginMu      transport.Gate
 	failedAt     time.Time
 	loginFailure error
+	lastTOTPStep int64
+	hasTOTPStep  bool
+	waitTOTP     func(context.Context, time.Duration) error
 }
 
 type loginEndpoints struct {
@@ -95,30 +99,23 @@ func (a *IAMUserAuth) token(ctx context.Context, ep loginEndpoints, logger *slog
 	return string(*a.cachedToken), a.expiresAt, nil
 }
 
-func (a *IAMUserAuth) doLogin(ctx context.Context, ep loginEndpoints, logger *slog.Logger) (token string, expiresAt time.Time, err error) {
+func (a *IAMUserAuth) doLogin(ctx context.Context, ep loginEndpoints, logger *slog.Logger) (string, time.Time, error) {
+	return a.doLoginWithCache(ctx, ep, logger, nil, tokencache.Key{})
+}
+
+func (a *IAMUserAuth) doLoginWithCache(ctx context.Context, ep loginEndpoints, logger *slog.Logger, cache *tokencache.Cache, key tokencache.Key) (token string, expiresAt time.Time, err error) {
 	if err := a.loginMu.LockContext(ctx); err != nil {
 		return "", time.Time{}, err
 	}
 	defer a.loginMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return "", time.Time{}, err
+	}
 	age := timeNow().Sub(a.failedAt)
 	if a.loginFailure != nil && age >= 0 && age < 30*time.Second {
 		return "", time.Time{}, a.loginFailure
 	}
-	if err := ctx.Err(); err != nil {
-		return "", time.Time{}, err
-	}
-	defer func() {
-		if err == nil {
-			a.loginFailure = nil
-			return
-		}
-		a.failedAt = timeNow()
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			a.loginFailure = &LoginError{Err: ErrAuth, Reason: "login failed"}
-		} else {
-			a.loginFailure = err
-		}
-	}()
+	a.loginFailure = nil
 	if err := ctx.Err(); err != nil {
 		return "", time.Time{}, err
 	}
@@ -133,10 +130,22 @@ func (a *IAMUserAuth) doLogin(ctx context.Context, ep loginEndpoints, logger *sl
 		DashboardURI:  firstNonEmpty(a.DashboardURI, ep.dashboard),
 		HTTPClient:    a.HTTPClient,
 	}
+	if a.TOTP != nil {
+		req.TOTP = guardedTOTP{auth: a, provider: a.TOTP, cache: cache, key: key}
+	}
 	result, err := iamuser.Login(ctx, req)
 	if err != nil {
 		debugLog(logger, ctx, "login finished", "ok", false)
-		return "", time.Time{}, loginErrorFrom(ctx, err)
+		if errors.Is(err, tokencache.ErrUnavailable) {
+			return "", time.Time{}, ErrTokenCache
+		}
+		mapped := loginErrorFrom(ctx, err)
+		var failure *iamuser.LoginFailure
+		if ctx.Err() == nil && errors.As(err, &failure) && (failure.Step == iamuser.StepSigninRejected || failure.Step == iamuser.StepTOTPRejected || failure.CaptchaSuspected) {
+			a.failedAt = timeNow()
+			a.loginFailure = mapped
+		}
+		return "", time.Time{}, mapped
 	}
 	if err := ctx.Err(); err != nil {
 		return "", time.Time{}, err

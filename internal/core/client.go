@@ -467,7 +467,7 @@ func (s *iamTokenSource) Token(ctx context.Context) (transport.Token, error) {
 	s.mu.Unlock()
 
 	cached, err := s.cache.Get(ctx, s.cacheKey, rejected, func(ctx context.Context) (tokencache.Token, error) {
-		token, expiresAt, err := s.auth.doLogin(ctx, s.endpoints, s.logger)
+		token, expiresAt, err := s.auth.doLoginWithCache(ctx, s.endpoints, s.logger, s.cache, s.cacheKey)
 		if err != nil {
 			return tokencache.Token{}, err
 		}

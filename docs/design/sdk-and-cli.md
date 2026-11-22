@@ -279,11 +279,11 @@ The existing IAM User cache retains these rules:
 - One operation locks `<hash>.lock`, reads, applies pending invalidation,
   logs in if needed, and writes through a temp file and rename. Another
   process reuses the fresh token rather than the same TOTP code.
-- Before sending a TOTP code, the operation syncs the code's 30-second step
-  to `<hash>.totp` (mode 0600, temp file and rename) under the lock and keeps
-  it in memory. A recorded step at or after the current one waits for the next
-  step until the context ends; an unreadable marker counts as current. A
-  failed marker write refuses login with `ErrTokenCache`.
+- Before sending a TOTP code, the operation syncs its 30-second step to `<hash>.totp` (0600,
+  temp file and rename) under the lock and in memory. A recorded step at or after the current
+  one waits for the next step until the context ends; an unreadable marker counts as current; a
+  failed write refuses login with `ErrTokenCache`. A custom provider records the later of the
+  steps before and after its `GetCode`.
 - Nonblocking lock attempts use backoff until the context ends. Unix uses
   `flock`; Windows opens with share mode 0 through `syscall.CreateFile`.
   Locks end with their process; lock files remain.

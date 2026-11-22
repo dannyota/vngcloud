@@ -35,6 +35,10 @@ type SecretTOTP struct {
 
 // GetCode generates the current six-digit code.
 func (s *SecretTOTP) GetCode(context.Context) (string, error) {
+	return s.codeForStep(time.Now().Unix() / 30)
+}
+
+func (s *SecretTOTP) codeForStep(step int64) (string, error) {
 	key, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(
 		normalizeTOTPSecret(s.Secret.Reveal()),
 	)
@@ -42,11 +46,10 @@ func (s *SecretTOTP) GetCode(context.Context) (string, error) {
 		return "", fmt.Errorf("decode TOTP secret: %w", err)
 	}
 
-	now := time.Now().Unix()
-	if now < 0 {
+	if step < 0 {
 		return "", errors.New("generate TOTP code: invalid time")
 	}
-	counter := uint64(now / 30)
+	counter := uint64(step)
 	buf := make([]byte, 8)
 	binary.BigEndian.PutUint64(buf, counter)
 
