@@ -102,6 +102,11 @@ uses reads to reconcile and still reports `ErrNotSettled`, with the last
 safe table when available. Read the route table before another write.
 Running the call again builds a fresh replacement from current state.
 
+One credential history covers every read, the write, and reconciliation.
+Route responses suppress captures, and final output and errors are checked
+against every credential observed during the operation. Unsafe partial
+output is withheld without losing the unsettled outcome.
+
 Which `routingType` marks a route the server manages outside a caller's
 control, if any, is not yet confirmed live. Until that is known, a replace
 resends every route this SDK read, so it never silently drops one the

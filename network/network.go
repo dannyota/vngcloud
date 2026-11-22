@@ -364,6 +364,9 @@ func (c *Client) ListAllSecurityGroupRules(ctx context.Context, _ *ListAllSecuri
 		if err != nil {
 			return nil, err
 		}
+		if !validNetworkIdentities("network.ListAllSecurityGroupRules", rules.Items, func(rule SecurityGroupRule) string { return rule.ID }) {
+			return nil, invalidInventory("network.ListAllSecurityGroupRules")
+		}
 		items = append(items, rules.Items...)
 	}
 	out := &ListAllSecurityGroupRulesOutput{Items: items}

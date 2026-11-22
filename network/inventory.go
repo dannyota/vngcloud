@@ -115,3 +115,18 @@ func walkNetworkPages[T any](ctx context.Context, op string, fetch func(int) (*c
 	}
 	return nil, invalidInventory(op)
 }
+
+func validNetworkIdentities[T any](op string, items []T, identity func(T) string) bool {
+	if items == nil {
+		return false
+	}
+	seen := make(map[string]bool, len(items))
+	for _, item := range items {
+		id := identity(item)
+		if core.CheckPathID(op, "resource ID", id) != nil || seen[id] {
+			return false
+		}
+		seen[id] = true
+	}
+	return true
+}

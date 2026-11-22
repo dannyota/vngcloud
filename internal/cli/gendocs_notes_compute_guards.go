@@ -7,7 +7,8 @@ and Size.`
 	for _, op := range []string{"compute list-server-security-groups", "compute list-server-group-members"} {
 		docOpNotes[op] = `Walks every parent page, up to 50 pages and 500000 parent rows. Repeated IDs
 or pages, changing totals, and incomplete inventories return InvalidResponse
-without partial output.`
+without partial output. Child collections must be explicit arrays with valid,
+unique child UUIDs; missing or null arrays fail instead of implying empty.`
 	}
 	docOpNotes["compute reboot-server"] += `
 

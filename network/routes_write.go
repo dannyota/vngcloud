@@ -8,6 +8,7 @@ import (
 	"net/netip"
 
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/floatingip"
 	"danny.vn/vngcloud/internal/transport"
 )
 
@@ -192,7 +193,9 @@ type AddRouteOutput struct {
 // the confirm read did not match, or a read or sleep failed). Once the PUT
 // itself is sent, it is not resent on a rerun; AddRoute simply reads the
 // table again from the start.
-func (c *Client) AddRoute(ctx context.Context, in *AddRouteInput) (*AddRouteOutput, error) {
+func (c *Client) AddRoute(ctx context.Context, in *AddRouteInput) (out *AddRouteOutput, err error) {
+	ctx, _ = floatingip.OperationContext(ctx)
+	defer finishRouteOperation(ctx, "network.AddRoute", &out, &err)
 	const op = "network.AddRoute"
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
@@ -271,7 +274,9 @@ type RemoveRouteOutput struct {
 // which one to drop. Without NoWait, RemoveRoute waits and confirms exactly
 // as AddRoute does; see its doc comment for the wait, the confirm, and
 // rerun safety.
-func (c *Client) RemoveRoute(ctx context.Context, in *RemoveRouteInput) (*RemoveRouteOutput, error) {
+func (c *Client) RemoveRoute(ctx context.Context, in *RemoveRouteInput) (out *RemoveRouteOutput, err error) {
+	ctx, _ = floatingip.OperationContext(ctx)
+	defer finishRouteOperation(ctx, "network.RemoveRoute", &out, &err)
 	const op = "network.RemoveRoute"
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
@@ -344,13 +349,16 @@ func (c *Client) putRoutesAndConfirm(ctx context.Context, op, routeTableID strin
 		return nil, err
 	}
 	req := transport.Request{
-		Operation:  op,
-		Method:     http.MethodPut,
-		URL:        c.networkURL([]string{projectID, "route-table", routeTableID, "routes"}, nil),
-		Body:       routesReplaceBody{Routes: entries},
-		OK:         []int{200},
-		Once:       true,
-		NoRedirect: true,
+		Operation:       op,
+		Method:          http.MethodPut,
+		URL:             c.networkURL([]string{projectID, "route-table", routeTableID, "routes"}, nil),
+		Body:            routesReplaceBody{Routes: entries},
+		OK:              []int{200},
+		Once:            true,
+		NoRedirect:      true,
+		Sensitive:       true,
+		MaxBody:         floatingip.MaxBody,
+		WithholdMessage: "route response withheld",
 	}
 	if sendErr := c.c.DoJSON(ctx, req, nil); sendErr != nil {
 		if is4xxAPIError(sendErr) {

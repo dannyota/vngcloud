@@ -122,6 +122,8 @@ with explicit lists, stable totals, matching page numbers, and unique IDs.
 Malformed, repeated, or incomplete pages cannot confirm deletion or clear
 a subnet guard. Scans stop after 50 pages or 500000 rows. Detail reads
 require matching identity and explicit guard state, including subnet lists.
+Every association must name a nonempty, valid, unique subnet ID. Null or
+invalid association elements block subnet deletion before any DELETE.
 
 ## Rules
 

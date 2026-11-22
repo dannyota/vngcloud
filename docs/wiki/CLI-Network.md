@@ -34,6 +34,9 @@ Sends one replacement PUT without retries, authentication replay, or redirects.
 An ambiguous send reconciles by reading and remains NotSettled; read the table
 before another write.
 
+All requests share one credential history. Responses suppress captures;
+outputs and errors are checked against every observed operation credential.
+
 | Flag | Type | Required |
 |-|-|-|
 | `--route-table-id` | `string` | yes |
@@ -339,6 +342,9 @@ Kind: Write, destructive.
 
 Refuses, before any request, with error code ResourceInUse when a network ACL in the subnet's own VPC still lists it; disassociate the subnet from that ACL first. Also refuses with error code InvalidInput if the subnet read names a VPC other than --vpc-id. After disassociating the subnet from a network ACL, wait about 30 seconds before deleting it, since this command cannot see the ACL's own busy window.
 
+ACL associations require explicit, nonempty, valid, unique subnet IDs.
+Null or invalid association elements cannot authorize subnet deletion.
+
 | Flag | Type | Required |
 |-|-|-|
 | `--vpc-id` | `string` | yes |
@@ -438,6 +444,9 @@ vngcloud network get-endpoint --endpoint-id <endpoint-id> --query Endpoint
 Kind: Read.
 
 Sets DefaultACL, VPCID, Rules, and SubnetIDs; list-network-acls leaves those at their zero value and sets NetworkID and SubnetID instead, which this command leaves empty.
+
+ACL associations require explicit, nonempty, valid, unique subnet IDs.
+Null or invalid association elements cannot authorize subnet deletion.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -540,7 +549,8 @@ Kind: Read.
 
 Walks every parent page, up to 50 pages and 500000 groups. Repeated IDs or
 pages, changing totals, and incomplete inventories return InvalidResponse
-without partial output.
+without partial output. Rule collections must be explicit arrays with valid,
+unique rule IDs; missing or null arrays fail instead of implying empty.
 
 No fields.
 
@@ -970,6 +980,9 @@ Needs --yes on every call: remove-route changes routing for every server behind 
 Sends one replacement PUT without retries, authentication replay, or redirects.
 An ambiguous send reconciles by reading and remains NotSettled; read the table
 before another write.
+
+All requests share one credential history. Responses suppress captures;
+outputs and errors are checked against every observed operation credential.
 
 | Flag | Type | Required |
 |-|-|-|

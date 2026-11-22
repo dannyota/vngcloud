@@ -74,8 +74,14 @@ func Reflects(raw []byte, values []string) bool {
 //nolint:revive // Documentation lives in docs/design/vserver-floating-ips-checks.md.
 func ResponseContext(ctx context.Context) (context.Context, func([]byte) bool, context.CancelFunc) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctx, unsafe := OperationContext(ctx)
+	return ctx, unsafe, cancel
+}
+
+// OperationContext shares bounded credential history without changing operation deadlines.
+func OperationContext(ctx context.Context) (context.Context, func([]byte) bool) {
 	if observe, ok := ctx.Value(observerKey{}).(func(string) ([]string, error)); ok {
-		return ctx, func(raw []byte) bool { values, err := observe(""); return err != nil || Reflects(raw, values) }, cancel
+		return ctx, func(raw []byte) bool { values, err := observe(""); return err != nil || Reflects(raw, values) }
 	}
 	var mu sync.Mutex
 	var values []string
@@ -102,7 +108,7 @@ func ResponseContext(ctx context.Context) (context.Context, func([]byte) bool, c
 		return append([]string(nil), values...), nil
 	}
 	ctx = WithObserver(ctx, observe)
-	return ctx, func(raw []byte) bool { values, err := observe(""); return err != nil || Reflects(raw, values) }, cancel
+	return ctx, func(raw []byte) bool { values, err := observe(""); return err != nil || Reflects(raw, values) }
 }
 
 // ReadJSON applies the shared response bound before capture and checks raw data.

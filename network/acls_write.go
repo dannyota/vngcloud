@@ -185,7 +185,7 @@ func (c *Client) GetNetworkACL(ctx context.Context, in *GetNetworkACLInput) (*Ge
 		OK:        []int{200},
 	}, &resp, "uuid", "status", "defaultAcl", "interfaceNetworkUuid", "subnetAssociationList", "aclPolicyRules")
 	if getErr == nil {
-		if resp.Data.UUID != in.NetworkACLID || resp.Data.Status == "" || resp.Data.VPCID == "" {
+		if resp.Data.UUID != in.NetworkACLID || resp.Data.Status == "" || resp.Data.VPCID == "" || !validNetworkIdentities(op, resp.Data.SubnetIDs, func(id string) string { return id }) {
 			return nil, invalidInventory(op)
 		}
 		return &GetNetworkACLOutput{ACL: resp.Data}, nil

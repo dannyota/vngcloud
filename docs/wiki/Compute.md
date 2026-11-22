@@ -70,7 +70,9 @@ group by name lists and scans for an exact match itself.
 For example, `Offset: 2, Limit: 100` requests items starting at index 2.
 The aggregate reads stop with `InvalidResponse` instead of partial output
 on repeated IDs or pages, changing totals, or an incomplete inventory.
-They scan at most 50 pages and 500000 parent rows.
+They scan at most 50 pages and 500000 parent rows. Each parent must contain
+an explicit child array with nonempty, valid, unique child UUIDs. Missing or
+null child collections fail instead of reporting an empty aggregate.
 
 Server detail reads require the requested UUID. SSH key reads and writes
 suppress response captures and reject reflected bearer credentials. A
