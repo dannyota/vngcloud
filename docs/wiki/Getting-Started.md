@@ -2,9 +2,11 @@
 
 ## Prerequisites
 
-Use Go 1.27.3 or later. Choose credentials that have permission for the read
-you want to make, and select a region. Compute also needs a project: set one
-explicitly when more than one project matches the region.
+Use the Go version required by
+[go.mod](https://github.com/dannyota/vngcloud/blob/master/go.mod) or later.
+Choose credentials that have permission for the read you want to make, and
+select a region. Compute also needs a project: set one explicitly when more
+than one project matches the region.
 
 - For IAM-user login, configure a profile with `vngcloud configure` after
   installing the CLI below. You need the root account email, IAM username,

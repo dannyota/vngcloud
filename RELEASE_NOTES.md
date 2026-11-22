@@ -1,5 +1,13 @@
 # Release Notes
 
+## v0.94.1 - Go security update and quick starts
+
+- Require Go 1.27.4, which fixes
+  [GO-2026-6859](https://pkg.go.dev/vuln/GO-2026-6859). Update the CLI's
+  terminal dependencies and CI tool pins. No CLI or SDK API changes.
+- Lead the README with read-only CLI and Go SDK quick starts. Link to the
+  repository's docs and invite voluntary feedback without adding telemetry.
+
 ## v0.94.0 - Billing history
 
 - Add SDK `billing.ListTransactions` and `billing.ListPayments`, plus
