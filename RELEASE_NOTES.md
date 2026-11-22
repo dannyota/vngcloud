@@ -2,8 +2,6 @@
 
 ## Unreleased
 
-- Breaking: resize output `MonthlyPrice` is now `QuotedAdjustment`, and `PutBucketEncryptionInput.Enabled` is now a required `*bool`. Migrate by renaming field reads and passing a pointer to the intended boolean.
-
 - Harden compute, network, and portal identity, credential, inventory,
   replay, and wait guards. Server-group inputs rename `Page`/`Size` to
   `Offset`/`Limit`; migrate CLI flags to `--offset`/`--limit` and JSON input
@@ -31,6 +29,10 @@
   holder's state. No TOTP step is sent twice: a later login in the same
   30-second step waits for the next one, and only server-rejected logins are
   held for 30 seconds.
+- Breaking: resize outputs rename `MonthlyPrice` to `QuotedAdjustment`, the
+  signed remaining-term quote; CLI JSON and query keys follow.
+  `PutBucketEncryptionInput.Enabled` is a required `*bool`, and nil sends
+  nothing. Rename field reads and pass a pointer to the intended boolean.
 
 ## v0.97.0 - Pre-1.0 hardening
 
