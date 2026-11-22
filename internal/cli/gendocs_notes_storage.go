@@ -41,7 +41,8 @@ const storageDeleteProjectNote = storageProjectIDNote + storageRegionNote + " Ne
 
 const storageProjectIDNote = "`--project-id` is the global flag and takes a vStorage project ID from " +
 	"list-projects, not the account's vServer project: the environment variable and the profile " +
-	"setting do not fill it, and the command exits 2 without the flag. "
+	"setting do not fill it. Give it as --project-id or as ProjectID in --cli-input-json; the command " +
+	"exits 2 without either. "
 
 const storageListBucketsNote = storageProjectIDNote + storageRegionNote + " The API returns every bucket in " +
 	"one call; a response with more fails instead of printing a partial list."
