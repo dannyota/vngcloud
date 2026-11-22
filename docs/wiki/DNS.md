@@ -128,7 +128,9 @@ and reconcile the zone before another write.
 
 `VPCIDs` pointing at a non-nil, empty slice is different from `VPCIDs` left
 `nil`: the empty slice sends an explicit `[]` and detaches every VPC from
-the zone, which then resolves in none of them.
+the zone, which then resolves in none of them. The CLI accepts repeatable
+`--vpc-ids` flags on create and update, overriding JSON. To detach all VPCs,
+use `--cli-input-json '{"VPCIDs":[]}'` without `--vpc-ids`.
 
 ```go
 // Detach every VPC on purpose.

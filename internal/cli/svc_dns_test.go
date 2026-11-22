@@ -82,12 +82,6 @@ func zoneJSON(status, description string, vpcIDs []string) string {
 	return string(b)
 }
 
-// TestDNSCreateHostedZoneEndToEnd drives the real create-hosted-zone command
-// against a fixture vDNS server whose very first confirm read already shows
-// StatusActive, so the SDK's post-write wait settles at once and this test
-// never really sleeps: it checks the POST body VPCIDs (--cli-input-json,
-// since VPCIDs has no flag type) built, and that the settled zone comes back
-// on stdout.
 func TestDNSCreateHostedZoneEndToEnd(t *testing.T) {
 	var body []byte
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
@@ -112,7 +106,8 @@ func TestDNSCreateHostedZoneEndToEnd(t *testing.T) {
 	root.SetArgs([]string{
 		"--region", "hcm-3", "dns", "create-hosted-zone",
 		"--domain-name", "app.internal",
-		"--cli-input-json", `{"VPCIDs":["vpc-1"]}`,
+		"--cli-input-json", `{"VPCIDs":["json"]}`,
+		"--vpc-ids", "vpc-1",
 	})
 	if err := root.ExecuteContext(context.Background()); err != nil {
 		t.Fatalf("create-hosted-zone: %v (stderr=%s)", err, stderr.String())

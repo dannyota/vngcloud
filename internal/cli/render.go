@@ -91,14 +91,45 @@ func renderText(w io.Writer, result any) error {
 	return nil
 }
 
-// renderTable draws flattenRows(result) as a bordered grid, headed by
-// columnHeaders(result).
 func renderTable(w io.Writer, result any) error {
 	source := rowSource(result)
-	headers := columnHeaders(source)
-	rows := flattenRows(source)
-	if arr, ok := source.([]any); ok && len(arr) == 0 {
-		rows = nil
+	items, ok := source.([]any)
+	if !ok {
+		items = []any{source}
+	}
+	keys := make(map[string]bool)
+	for _, item := range items {
+		if m, ok := item.(map[string]any); ok {
+			for key := range m {
+				keys[key] = true
+			}
+		} else {
+			keys["Value"] = true
+		}
+	}
+	if len(keys) == 0 && len(items) == 0 {
+		keys["Value"] = true
+	}
+	columns := make([]string, 0, len(keys))
+	for key := range keys {
+		columns = append(columns, key)
+	}
+	sort.Strings(columns)
+	headers := make([]string, len(columns))
+	for i, key := range columns {
+		headers[i] = escapeControlChars(key)
+	}
+	rows := make([][]string, 0, len(items))
+	for _, item := range items {
+		row := make([]string, len(columns))
+		for i, key := range columns {
+			if m, ok := item.(map[string]any); ok {
+				row[i] = cellText(m[key])
+			} else if key == "Value" {
+				row[i] = cellText(item)
+			}
+		}
+		rows = append(rows, row)
 	}
 
 	widths := make([]int, len(headers))
@@ -200,32 +231,6 @@ func scalarRow(v any) []string {
 		row[i] = cellText(m[k])
 	}
 	return row
-}
-
-// columnHeaders names table's columns: an object's (or a list's first
-// element's) sorted keys, or the single generic column "Value" for a list of
-// scalars or a bare scalar result.
-func columnHeaders(v any) []string {
-	sample := v
-	if arr, ok := v.([]any); ok {
-		if len(arr) == 0 {
-			return []string{"Value"}
-		}
-		sample = arr[0]
-	}
-	m, ok := sample.(map[string]any)
-	if !ok {
-		return []string{"Value"}
-	}
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for i, key := range keys {
-		keys[i] = escapeControlChars(key)
-	}
-	return keys
 }
 
 // cellText renders one decoded JSON value (string, float64, bool, nil, or a

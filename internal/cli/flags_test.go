@@ -25,6 +25,29 @@ type flagsTestInput struct {
 	unexported string         //nolint:unused // proves flagSpecsFor skips unexported fields
 }
 
+func TestPointerSliceFlag(t *testing.T) {
+	type input struct{ Locations *[]string }
+	for _, args := range [][]string{nil, {"--locations", "a", "--locations", "b"}} {
+		var in input
+		specs, err := flagSpecsFor(&in)
+		if err != nil || len(specs) != 1 {
+			t.Fatalf("specs = %v, err = %v", specs, err)
+		}
+		cmd := &cobra.Command{}
+		bound := registerFlags(cmd, specs)
+		if err := cmd.ParseFlags(args); err != nil {
+			t.Fatal(err)
+		}
+		applyChangedFlags(cmd, &in, bound)
+		if len(args) == 0 && in.Locations != nil {
+			t.Fatalf("absent flag set locations: %v", in.Locations)
+		}
+		if len(args) != 0 && (in.Locations == nil || !slices.Equal(*in.Locations, []string{"a", "b"})) {
+			t.Fatalf("locations = %v", in.Locations)
+		}
+	}
+}
+
 func TestFlagSpecsForSkipsUnsupportedAndUnexported(t *testing.T) {
 	specs, err := flagSpecsFor(&flagsTestInput{})
 	if err != nil {

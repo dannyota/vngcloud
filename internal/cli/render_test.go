@@ -125,6 +125,18 @@ func goldenPagedListValue() *goldenPagedList {
 	}
 }
 
+func TestRenderTableHeterogeneousRows(t *testing.T) {
+	var buf bytes.Buffer
+	rows := []any{map[string]any{"a": "first"}, map[string]any{"b": "second"}}
+	if err := renderTable(&buf, rows); err != nil {
+		t.Fatal(err)
+	}
+	want := "+-------+--------+\n| a     | b      |\n+-------+--------+\n| first |        |\n|       | second |\n+-------+--------+\n"
+	if buf.String() != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", buf.String(), want)
+	}
+}
+
 func TestGoldenPagedList(t *testing.T) {
 	v := goldenPagedListValue()
 	checkGolden(t, "paged-list.json.golden", "json", "", v)

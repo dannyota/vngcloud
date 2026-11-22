@@ -753,7 +753,7 @@ Within one SDK client, pause, resume, and update serialize calls for the same ch
 | `--test-frequency` | `*int` |  |
 | `--tests` | `*int` |  |
 | `--failed-locations` | `*int` |  |
-| `Locations` (via `--cli-input-json` only) | `*[]string` |  |
+| `--locations` | `*[]string` |  |
 | `Assertions` (via `--cli-input-json` only) | `*[]monitor.Assertion` |  |
 | `Notifications` (via `--cli-input-json` only) | `*monitor.CheckNotifications` |  |
 
@@ -784,8 +784,8 @@ Refuses a NaN or infinite --threshold-value, and --query-string set without an i
 | `--group-by-field` | `*string` |  |
 | `--agg-field` | `*string` |  |
 | `--agg-type` | `*string` |  |
-| `InAlarm` (via `--cli-input-json` only) | `*[]string` |  |
-| `OK` (via `--cli-input-json` only) | `*[]string` |  |
+| `--in-alarm` | `*[]string` |  |
+| `--ok` | `*[]string` |  |
 | `Resend` (via `--cli-input-json` only) | `*monitor.LogAlarmResend` |  |
 
 ```sh

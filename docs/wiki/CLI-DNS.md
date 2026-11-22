@@ -11,12 +11,12 @@ Polling requests and sleeps share the earlier caller or 60-second operation dead
 | Flag | Type | Required |
 |-|-|-|
 | `--domain-name` | `string` | yes |
-| `VPCIDs` (via `--cli-input-json` only) | `[]string` | yes |
+| `--vpc-ids` | `[]string` | yes |
 | `--description` | `string` |  |
 | `--no-wait` | `bool` |  |
 
 ```sh
-vngcloud dns create-hosted-zone --domain-name <domain-name> --cli-input-json '{"VPCIDs":["<vpc-id>"]}'
+vngcloud dns create-hosted-zone --domain-name <domain-name> --vpc-ids <vpc-ids>
 ```
 
 ## create-record
@@ -134,7 +134,7 @@ Reads the requested zone before replacing its description and VPC list. The snap
 | Flag | Type | Required |
 |-|-|-|
 | `--hosted-zone-id` | `string` | yes |
-| `VPCIDs` (via `--cli-input-json` only) | `*[]string` |  |
+| `--vpc-ids` | `*[]string` |  |
 | `--description` | `*string` |  |
 | `--no-wait` | `bool` |  |
 

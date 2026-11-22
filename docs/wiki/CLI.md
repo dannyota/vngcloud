@@ -130,3 +130,4 @@ A flag or operation name the mechanical kebab-case conversion would otherwise ge
 | `SecurityGroupIDs` | `security-group-id` |
 | `SetVPCDHCPOptions` | `set-vpc-dhcp-options` |
 | `VPCID` | `vpc-id` |
+| `VPCIDs` | `vpc-ids` |

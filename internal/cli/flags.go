@@ -69,12 +69,6 @@ type flagSpec struct {
 	isPointer  bool
 }
 
-// flagSpecsFor reflects over the struct inputPtr points to and returns one
-// flagSpec per exported field of a supported type: string, int, int64,
-// float64, bool, or a pointer to one of those, plus []string, which gets a
-// repeatable flag rather than a pointer variant. Every other field type (a
-// map, for example) is skipped; it is only ever set through
-// --cli-input-json.
 func flagSpecsFor(inputPtr any) ([]flagSpec, error) {
 	v := reflect.ValueOf(inputPtr)
 	if v.Kind() != reflect.Pointer || v.IsNil() || v.Elem().Kind() != reflect.Struct {
@@ -140,16 +134,6 @@ func withoutNoFlag(specs []flagSpec, noFlag map[string]bool) []flagSpec {
 	return kept
 }
 
-// supportedFieldKind reports the primitive kind flags.go binds for t: t's own
-// kind for string, int, int64, float64, or bool, or the pointed-to kind for a
-// pointer to one of those; reflect.Slice for []string, which never has a
-// pointer variant since an Input never needs to tell "no flags given" apart
-// from "flag given with zero values" for a repeatable field. ok is false for
-// any other type, including vngcloud.Secret (or a pointer to it): giving a
-// Secret field a flag would put a private value on argv, where ps and shell
-// history keep it, so it is treated the same as an unsupported type such as
-// a map, settable only through --cli-input-json if at all; applyCLIInputJSON
-// (input.go) refuses it there too.
 func supportedFieldKind(t reflect.Type) (kind reflect.Kind, isPointer bool, ok bool) {
 	if isSecretFieldType(t) {
 		return 0, false, false
@@ -162,6 +146,9 @@ func supportedFieldKind(t reflect.Type) (kind reflect.Kind, isPointer bool, ok b
 			return reflect.Slice, false, true
 		}
 	case reflect.Pointer:
+		if t.Elem().Kind() == reflect.Slice && t.Elem().Elem().Kind() == reflect.String {
+			return reflect.Slice, true, true
+		}
 		switch t.Elem().Kind() {
 		case reflect.String, reflect.Int, reflect.Int64, reflect.Float64, reflect.Bool:
 			return t.Elem().Kind(), true, true
@@ -213,7 +200,7 @@ func registerFlags(cmd *cobra.Command, specs []flagSpec) []boundFlag {
 			// StringArrayVar, not StringSliceVar: the latter splits each
 			// occurrence on a comma, which would silently break a value (a
 			// security group ID, say) that happens to contain one.
-			cmd.Flags().StringArrayVar(b.strsv, spec.flagName, nil, "")
+			cmd.Flags().StringArrayVar(b.strsv, spec.flagName, nil, "Repeat for each value; use --cli-input-json for an empty list")
 		}
 		bound[i] = b
 	}
@@ -243,7 +230,7 @@ func applyChangedFlags(cmd *cobra.Command, target any, bound []boundFlag) {
 		case reflect.Bool:
 			setFieldValue(field, b.spec.isPointer, reflect.ValueOf(*b.boolv))
 		case reflect.Slice:
-			field.Set(reflect.ValueOf(*b.strsv))
+			setFieldValue(field, b.spec.isPointer, reflect.ValueOf(*b.strsv))
 		}
 	}
 }

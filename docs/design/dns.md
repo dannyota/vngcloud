@@ -278,8 +278,9 @@ and `ErrFailed` never occur then.
 - Scalar fields are flags: `--domain-name`, `--description`,
   `--hosted-zone-id`, `--record-id`, `--sub-domain`, `--type`, `--ttl`,
   `--routing-policy`, `--sticky-session`, `--no-wait`.
-- `VPCIDs` and `Values` are slices, so they come through `--cli-input-json`,
-  as vMonitor's `Locations` do. An MX record:
+- `VPCIDs` is a repeatable `--vpc-ids` flag; `--cli-input-json` also sets
+  it, and a flag overrides the JSON value. `Values` holds objects, so it
+  comes through `--cli-input-json`. An MX record:
 
 ```sh
 vngcloud dns create-record --hosted-zone-id <id> --type MX \
