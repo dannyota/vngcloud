@@ -191,7 +191,7 @@ func TestDeleteBucketRejectsMismatchedName(t *testing.T) {
 
 func TestDeleteProjectRejectsUnsupportedPagination(t *testing.T) {
 	for _, stage := range []string{"projects", "buckets"} {
-		for _, marker := range []string{`"hasMore":true`, `"HASMORE":true`, `"nextPage":1`, `"next":"token"`, `"total":2`, `"totalItems":2`, `"TOTALITEMS":2`, `"unexpected":true`, `"UNEXPECTED":true`} {
+		for _, marker := range []string{`"hasMore":true`, `"HASMORE":true`, `"nextPage":1`, `"next":"token"`, `"total":2`, `"totalItems":2`, `"TOTALITEMS":2`, `"unexpected":true`, `"UNEXPECTED":true`, `"İsNext":true`} {
 			t.Run(stage+"/"+marker, func(t *testing.T) {
 				s := &projectWriteServer{before: projectList(newProjectJSON), buckets: `{"success":true,"datas":[]}`}
 				if stage == "projects" {

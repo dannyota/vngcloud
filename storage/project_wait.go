@@ -67,6 +67,13 @@ func validateDeletionListFields(op string, raw json.RawMessage, projects bool) e
 	if json.Unmarshal(raw, &fields) != nil || fields == nil {
 		return projectResponseError(op, "list has invalid envelope")
 	}
+	for key := range fields {
+		for i := 0; i < len(key); i++ {
+			if key[i] >= 0x80 {
+				return projectResponseError(op, "list has unsupported envelope field")
+			}
+		}
+	}
 	var status struct {
 		Success *bool `json:"success"`
 	}
