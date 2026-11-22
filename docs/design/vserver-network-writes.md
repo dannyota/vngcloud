@@ -192,9 +192,9 @@ are read-merge writes:
      nothing sent. Same destination, other target: `ErrInvalidInput`
      naming the current target, nothing sent. Remove the old route first.
    - Remove, no route with that destination: `NotFound`, nothing sent.
-4. Send the list, then wait for `ACTIVE`, and confirm that the user routes
-   read equal the list sent. A mismatch is `ErrNotSettled`, whose message
-   says another writer may have changed the table.
+4. Send the list once, never replaying an ambiguous send; wait for
+   `ACTIVE`; confirm the user routes read equal the list sent. A mismatch
+   is `ErrNotSettled`: another writer may have changed the table.
 
 The API has no condition field, so two writers can lose an update between
 steps 1 and 4; the confirm read in step 4 reports it. A rerun is safe:
@@ -231,7 +231,7 @@ then the wiki shows `TCP` and `UDP` rules with explicit ports.
 
 ### Rules replace
 
-`PUT .../rules` replaces the whole list, sent `Once` unlike a routes
+`PUT .../rules` replaces the whole list and is sent `Once`, like a routes
 replace. Add and remove otherwise follow [Routes replace](#routes-replace):
 
 - A rule is keyed by direction (case-insensitive) and priority. Add with
