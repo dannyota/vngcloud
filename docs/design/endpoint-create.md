@@ -1,6 +1,6 @@
 # Create and delete an hcm-3 private endpoint
 
-Status: Proposed with the owner decisions below. Ship quote, create, and
+Status: Accepted with the owner decisions below. Ship quote, create, and
 delete together for one vStorage endpoint on the Standard package and an
 existing HCM03-1C subnet. The [API evidence](network-endpoints-api.md#recorded-hcm-3-create-and-delete-probe)
 records a live create and delete. This slice narrows the
@@ -133,8 +133,9 @@ catalog and picker reads are private in this slice.
    price lock. A quote is not proof of prepaid term, payment, or refund.
 5. Send one POST to the endpoint collection. Accept only HTTP 201 with
    `code: 0`, `success: true`, `data.uuid` of `enp-<uuid>` form, and
-   `data.name` equal to the requested name. A 4xx is a definitive refusal
-   with fixed SDK text and nil output. Any other 2xx, a reply whose name
+   `data.name` equal to the requested name. A definitive 4xx refusal returns
+   fixed SDK text and nil output; 408 or any response that cannot rule out
+   execution returns `ErrNotSettled`. Any other 2xx, a reply whose name
    differs, or an ID already in the baseline is `ErrNotSettled` with no ID
    reported as created. Never resend or adopt a candidate from a name.
 6. Wait for the returned ID in the complete scoped list: it must be absent
