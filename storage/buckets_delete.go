@@ -92,7 +92,8 @@ func (c *Client) DeleteBucket(ctx context.Context, in *DeleteBucketInput) (*Dele
 		once:     true,
 	}); err != nil {
 		var api *core.APIError
-		if !errors.As(err, &api) || (!api.Retryable && (api.StatusCode == 0 || api.StatusCode/100 != 4)) {
+		if !errors.As(err, &api) || (!api.Retryable && api.StatusCode/100 != 4 &&
+			(api.StatusCode != http.StatusOK || !projectRefusalCode(api.Code))) {
 			return nil, projectUnsettled(op, err, "The delete may have happened; read the bucket before any further action, do not send DELETE again.")
 		}
 		return nil, err

@@ -155,8 +155,8 @@ and a decode error never quotes its body. `--debug` already logs no body.
   the error names `get-bucket`, and the create can be rerun.
 - `CreateS3Key`, `AttachS3Key`, and `DetachS3Key` set `Once`; see
   [key retries](storage-keys.md#retries).
-- Other deletes and puts keep the transport's retries. A retried bucket
-  delete that finds nothing returns `NotFound`.
+- `DeleteBucket` sets `Once` (see [Delete bucket](#delete-bucket)). Other
+  deletes and puts keep the transport's retries.
 
 ### Delete bucket
 

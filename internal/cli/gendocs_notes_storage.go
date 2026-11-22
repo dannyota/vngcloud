@@ -32,7 +32,9 @@ const storageCreateProjectNote = storageRegionNote + " Requires `--name`, `--typ
 	"`vngcloud storage create-project --region hcm-3 --name backups --type Gold --quota-gb 30 --max-price 30000`."
 
 const storageDeleteProjectNote = storageProjectIDNote + storageRegionNote + " Needs `--yes`. " +
-	"Refuses a project that still has buckets with `ProjectNotEmpty` (exit 1). Stop bucket writers first. " +
+	"Refuses a project that still has buckets with `ProjectNotEmpty` (exit 1). " +
+	"An explicitly null isNext marker in either list blocks deletion; omission or false remains valid. " +
+	"Stop bucket writers first. " +
 	"The unused value is refunded to the balance. Sends one DELETE and never retries. " +
 	"`--no-wait` skips removal polling. On `NotSettled` (exit 1), list projects in the same region " +
 	"and inspect billing before another attempt."
@@ -65,7 +67,8 @@ const storageDeleteBucketNote = storageProjectIDNote + storageRegionNote + " Nee
 	"`BucketNotEmpty` (exit 1), sending nothing; empty the bucket with an S3 client, then run it again. " +
 	"A null object count is refused the same way. Stop all writers first: the server deletes contents too. " +
 	"There is no force option. DELETE sends once without retries, auth resends, or redirects. " +
-	"An ambiguous result is NotSettled: read with get-bucket, never resend DELETE. The server deletes " +
+	"An ambiguous result is NotSettled: read with get-bucket, never resend DELETE. " +
+	"A validated HTTP-200 refusal with envelope code 404 remains NotFound (exit 4). The server deletes " +
 	"asynchronously, so the command then reads the bucket every second for up to 30 seconds and returns when " +
 	"it is gone; `--no-wait` skips the wait and returns once the server accepts the delete. If the bucket is " +
 	"still readable when the wait ends, the error code is `NotSettled` (exit 1): the delete was accepted, so " +

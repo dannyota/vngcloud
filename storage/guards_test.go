@@ -62,6 +62,69 @@ func TestDeleteBucketSendsOnceAfterAuthFailure(t *testing.T) {
 	}
 }
 
+func TestDeleteBucketEnvelopeRefusalIsDefinite(t *testing.T) {
+	for _, tc := range []struct {
+		code int
+		want error
+	}{
+		{112, core.ErrInvalidInput},
+		{114, nil},
+		{403, core.ErrPermission},
+		{404, core.ErrNotFound},
+		{429, core.ErrRateLimited},
+	} {
+		t.Run(strconv.Itoa(tc.code), func(t *testing.T) {
+			var deletes, reads atomic.Int32
+			h := serve(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet {
+					reads.Add(1)
+					_, _ = w.Write([]byte(presentBody))
+					return
+				}
+				deletes.Add(1)
+				_, _ = w.Write([]byte(`{"success":false,"code":` + strconv.Itoa(tc.code) + `,"errorMsg":"refused"}`))
+			})
+			_, err := newTestClient(t, h).DeleteBucket(context.Background(), &DeleteBucketInput{ProjectID: "proj-1", Bucket: "my-bucket"})
+			var api *core.APIError
+			if !errors.As(err, &api) || api.StatusCode != 200 || api.Code != strconv.Itoa(tc.code) || errors.Is(err, ErrNotSettled) {
+				t.Fatalf("error = %v, want the definite envelope refusal", err)
+			}
+			if tc.want != nil && !errors.Is(err, tc.want) {
+				t.Fatalf("error = %v, want %v", err, tc.want)
+			}
+			if deletes.Load() != 1 || reads.Load() != 1 {
+				t.Fatalf("deletes = %d, reads = %d, want one each", deletes.Load(), reads.Load())
+			}
+		})
+	}
+}
+
+func TestDeleteBucketMalformedRefusalIsUncertain(t *testing.T) {
+	for _, body := range []string{
+		`{"code":404}`,
+		`{"success":null,"code":404}`,
+		`{"success":false,"code":null}`,
+		`{"success":false,"code":{}}`,
+		`{"success":false,"code":503}`,
+		`{"success":true,"success":false,"code":404}`,
+		`{"success":false,"code":409,"CODE":404}`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			h := serve(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet {
+					_, _ = w.Write([]byte(presentBody))
+					return
+				}
+				_, _ = w.Write([]byte(body))
+			})
+			_, err := newTestClient(t, h).DeleteBucket(context.Background(), &DeleteBucketInput{ProjectID: "proj-1", Bucket: "my-bucket", NoWait: true})
+			if !errors.Is(err, ErrNotSettled) {
+				t.Fatalf("error = %v, want uncertainty", err)
+			}
+		})
+	}
+}
+
 func TestDeleteProjectRequiresExplicitUnambiguousLists(t *testing.T) {
 	for _, body := range []string{
 		`{"success":true}`,
@@ -77,6 +140,40 @@ func TestDeleteProjectRequiresExplicitUnambiguousLists(t *testing.T) {
 			_, err := newTestClient(t, s.handler(t)).DeleteProject(context.Background(), &DeleteProjectInput{ProjectID: "new-1", NoWait: true})
 			if err == nil || s.deletes != 0 {
 				t.Fatalf("error = %v, deletes = %d", err, s.deletes)
+			}
+		})
+	}
+}
+
+func TestDeleteProjectRejectsNullPagination(t *testing.T) {
+	for _, stage := range []string{"projects", "buckets"} {
+		for _, key := range []string{"isNext", "ISNEXT"} {
+			t.Run(stage+"/"+key, func(t *testing.T) {
+				s := &projectWriteServer{before: projectList(newProjectJSON), buckets: `{"success":true,"datas":[]}`}
+				if stage == "projects" {
+					s.before = strings.TrimSuffix(s.before, "}") + `,"` + key + `": null}`
+				} else {
+					s.buckets = strings.TrimSuffix(s.buckets, "}") + `,"` + key + `": null}`
+				}
+				_, err := newTestClient(t, s.handler(t)).DeleteProject(context.Background(), &DeleteProjectInput{ProjectID: "new-1", NoWait: true})
+				if err == nil || s.deletes != 0 {
+					t.Fatalf("error = %v, deletes = %d, want an error and no DELETE", err, s.deletes)
+				}
+			})
+		}
+	}
+}
+
+func TestDeleteProjectAcceptsOmittedOrFalsePagination(t *testing.T) {
+	for _, marker := range []string{"", `,"isNext":false`} {
+		t.Run(marker, func(t *testing.T) {
+			s := &projectWriteServer{
+				before:  strings.TrimSuffix(projectList(newProjectJSON), "}") + marker + "}",
+				buckets: `{"success":true,"datas":[]` + marker + "}",
+			}
+			_, err := newTestClient(t, s.handler(t)).DeleteProject(context.Background(), &DeleteProjectInput{ProjectID: "new-1", NoWait: true})
+			if err != nil || s.deletes != 1 {
+				t.Fatalf("error = %v, deletes = %d, want one accepted DELETE", err, s.deletes)
 			}
 		})
 	}

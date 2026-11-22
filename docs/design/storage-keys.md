@@ -210,9 +210,10 @@ The SDK and CLI storage pages state:
 
 - `CreateS3Key` sets `Once`: it is sent once, with no retry, no resend
   after a 401, and no redirect. After a 5xx, a network error, or a
-  response that fails to decode, the error says a key may exist: list the
-  keys and delete any `UserKeyID` the caller does not know, since it has
-  lost its secret. A 4xx `*APIError` passes through unchanged. The SDK
+  response that fails to decode, the error says a key may exist: compare
+  the key list with a baseline taken before the call and confirm ownership
+  before deleting anything; never delete a key only because it is unknown.
+  A 4xx `*APIError` passes through unchanged. The SDK
   lists nothing itself: a key another client made at the same time would
   look the same.
 - `AttachS3Key` and `DetachS3Key` set `Once`, because the transport treats

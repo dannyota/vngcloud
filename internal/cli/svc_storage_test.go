@@ -352,6 +352,21 @@ func TestStorageDeleteBucketNoWaitSkipsThePoll(t *testing.T) {
 	}
 }
 
+func TestStorageDeleteBucketEnvelopeRefusalExitsFour(t *testing.T) {
+	var deletes atomic.Int32
+	routes := map[string]func(http.ResponseWriter, *http.Request){
+		"/internal/v1/ceph/projects/proj-s1/bucket-a/details": jsonHandler(http.StatusOK, `{"success":true,"data":{"name":"bucket-a","count":0}}`),
+		"/internal/v1/ceph/projects/proj-s1/buckets/bucket-a": func(w http.ResponseWriter, r *http.Request) {
+			deletes.Add(1)
+			jsonHandler(http.StatusOK, `{"success":false,"code":404,"errorMsg":"not found"}`)(w, r)
+		},
+	}
+	r := runStorage(t, routes, "--project-id", "proj-s1", "--yes", "storage", "delete-bucket", "--bucket", "bucket-a")
+	if r.err == nil || exitCode(r.err) != 4 || classify(r.err).Code != "NotFound" || deletes.Load() != 1 {
+		t.Fatalf("error = %v, exit = %d, code = %s, deletes = %d", r.err, exitCode(r.err), classify(r.err).Code, deletes.Load())
+	}
+}
+
 func TestStorageDeleteBucketWaitSettlesAfterOneStillPresentRead(t *testing.T) {
 	var writes []string
 	var reads atomic.Int32

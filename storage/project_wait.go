@@ -30,10 +30,10 @@ func (c *Client) completeProjects(ctx context.Context, op, id string) ([]project
 		op: op, method: http.MethodGet, regionID: id, ok: []int{http.StatusOK},
 		url: c.route([]string{"projects"}, nil),
 		validate: func(raw json.RawMessage) error {
-			if jsonresponse.Validate(raw) != nil {
+			if jsonresponse.ValidateStrict(raw, (*envelope)(nil)) != nil {
 				return projectResponseError(op, "list is null or malformed")
 			}
-			return nil
+			return validateProjectPagination(op, raw)
 		},
 	})
 	if err != nil {
@@ -55,6 +55,22 @@ func (c *Client) completeProjects(ctx context.Context, op, id string) ([]project
 		result = append(result, projectRecord{project: p, fields: fields})
 	}
 	return result, nil
+}
+
+func validateProjectPagination(op string, raw json.RawMessage) error {
+	var page struct {
+		IsNext json.RawMessage `json:"isNext"`
+	}
+	if json.Unmarshal(raw, &page) != nil {
+		return projectResponseError(op, "list has invalid pagination")
+	}
+	if len(page.IsNext) != 0 {
+		var next *bool
+		if json.Unmarshal(page.IsNext, &next) != nil || next == nil {
+			return projectResponseError(op, "list has invalid pagination")
+		}
+	}
+	return nil
 }
 
 func completeProjectList(op string, env *envelope) ([]json.RawMessage, error) {

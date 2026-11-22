@@ -165,6 +165,9 @@ removes contents and does not enforce emptiness. The read proves emptiness
 only at that moment. DELETE sends once, without retries, authentication
 resends, or redirects. An ambiguous send returns `storage.ErrNotSettled`:
 read with `GetBucket` to reconcile it, and do not send DELETE again.
+HTTP-200 refusals with code 112, 114, or 400 through 499 retain their API
+error without `storage.ErrNotSettled`. Code 404 remains
+`vngcloud.ErrNotFound`, with CLI exit 4.
 
 The server answers a delete before the bucket is gone. For about a second
 after the `DELETE`, `GetBucket` and `ListBuckets` can still show the bucket,
