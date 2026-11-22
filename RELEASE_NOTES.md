@@ -9,21 +9,13 @@
   route operations retain credential history and reject unsafe output. Invalid
   ACL associations block subnet deletion. NAT errors retain safe causes and
   uncertain reboot recovery uses reads.
-- Load balancer member writes remerge fresh state after busy refusals and
-  never replay ambiguous replacements. Waits enforce deadlines; `NoWait`
-  outputs include submitted fields. CDN writes reject missing status or
-  mismatched identity in detail responses.
-- Harden Monitor order replay, price guards, credential withholding, name
-  searches, check concurrency, and waits. Reject ambiguous quote/alarm fields;
-  preserve ordinary check data. Error redaction uses `[redacted]`. SDK fields
-  and CLI flags stay compatible.
-
-## v0.97.0 - Pre-1.0 hardening
-
 - Harden billing and pricing responses: withhold credential echoes, reject
   malformed data and inexact amounts, and retain observed error statuses.
   Budget writes cap replies at 8 MiB and send once; budgets and quotes refuse
   redirects. Reconcile unconfirmed budget changes before retrying.
+
+## v0.97.0 - Pre-1.0 hardening
+
 - Load balancer member writes remerge fresh state after busy refusals and
   never replay ambiguous replacements. Waits enforce deadlines; `NoWait`
   outputs include submitted fields. CDN writes reject missing status or
