@@ -422,12 +422,13 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 	if err != nil {
 		return usageError{msg: err.Error()}
 	}
+	presence := make(map[string]bool)
 	if op.estimate {
 		if err := applyEstimateInputJSON(rawJSON, input.(*pricing.EstimateInput)); err != nil {
 			return err
 		}
 	} else {
-		if err := applyCLIInputJSON(rawJSON, input); err != nil {
+		if err := applyCLIInputJSON(rawJSON, input, presence); err != nil {
 			return err
 		}
 	}
@@ -451,7 +452,11 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 	// not of the profile, so it is refused the same way regardless of
 	// read-only, and always before any request.
 	if op.kind == kindWrite && op.guard != nil {
-		if err := op.guard(cmd, input); err != nil {
+		originalContext := cmd.Context()
+		cmd.SetContext(context.WithValue(originalContext, inputPresenceKey{}, presence))
+		err := op.guard(cmd, input)
+		cmd.SetContext(originalContext)
+		if err != nil {
 			return err
 		}
 	}

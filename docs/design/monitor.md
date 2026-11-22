@@ -432,8 +432,8 @@ A `Monitor` SDK wiki page covers per-account scope, `Changed`,
    alerts nobody until [vMonitor Alerts](monitor-alerts.md) adds
    `Notifications` and `UpdateCheck`.
 7. Approved: check headers and bodies print unredacted in CLI output.
-8. Approved: `Locations`, `Headers`, `Query`, and `Assertions` go through
-   `--cli-input-json`, with no new CLI flag types.
+8. Approved: `Locations` is a repeatable flag; `Headers`, `Query`, and
+   `Assertions` go through `--cli-input-json`.
 9. Approved: four confirm reads over about 7 seconds.
 
 ## Open questions

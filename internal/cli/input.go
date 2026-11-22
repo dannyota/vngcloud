@@ -13,6 +13,8 @@ import (
 // so a mistakenly huge file cannot exhaust memory decoding an Input.
 const maxCLIInputJSONSize = 1 << 20 // 1 MiB
 
+type inputPresenceKey struct{}
+
 // applyCLIInputJSON decodes raw into target, which must be a pointer to an
 // Input struct. raw is either a literal JSON object or, prefixed with
 // file://, a path read from disk (capped at maxCLIInputJSONSize). Keys are
@@ -24,7 +26,7 @@ const maxCLIInputJSONSize = 1 << 20 // 1 MiB
 // closing brace) or two concatenated objects fails loudly instead of the
 // first value winning silently. An empty raw is a no-op, so a command with no
 // --cli-input-json flag simply skips this step.
-func applyCLIInputJSON(raw string, target any) error {
+func applyCLIInputJSON(raw string, target any, presence ...map[string]bool) error {
 	if raw == "" {
 		return nil
 	}
@@ -75,6 +77,11 @@ func applyCLIInputJSON(raw string, target any) error {
 	finalDec.DisallowUnknownFields()
 	if err := finalDec.Decode(target); err != nil {
 		return newUsageError("--cli-input-json: %s", err)
+	}
+	if len(presence) > 0 {
+		for key, value := range fields {
+			presence[0][key] = string(value) != "null"
+		}
 	}
 	return nil
 }

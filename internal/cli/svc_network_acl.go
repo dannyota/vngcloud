@@ -1,10 +1,6 @@
 package cli
 
-import (
-	"encoding/json"
-
-	"github.com/spf13/cobra"
-)
+import "github.com/spf13/cobra"
 
 // requireYesForACLChange returns the Guard for add-network-acl-rule,
 // associate-network-acl-subnet, and disassociate-network-acl-subnet
@@ -39,18 +35,6 @@ func requireYesAndPriorityToRemoveACLRule(cmd *cobra.Command, _ any) error {
 }
 
 func cliInputJSONHasKey(cmd *cobra.Command, key string) bool {
-	raw, err := cmd.Flags().GetString("cli-input-json")
-	if err != nil || raw == "" {
-		return false
-	}
-	data, err := cliInputJSONBytes(raw)
-	if err != nil {
-		return false
-	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(data, &fields); err != nil {
-		return false
-	}
-	value, ok := fields[key]
-	return ok && string(value) != "null"
+	presence, _ := cmd.Context().Value(inputPresenceKey{}).(map[string]bool)
+	return presence[key]
 }

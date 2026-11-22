@@ -7,6 +7,8 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -87,6 +89,38 @@ func TestPrivacyACLNullSendsNothing(t *testing.T) {
 	}
 }
 
+func TestACLInputFileChangedBeforeGuard(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "input.json")
+	if err := os.WriteFile(path, []byte(`{"Priority":null}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	fixture := newSvcFixture(nil)
+	idx := -1
+	for i := range networkOps {
+		if networkOps[i].name == "remove-network-acl-rule" {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		t.Fatal("missing operation")
+	}
+	original := networkOps[idx].guard
+	networkOps[idx].guard = func(cmd *cobra.Command, in any) error {
+		if err := os.WriteFile(path, []byte(`{"Priority":10}`), 0600); err != nil {
+			t.Fatal(err)
+		}
+		return original(cmd, in)
+	}
+	root, _, _ := newSvcRoot(t, fixture)
+	networkOps[idx].guard = original
+	root.SetArgs([]string{"--region", "hcm-3", "--project-id", "proj-1", "--yes", "network", "remove-network-acl-rule", "--network-acl-id", "acl-1", "--direction", "inbound", "--cli-input-json", "file://" + path})
+	err := root.ExecuteContext(context.Background())
+	if err == nil || exitCode(err) != 2 || fixture.requestCount() != 0 {
+		t.Fatalf("err=%v requests=%d", err, fixture.requestCount())
+	}
+}
+
 func TestPrivacyACLPriorityNull(t *testing.T) {
 	for _, tc := range []struct {
 		input string
@@ -96,6 +130,12 @@ func TestPrivacyACLPriorityNull(t *testing.T) {
 		cmd.Flags().Int("priority", 0, "")
 		cmd.Flags().Bool("yes", true, "")
 		cmd.Flags().String("cli-input-json", tc.input, "")
+		presence := make(map[string]bool)
+		var input struct{ Priority int }
+		if err := applyCLIInputJSON(tc.input, &input, presence); err != nil {
+			t.Fatal(err)
+		}
+		cmd.SetContext(context.WithValue(context.Background(), inputPresenceKey{}, presence))
 		err := requireYesAndPriorityToRemoveACLRule(cmd, nil)
 		if (err == nil) != tc.valid {
 			t.Errorf("input %s: %v", tc.input, err)
