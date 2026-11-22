@@ -14,7 +14,7 @@ Every write API needs tests for its request body, success response, and each doc
 
 |Change|Check|
 |-|-|
-|Every commit, including docs|`make check`: `go test -race ./...`, `go vet ./...`, `golangci-lint run ./...`, and `bash scripts/check-lengths.sh`|
+|Every commit, including docs|`make check`: race tests, vet, lint, lengths, workflow policy and Wiki publication regressions, and script tests|
 |Any Go change|`make check` and the contract's focused checks|
 |Model or decoding change|SDK decode test using a sanitized raw fixture in `testdata/`|
 |Public API change|Matching wiki page; breaking changes also update `RELEASE_NOTES.md`, per [documentation](documentation.md#public-surface-and-wiki)|
@@ -38,9 +38,9 @@ CI runs for every PR targeting master, every master push, and manual dispatch, i
 |Tools|`.tool-versions`, `go.mod`, `go.sum`, workflows, `scripts/tools-outdated.sh`, `scripts/test-tools-outdated.py`, `scripts/check-workflow-pins.py`, `scripts/test-ci-workflows.py`|Weekly schedule and manual|
 |Wiki|`docs/wiki/**`, `scripts/wiki-sync.sh`, `scripts/test-wiki-publication.py`, `.github/workflows/wiki.yml`, `scripts/ci-evidence.py`, `scripts/test-ci-evidence.py`|Manual read-only preview|
 
-Wiki runs only read-only dry-runs for every event. CI also retains an unconditional Wiki preview. Publication is disabled while the validated-current-master publication gate is absent. No manual publishing fallback is allowed.
+CI publishes the Wiki from current master after `CI required` succeeds. The `Wiki publish` job checks the checkout against the event SHA and the Go job's tested SHA, uses the master-only `wiki` environment, and alone receives job-scoped `contents: write`. It serializes publication and checks public master before cloning and immediately before pushing. Every other event previews; the separate Wiki workflow always renders a read-only preview, and CI retains its unconditional preview. Manual publishing is forbidden.
 
-Run `make ci-workflows-check` for offline regression tests and `actionlint .github/workflows/{ci,codeql,tools,wiki}.yml` with the manager-provided tool for YAML and Actions syntax validation. Tests cover trigger paths, SHA pins and version comments, exact permissions, checkout credentials, fork token controls, exact-head assertions, aggregate failure and skipped-job results, and the disabled publication policy. These checks do not prove GitHub event delivery, CodeQL uploads, or ruleset enforcement. The manager proves real PR and master runs, deliberate red runs, and settings separately under the [manual evidence procedure](workflow.md#manual-ci-evidence). Validation concurrency preserves each independent run and attempt; only the manager cancels superseded heads after checking their SHAs.
+Run `make ci-workflows-check` for offline regression tests and `actionlint` from the worktree root with the manager-provided tool for YAML and Actions syntax validation. `python3 scripts/test-ci-workflows.py` covers trigger paths, SHA pins and version comments, exact permissions, checkout credentials, fork token controls, exact-head assertions, aggregate failure and skipped-job results, and the sole gated publisher. `python3 scripts/test-wiki-publication.py` uses a Git stub to reject invalid source SHAs and stale or moving master without pushing, verify source and run provenance, and prevent credential leaks. These checks do not prove GitHub event delivery, publication, CodeQL uploads, or ruleset enforcement. The manager proves real PR and master runs, deliberate red runs, and settings separately under the [manual evidence procedure](workflow.md#manual-ci-evidence). Validation concurrency preserves each independent run and attempt; only the manager cancels superseded heads after checking their SHAs.
 
 ## Live verification
 

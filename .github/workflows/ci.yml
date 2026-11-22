@@ -1,8 +1,5 @@
 name: CI
 
-# Mandatory jobs run in parallel.
-# Tool versions come from .tool-versions; scripts/tools-outdated.sh and the
-# Tools workflow keep them current.
 on:
   pull_request:
     branches: [master]
@@ -18,8 +15,6 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Own cache: race builds differ from the lint and security jobs' builds,
-  # which would otherwise win the shared setup-go cache key.
   go:
     outputs:
       tested_sha: ${{ steps.identity.outputs.tested_sha }}
@@ -54,6 +49,8 @@ jobs:
           restore-keys: go-race-
       - name: Workflow policy regressions
         run: python3 scripts/test-ci-workflows.py
+      - name: Wiki publication regressions
+        run: python3 scripts/test-wiki-publication.py
       - run: go test -race ./...
       - if: ${{ !cancelled() }}
         run: go vet ./... && go vet -tags live ./... && go vet -tags livewrite ./...
@@ -109,8 +106,6 @@ jobs:
         with:
           version: ${{ env.GOLANGCI_LINT }}
 
-  # go install verifies each tool against the Go checksum database. The built
-  # binaries are cached per version, so most runs skip the build.
   security:
     outputs:
       tested_sha: ${{ steps.identity.outputs.tested_sha }}
@@ -121,7 +116,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-          fetch-depth: 0 # gitleaks scans full history
+          fetch-depth: 0
       - name: Assert tested source identity
         id: identity
         env:
@@ -183,3 +178,36 @@ jobs:
                   sys.exit(f"Mandatory CI job {name} tested the wrong SHA")
           print("All mandatory CI jobs succeeded on the expected SHA")
           PYTHON
+
+  wiki:
+    name: Wiki publish
+    needs: [go, required]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: wiki
+    permissions:
+      contents: write
+    concurrency:
+      group: wiki-publish
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Assert validated source identity
+        id: identity
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+          TESTED_SHA: ${{ needs.go.outputs.tested_sha }}
+        run: |
+          actual=$(git rev-parse HEAD)
+          test "$actual" = "$EXPECTED_SHA"
+          test "$actual" = "$TESTED_SHA"
+      - name: Publish current master documentation
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WIKI_SOURCE_SHA: ${{ github.sha }}
+          WIKI_SOURCE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+        run: bash scripts/wiki-sync.sh

@@ -41,6 +41,8 @@ Name confirmed invariants, evidence limits, and untested paths. Neither a move n
 
 ## Workflow credentials
 
-Validation workflows default to `contents: read`, disable persisted checkout credentials, assert the tested source SHA, and use no approval environment. Wiki has only read-only previews, no publisher, write permission, or publishing token. Manual Wiki publication is forbidden until the validated-current-master gate is enabled.
+Validation workflows default to `contents: read`, disable persisted checkout credentials, assert the tested source SHA, and use no approval environment. Only CI's `Wiki publish` job receives job-scoped `contents: write` through the master-only `wiki` environment, after `CI required` succeeds. It checks the event SHA against the checkout and the Go job's tested SHA, rejects a source that differs from public master before cloning and immediately before pushing, and serializes publication. Every other event previews; the separate Wiki workflow always stays read-only. Manual publishing is forbidden.
+
+The publisher passes the existing `GITHUB_TOKEN` only to `scripts/wiki-sync.sh` through `GH_TOKEN`. Git receives its authorization header through process environment configuration, never command arguments or files. Disable shell tracing and suppress authenticated Git output; failures report fixed messages. The mirror commit records the full source SHA and run URL including attempt. No new secret, Action, PR cache, or artifact supplies publishing authority.
 
 CodeQL uses the workflow's GitHub token with job permissions limited to `contents: read` and `security-events: write` for code-scanning uploads. It needs no repository secret and has no PR trigger.

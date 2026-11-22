@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-"""Check parsed workflow controls and execute gates against offline stubs.
-
-Use an installed PyYAML parser, including the system Python when the active
-interpreter lacks it. Never install a parser or call GitHub from these tests.
-"""
-
 import copy
 import fnmatch
 import json
@@ -18,6 +12,15 @@ import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
 HEAD = "${{ github.event.pull_request.head.sha || github.sha }}"
+WIKI_GUARD = "github.event_name != 'pull_request' && github.ref == 'refs/heads/master'"
+WIKI_IDENTITY = '''actual=$(git rev-parse HEAD)
+test "$actual" = "$EXPECTED_SHA"
+test "$actual" = "$TESTED_SHA"'''
+WIKI_ENV = {
+    "GH_TOKEN": "${{ secrets.GITHUB_TOKEN }}",
+    "WIKI_SOURCE_SHA": "${{ github.sha }}",
+    "WIKI_SOURCE_RUN_URL": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}",
+}
 TRUST = "github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository"
 TOKEN = "${{ (" + TRUST + ") && secrets.GITHUB_TOKEN || '' }}"
 FILES = ("ci", "codeql", "tools", "wiki")
@@ -27,6 +30,7 @@ echo "tested_sha=$actual" >> "$GITHUB_OUTPUT"
 printf 'Tested SHA: %s; run: %s; attempt: %s\\n' "$actual" "$RUN_ID" "$RUN_ATTEMPT" >> "$GITHUB_STEP_SUMMARY"'''
 GO_COMMANDS = {
     "python3 scripts/test-ci-workflows.py", "go test -race ./...",
+    "python3 scripts/test-wiki-publication.py",
     "go vet ./... && go vet -tags live ./... && go vet -tags livewrite ./...",
     "go mod tidy\ngit diff --exit-code -- go.mod go.sum",
     "bash scripts/check-lengths.sh", "bash scripts/check-sdk-deps.sh",
@@ -112,6 +116,9 @@ def source_policy(name, workflow):
     for job_id, job in workflow["jobs"].items():
         assert "strategy" not in job, "unexpected matrix"
         assert int(job["timeout-minutes"]) > 0
+        if name == "ci" and job_id == "wiki":
+            wiki_publish_policy(job)
+            continue
         assert "environment" not in job
         assert "env" not in job
         if name == "codeql":
@@ -141,7 +148,7 @@ def source_policy(name, workflow):
 
 
 def aggregate_policy(workflow):
-    assert set(workflow["jobs"]) == {"go", "lint", "security", "required"}
+    assert set(workflow["jobs"]) == {"go", "lint", "security", "required", "wiki"}
     job = workflow["jobs"]["required"]
     controls(job, ("${{ always() }}",))
     assert job["name"] == "CI required"
@@ -210,6 +217,52 @@ def wiki_policy(workflow):
     return step["run"]
 
 
+def wiki_publish_policy(job):
+    assert job["name"] == "Wiki publish"
+    controls(job, (WIKI_GUARD,))
+    assert job["needs"] == ["go", "required"]
+    assert job["environment"] == "wiki"
+    assert job["permissions"] == {"contents": "write"}
+    assert job["concurrency"] == {"group": "wiki-publish", "cancel-in-progress": "false"}
+    assert int(job["timeout-minutes"]) > 0
+    assert "env" not in job and "strategy" not in job
+    assert len(job["steps"]) == 3
+    checkout, identity, publish = job["steps"]
+    for step in job["steps"]:
+        controls(step)
+        assert "${{" not in step.get("run", ""), "shell context interpolation"
+    assert re.fullmatch(r"actions/checkout@[0-9a-f]{40}", checkout["uses"])
+    assert checkout["with"] == {"ref": "${{ github.sha }}", "persist-credentials": "false"}
+    assert "env" not in checkout
+    assert identity["id"] == "identity"
+    assert identity["run"].strip() == WIKI_IDENTITY
+    assert identity["env"] == {"EXPECTED_SHA": "${{ github.sha }}",
+                               "TESTED_SHA": "${{ needs.go.outputs.tested_sha }}"}
+    assert publish["run"].strip() == "bash scripts/wiki-sync.sh"
+    assert publish["env"] == WIKI_ENV
+
+
+def publication_policy(workflows):
+    assert "wiki" in workflows["ci"]["jobs"], "missing CI publisher"
+    publishers = []
+    writers = []
+    for name, workflow in workflows.items():
+        source_policy(name, workflow)
+        for job_id, job in workflow["jobs"].items():
+            if job.get("permissions", {}).get("contents") == "write":
+                writers.append((name, job_id))
+            if any("wiki-sync.sh" in s.get("run", "") and "--dry-run" not in s["run"]
+                   for s in job["steps"]):
+                publishers.append((name, job_id))
+    assert writers == [("ci", "wiki")]
+    assert publishers == [("ci", "wiki")]
+    ci = workflows["ci"]
+    assert ci["jobs"]["wiki"]["steps"][0]["uses"] == ci["jobs"]["go"]["steps"][0]["uses"]
+    aggregate_policy(ci)
+    ci_gates(ci)
+    wiki_policy(workflows["wiki"])
+
+
 class WorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -276,7 +329,7 @@ class WorkflowTests(unittest.TestCase):
                             continue
                         for actual in ("head", "merge"):
                             result = shell(step["run"], PATH=temp + ":" + os.environ["PATH"],
-                                           EXPECTED_SHA="head", ACTUAL_SHA=actual, RUN_ID="1", RUN_ATTEMPT="1",
+                                           EXPECTED_SHA="head", TESTED_SHA="head", ACTUAL_SHA=actual, RUN_ID="1", RUN_ATTEMPT="1",
                                            GITHUB_OUTPUT=temp + "/output", GITHUB_STEP_SUMMARY=temp + "/summary")
                             self.assertEqual(result.returncode == 0, actual == "head")
 
@@ -292,7 +345,6 @@ class WorkflowTests(unittest.TestCase):
                 workflow = parse(text)
                 source_policy("ci", workflow)
                 ci_gates(workflow)
-        # Mutate only lint, so another job's valid identity cannot mask it.
         self.rejected(lambda w: source_policy("ci", w), ci,
                       lambda w: w["jobs"]["lint"]["steps"][1].update(
                           run=IDENTITY.replace('test "$actual" = "$EXPECTED_SHA"',
@@ -300,6 +352,7 @@ class WorkflowTests(unittest.TestCase):
         make = (ROOT / "Makefile").read_text()
         self.assertRegex(make, r"(?m)^check: .*ci-workflows-check")
         self.assertIn("python3 scripts/test-ci-workflows.py", make)
+        self.assertIn("python3 scripts/test-wiki-publication.py", make)
 
     def test_aggregate_controls_and_mutations(self):
         ci = self.workflows["ci"]
@@ -419,7 +472,6 @@ jobs:
         step = self.workflows["tools"]["jobs"]["outdated"]["steps"][-1]
         self.assertEqual(step["env"], {"GH_TOKEN": TOKEN})
         self.assertEqual(step["run"].strip(), "bash scripts/tools-outdated.sh")
-        # Exact expression validation binds this truth table to the workflow.
         for event, same_repo, expected in (("pull_request", False, ""), ("pull_request", True, "synthetic"),
                                            ("push", True, "synthetic"), ("workflow_dispatch", True, "synthetic"),
                                            ("schedule", True, "synthetic")):
@@ -462,7 +514,7 @@ jobs:
             self.assertEqual(result.returncode, 1, result.stderr)
             self.assertEqual(result.stdout.count("outdated: github/codeql-action "), 1)
 
-    def test_wiki_has_no_publication_path(self):
+    def test_wiki_preview_controls_and_mutations(self):
         workflow = self.workflows["wiki"]
         preview = wiki_policy(workflow)
         for mutate in (lambda w: w["permissions"].update(contents="write"),
@@ -483,6 +535,71 @@ jobs:
                                             env=dict(os.environ, WRITE_MARKER=str(marker), VALIDATION_RESULT=validation, GITHUB_EVENT_NAME=event))
                     self.assertEqual(result.returncode, 0)
                     self.assertFalse(marker.exists())
+
+    def test_wiki_publisher_controls_and_mutations(self):
+        publication_policy(self.workflows)
+        ci = self.workflows["ci"]
+        mutants = [
+            lambda j: j.update(needs=["go"]),
+            lambda j: j.update(needs=["required"]),
+            lambda j: j.pop("if"),
+            lambda j: j.update({"if": "github.ref == 'refs/heads/master'"}),
+            lambda j: j.update({"if": "github.event_name != 'pull_request'"}),
+            lambda j: j.update({"if": WIKI_GUARD.replace("&&", "||")}),
+            lambda j: j.update({"if": "always() && (" + WIKI_GUARD + ")"}),
+            lambda j: j.update({"if": WIKI_GUARD.replace("!=", "==", 1)}),
+            lambda j: j.update(environment="other"),
+            lambda j: j["permissions"].update(actions="write"),
+            lambda j: j["permissions"].update(checks="read"),
+            lambda j: j["concurrency"].update({"cancel-in-progress": "true"}),
+            lambda j: j["concurrency"].update(group="other"),
+            lambda j: j.update({"timeout-minutes": "0"}),
+            lambda j: j["steps"][0]["with"].update({"persist-credentials": "true"}),
+            lambda j: j["steps"][0]["with"].update(ref=HEAD),
+            lambda j: j["steps"][1].update(run='test "$EXPECTED_SHA" = "$TESTED_SHA"'),
+            lambda j: j["steps"][1]["env"].update(TESTED_SHA="${{ github.sha }}"),
+            lambda j: j["steps"][2]["env"].pop("WIKI_SOURCE_SHA"),
+            lambda j: j["steps"][2]["env"].update(WIKI_SOURCE_RUN_URL="${{ github.server_url }}"),
+            lambda j: j["steps"][2].update(run="bash scripts/wiki-sync.sh ${{ github.sha }}"),
+        ]
+        for index, mutate in enumerate(mutants):
+            with self.subTest(mutant=index):
+                self.rejected(publication_policy, self.workflows,
+                              lambda w: mutate(w["ci"]["jobs"]["wiki"]))
+        self.rejected(aggregate_policy, ci, lambda w: w["jobs"]["required"]["needs"].append("wiki"))
+
+    def test_publication_inventory_and_preview_mutations(self):
+        publication_policy(self.workflows)
+        for name in self.workflows:
+            with self.subTest(workflow=name):
+                self.rejected(publication_policy, self.workflows,
+                              lambda w: w[name]["permissions"].update(contents="write"))
+                self.rejected(publication_policy, self.workflows,
+                              lambda w: w[name]["permissions"].update(actions="write"))
+                self.rejected(publication_policy, self.workflows,
+                              lambda w: w[name]["jobs"].update(second=copy.deepcopy(w["ci"]["jobs"]["wiki"])))
+                job_id = next(j for j in self.workflows[name]["jobs"] if j != "wiki")
+                self.rejected(publication_policy, self.workflows,
+                              lambda w: w[name]["jobs"][job_id].update(permissions={"contents": "write"}))
+        for name, job_id in (("ci", "go"), ("wiki", "preview")):
+            self.rejected(publication_policy, self.workflows,
+                          lambda w: next(s for s in w[name]["jobs"][job_id]["steps"]
+                                         if "--dry-run" in s.get("run", "")).update(run="bash scripts/wiki-sync.sh"))
+
+    def test_wiki_identity_rejects_untested_source(self):
+        publication_policy(self.workflows)
+        script = self.workflows["ci"]["jobs"]["wiki"]["steps"][1]["run"]
+        with tempfile.TemporaryDirectory() as temp:
+            git = Path(temp) / "git"
+            git.write_text('#!/bin/sh\nprintf "%s\\n" "$ACTUAL_SHA"\n')
+            git.chmod(0o700)
+            for actual, expected, tested, accepted in (("head", "head", "head", True),
+                                                       ("other", "head", "head", False),
+                                                       ("head", "head", "other", False),
+                                                       ("head", "head", "", False)):
+                result = shell(script, PATH=temp + ":" + os.environ["PATH"],
+                               ACTUAL_SHA=actual, EXPECTED_SHA=expected, TESTED_SHA=tested)
+                self.assertEqual(result.returncode == 0, accepted)
 
     def test_manual_recovery_preserves_required_event_evidence(self):
         rules = (ROOT / "instructions/workflow.md").read_text()

@@ -1,6 +1,5 @@
 name: Wiki
 
-# Publication is disabled. Every event renders a read-only preview.
 on:
   pull_request:
     branches: [master]

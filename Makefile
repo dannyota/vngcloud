@@ -2,7 +2,6 @@
 
 SHELL := bash
 
-# Preserve literal profile names from both the environment and command line.
 override PROFILE := $(value PROFILE)
 export PROFILE
 
@@ -14,6 +13,7 @@ check: test vet lint lengths-check ci-workflows-check scripts-test ## Run every 
 ci-workflows-check: ## Check workflow triggers, source identity, and validation gates
 	@python3 scripts/check-workflow-pins.py
 	@python3 scripts/test-ci-workflows.py
+	@python3 scripts/test-wiki-publication.py
 
 scripts-test: ## Test the Codex launcher and browser credential loading
 	@bash scripts/test/codex-agent-test.sh
