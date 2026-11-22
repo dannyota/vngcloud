@@ -132,8 +132,8 @@ func TestResizeVolumeSendsBodyAndSucceeds(t *testing.T) {
 	if out.Volume.Size != 20 {
 		t.Fatalf("Size = %d, want 20", out.Volume.Size)
 	}
-	if out.MonthlyPrice != 32000 {
-		t.Fatalf("MonthlyPrice = %v, want 32000", out.MonthlyPrice)
+	if out.QuotedAdjustment != 32000 {
+		t.Fatalf("QuotedAdjustment = %v, want 32000", out.QuotedAdjustment)
 	}
 }
 
@@ -359,9 +359,9 @@ func TestResizeVolumeNotRetriedAfter502(t *testing.T) {
 		)
 	}))
 
-	_, err := c.ResizeVolume(context.Background(), &ResizeVolumeInput{VolumeID: "volume-1", Size: 20, MaxPrice: 1000000})
-	if !errors.Is(err, ErrNotSettled) {
-		t.Fatalf("err = %v, want ErrNotSettled", err)
+	out, err := c.ResizeVolume(context.Background(), &ResizeVolumeInput{VolumeID: "volume-1", Size: 20, MaxPrice: 1000000})
+	if !errors.Is(err, ErrNotSettled) || out == nil || out.QuotedAdjustment != 32000 {
+		t.Fatalf("out = %+v, err = %v, want quote and ErrNotSettled", out, err)
 	}
 	if resizeCalls.Load() != 1 {
 		t.Fatalf("resize calls = %d, want 1: Once must never be retried", resizeCalls.Load())
@@ -405,8 +405,9 @@ func TestResizeVolumeNoWaitReturnsAtOnce(t *testing.T) {
 		)
 	}))
 
-	if _, err := c.ResizeVolume(context.Background(), &ResizeVolumeInput{VolumeID: "volume-1", Size: 20, MaxPrice: 1000000, NoWait: true}); err != nil {
-		t.Fatalf("ResizeVolume() error = %v", err)
+	out, err := c.ResizeVolume(context.Background(), &ResizeVolumeInput{VolumeID: "volume-1", Size: 20, MaxPrice: 1000000, NoWait: true})
+	if err != nil || out == nil || out.QuotedAdjustment != 32000 {
+		t.Fatalf("out = %+v, err = %v, want quote", out, err)
 	}
 	if getCalls != 1 {
 		t.Fatalf("GET calls = %d, want 1 (the pre-resize read only)", getCalls)

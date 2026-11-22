@@ -340,7 +340,7 @@ case errors.Is(err, vngcloud.ErrPriceAboveMax):
 case err != nil:
 	log.Fatal(err)
 }
-log.Println(resized.Volume.Size, resized.MonthlyPrice)
+log.Println(resized.Volume.Size, resized.QuotedAdjustment)
 ```
 
 `ResizeVolume` only grows: it reads the volume first, and `Size` at or

@@ -89,11 +89,11 @@ func (c *Client) QuoteResizeVolume(ctx context.Context, in *ResizeVolumeInput) (
 	})
 }
 
-// ResizeVolumeOutput is ResizeVolume's result. MonthlyPrice is the quote's
+// ResizeVolumeOutput is ResizeVolume's result. QuotedAdjustment is the quote's
 // own OptimumPrice, the price actually checked against Input.MaxPrice.
 type ResizeVolumeOutput struct {
-	Volume       Volume
-	MonthlyPrice float64
+	Volume           Volume
+	QuotedAdjustment float64
 }
 
 // ResizeVolume grows a volume. It reads the volume first: Input.Size at or
@@ -180,17 +180,17 @@ func (c *Client) ResizeVolume(ctx context.Context, in *ResizeVolumeInput) (*Resi
 		if is4xxAPIError(err) {
 			return nil, err
 		}
-		return &ResizeVolumeOutput{Volume: current.Volume}, fmt.Errorf("%w: %s: volume %s: call GetVolume to check its status: %w", ErrNotSettled, op, in.VolumeID, err)
+		return &ResizeVolumeOutput{Volume: current.Volume, QuotedAdjustment: quote.OptimumPrice}, fmt.Errorf("%w: %s: volume %s: call GetVolume to check its status: %w", ErrNotSettled, op, in.VolumeID, err)
 	}
 
 	if in.NoWait {
-		return &ResizeVolumeOutput{Volume: current.Volume, MonthlyPrice: quote.OptimumPrice}, nil
+		return &ResizeVolumeOutput{Volume: current.Volume, QuotedAdjustment: quote.OptimumPrice}, nil
 	}
 	settled, waitErr := c.waitVolumeResized(ctx, op, in.VolumeID, in.Size)
 	if settled == nil {
 		settled = &current.Volume
 	}
-	return &ResizeVolumeOutput{Volume: *settled, MonthlyPrice: quote.OptimumPrice}, waitErr
+	return &ResizeVolumeOutput{Volume: *settled, QuotedAdjustment: quote.OptimumPrice}, waitErr
 }
 
 // waitVolumeResized is ResizeVolume's post-resize wait unless NoWait is

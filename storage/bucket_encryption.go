@@ -64,8 +64,8 @@ type PutBucketEncryptionInput struct {
 	// BucketName must start with an ASCII letter or digit and use only
 	// letters, digits, periods, underscores, or hyphens, up to 255 bytes.
 	BucketName string `vngcloud:"required"`
-	// Enabled is the complete target state. Its zero value disables encryption.
-	Enabled bool
+	// Enabled is required; true enables and false disables encryption.
+	Enabled *bool `vngcloud:"required"`
 }
 
 // PutBucketEncryptionOutput carries no result fields.
@@ -91,7 +91,7 @@ func (c *Client) PutBucketEncryption(ctx context.Context, in *PutBucketEncryptio
 	_, err = c.exchangeBucket(ctx, call{
 		op: op, method: http.MethodPut,
 		url:      c.route(bucketSettingParts(in.ProjectID, in.BucketName, "encryption"), nil),
-		regionID: id, body: putBucketEncryptionBody{Enable: in.Enabled},
+		regionID: id, body: putBucketEncryptionBody{Enable: *in.Enabled},
 		ok: []int{http.StatusOK, http.StatusNoContent}, write: true, once: true,
 	}, in.Region, in.ProjectID, in.BucketName)
 	if err != nil {
@@ -104,7 +104,7 @@ func (c *Client) PutBucketEncryption(ctx context.Context, in *PutBucketEncryptio
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s: bucket %q: check with GetBucketEncryption: %w", ErrNotSettled, op, in.BucketName, err)
 	}
-	if got.Enabled != in.Enabled {
+	if got.Enabled != *in.Enabled {
 		return nil, &encryptionMismatch{bucket: in.BucketName}
 	}
 	return &PutBucketEncryptionOutput{}, nil

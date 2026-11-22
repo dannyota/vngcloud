@@ -161,27 +161,11 @@ func getBucketEncryptionOp() Op[storage.Client] {
 	return op
 }
 
-// A pointer preserves omission and null until the CLI has checked presence.
-type storagePutBucketEncryptionInput struct {
-	// Region selects the storage region using normal region resolution.
-	Region string
-	// ProjectID identifies the storage project.
-	ProjectID string `vngcloud:"required"`
-	// BucketName identifies the bucket; the --bucket flag takes precedence.
-	BucketName string `vngcloud:"required"`
-	// Enabled must be present and non-null, including when false.
-	Enabled *bool `vngcloud:"required"`
-}
-
 func putBucketEncryptionOp() Op[storage.Client] {
-	op := Write[storage.Client, storagePutBucketEncryptionInput, storage.PutBucketEncryptionOutput](
-		"put-bucket-encryption", func(c *storage.Client, ctx context.Context, in *storagePutBucketEncryptionInput) (*storage.PutBucketEncryptionOutput, error) {
-			return c.PutBucketEncryption(ctx, &storage.PutBucketEncryptionInput{
-				Region: in.Region, ProjectID: in.ProjectID, BucketName: in.BucketName, Enabled: *in.Enabled,
-			})
-		}, WriteNoFlag("Region", "BucketName"), WriteGlobalProjectID("ProjectID"),
+	op := Write[storage.Client, storage.PutBucketEncryptionInput, storage.PutBucketEncryptionOutput](
+		"put-bucket-encryption", (*storage.Client).PutBucketEncryption, WriteNoFlag("Region", "BucketName"), WriteGlobalProjectID("ProjectID"),
 		Guard(func(cmd *cobra.Command, input any) error {
-			in := input.(*storagePutBucketEncryptionInput)
+			in := input.(*storage.PutBucketEncryptionInput)
 			in.BucketName = encryptionBucketName(cmd, in.BucketName)
 			if in.Enabled == nil {
 				return newUsageError("--enabled=true or --enabled=false is required; JSON Enabled must be non-null")

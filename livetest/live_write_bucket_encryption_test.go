@@ -189,7 +189,7 @@ func TestLiveWriteBucketEncryption(t *testing.T) {
 	}
 	toggle := func(b string, enabled bool) {
 		t.Helper()
-		if _, err := client.PutBucketEncryption(ctx, &storage.PutBucketEncryptionInput{Region: "HCM04", ProjectID: project, BucketName: b, Enabled: enabled}); err != nil {
+		if _, err := client.PutBucketEncryption(ctx, &storage.PutBucketEncryptionInput{Region: "HCM04", ProjectID: project, BucketName: b, Enabled: &enabled}); err != nil {
 			t.Fatal("encryption write failed")
 		}
 		read(b, enabled)
@@ -205,7 +205,7 @@ func TestLiveWriteBucketEncryption(t *testing.T) {
 	if !errors.Is(getErr, vngcloud.ErrNotFound) {
 		t.Fatal("missing bucket read check failed")
 	}
-	_, putErr := client.PutBucketEncryption(ctx, &storage.PutBucketEncryptionInput{Region: "HCM04", ProjectID: project, BucketName: missing, Enabled: true})
+	_, putErr := client.PutBucketEncryption(ctx, &storage.PutBucketEncryptionInput{Region: "HCM04", ProjectID: project, BucketName: missing, Enabled: vngcloud.Ptr(true)})
 	report.check(t)
 	if !errors.Is(putErr, vngcloud.ErrNotFound) {
 		t.Fatal("missing bucket write check failed")

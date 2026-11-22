@@ -74,11 +74,11 @@ func (c *Client) QuoteResizeServer(ctx context.Context, in *ResizeServerInput) (
 	})
 }
 
-// ResizeServerOutput is ResizeServer's result. MonthlyPrice holds the signed
+// ResizeServerOutput is ResizeServer's result. QuotedAdjustment holds the signed
 // quoted adjustment in VND, not the final charge or a confirmed refund.
 type ResizeServerOutput struct {
-	Server       Server
-	MonthlyPrice float64
+	Server           Server
+	QuotedAdjustment float64
 }
 
 // ResizeServer changes a server's flavor. It reads the server first: the
@@ -174,17 +174,17 @@ func (c *Client) ResizeServer(ctx context.Context, in *ResizeServerInput) (out *
 		if notSent || is4xxAPIError(err) {
 			return nil, err
 		}
-		return &ResizeServerOutput{Server: current.Server, MonthlyPrice: quote.OptimumPrice}, fmt.Errorf("%w: %s: server %s: call GetServer to check its status: %w", ErrNotSettled, op, in.ServerID, err)
+		return &ResizeServerOutput{Server: current.Server, QuotedAdjustment: quote.OptimumPrice}, fmt.Errorf("%w: %s: server %s: call GetServer to check its status: %w", ErrNotSettled, op, in.ServerID, err)
 	}
 
 	if in.NoWait {
-		return &ResizeServerOutput{Server: current.Server, MonthlyPrice: quote.OptimumPrice}, nil
+		return &ResizeServerOutput{Server: current.Server, QuotedAdjustment: quote.OptimumPrice}, nil
 	}
 	settled, waitErr := c.waitServerResized(ctx, op, in.ServerID, in.FlavorID)
 	if settled == nil {
 		settled = &current.Server
 	}
-	return &ResizeServerOutput{Server: *settled, MonthlyPrice: quote.OptimumPrice}, waitErr
+	return &ResizeServerOutput{Server: *settled, QuotedAdjustment: quote.OptimumPrice}, waitErr
 }
 
 // waitServerResized is ResizeServer's post-resize wait unless NoWait is

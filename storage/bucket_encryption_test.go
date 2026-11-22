@@ -22,7 +22,7 @@ func getEncryption(c *Client) (*GetBucketEncryptionOutput, error) {
 	return c.GetBucketEncryption(context.Background(), &GetBucketEncryptionInput{ProjectID: "proj-1", BucketName: "my-bucket"})
 }
 func putEncryption(ctx context.Context, c *Client, enabled bool) (*PutBucketEncryptionOutput, error) {
-	return c.PutBucketEncryption(ctx, &PutBucketEncryptionInput{ProjectID: "proj-1", BucketName: "my-bucket", Enabled: enabled})
+	return c.PutBucketEncryption(ctx, &PutBucketEncryptionInput{ProjectID: "proj-1", BucketName: "my-bucket", Enabled: &enabled})
 }
 
 func TestGetBucketEncryptionFixtures(t *testing.T) {
@@ -117,7 +117,7 @@ func TestBucketEncryptionValidation(t *testing.T) {
 		c := newTestClient(t, serve(t, func(http.ResponseWriter, *http.Request) { t.Error("unexpected request") }))
 		for _, identifiers := range [][2]string{{v, "my-bucket"}, {"proj-1", v}} {
 			_, e1 := c.GetBucketEncryption(t.Context(), &GetBucketEncryptionInput{ProjectID: identifiers[0], BucketName: identifiers[1]})
-			_, e2 := c.PutBucketEncryption(t.Context(), &PutBucketEncryptionInput{ProjectID: identifiers[0], BucketName: identifiers[1]})
+			_, e2 := c.PutBucketEncryption(t.Context(), &PutBucketEncryptionInput{ProjectID: identifiers[0], BucketName: identifiers[1], Enabled: vngcloud.Ptr(false)})
 			for _, err := range []error{e1, e2} {
 				if !errors.Is(err, vngcloud.ErrInvalidInput) {
 					t.Fatal(err)
@@ -143,7 +143,7 @@ func TestBucketEncryptionRegion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = c.PutBucketEncryption(t.Context(), &PutBucketEncryptionInput{Region: "han02", ProjectID: "proj-1", BucketName: "my-bucket"})
+	_, err = c.PutBucketEncryption(t.Context(), &PutBucketEncryptionInput{Region: "han02", ProjectID: "proj-1", BucketName: "my-bucket", Enabled: vngcloud.Ptr(false)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,6 +274,14 @@ func TestPutBucketEncryptionUnexpectedSuccessIsUncertain(t *testing.T) {
 	c := newTestClient(t, (&keyServer{status: 202, body: okEnvelope}).handler(t))
 	out, err := putEncryption(t.Context(), c, true)
 	if out != nil || err == nil || !strings.Contains(err.Error(), "may have happened") {
+		t.Fatalf("out=%+v err=%v", out, err)
+	}
+}
+
+func TestPutBucketEncryptionRequiresEnabled(t *testing.T) {
+	c := newTestClient(t, serve(t, func(http.ResponseWriter, *http.Request) { t.Error("unexpected request") }))
+	out, err := c.PutBucketEncryption(t.Context(), &PutBucketEncryptionInput{ProjectID: "proj-1", BucketName: "my-bucket"})
+	if out != nil || !errors.Is(err, vngcloud.ErrInvalidInput) {
 		t.Fatalf("out=%+v err=%v", out, err)
 	}
 }

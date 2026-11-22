@@ -39,8 +39,9 @@ stored.
 state, err := client.GetBucketEncryption(ctx, &storage.GetBucketEncryptionInput{
 	ProjectID: projectID, BucketName: "my-bucket"})
 
+enabled := true
 _, err = client.PutBucketEncryption(ctx, &storage.PutBucketEncryptionInput{
-	ProjectID: projectID, BucketName: "my-bucket", Enabled: true})
+	ProjectID: projectID, BucketName: "my-bucket", Enabled: &enabled})
 ```
 
 Encryption is server-managed SSE-S3: S3 `GetBucketEncryption` reports `AES256`,
@@ -51,8 +52,8 @@ inputs require `ProjectID` and `BucketName`. `BucketName` follows the bucket
 name checks in [Storage](Storage.md#buckets). `Region` uses the same resolution
 and headers as other storage calls.
 
-`PutBucketEncryptionInput.Enabled` is a bool with a complete target state.
-False, including its zero value, disables default encryption. The request
+`PutBucketEncryptionInput.Enabled` is a required `*bool` with a complete target state.
+Nil is refused before any request; false disables default encryption. The request
 always sends `enable`. After an accepted PUT, the SDK reads
 `GetBucketEncryption` once under the caller's context. A matching state
 returns an empty Output. A failed or mismatching read returns a nil Output

@@ -71,7 +71,8 @@ func (c *Client) CreateBucket(ctx context.Context, in *CreateBucketInput) (*Crea
 		if err := ctx.Err(); err != nil {
 			return nil, incompleteBucketEncryption(in.Bucket, err)
 		}
-		if _, err := c.PutBucketEncryption(ctx, &PutBucketEncryptionInput{Region: in.Region, ProjectID: in.ProjectID, BucketName: in.Bucket, Enabled: true}); err != nil {
+		enabled := true
+		if _, err := c.PutBucketEncryption(ctx, &PutBucketEncryptionInput{Region: in.Region, ProjectID: in.ProjectID, BucketName: in.Bucket, Enabled: &enabled}); err != nil {
 			return nil, incompleteBucketEncryption(in.Bucket, err)
 		}
 	}

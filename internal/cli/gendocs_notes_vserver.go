@@ -141,7 +141,7 @@ const volumeDetachVolumeNote = "Needs --yes: detaching a volume can lose unwritt
 // computeResizeServerNote documents the credit policy, consent, and recovery.
 const computeResizeServerNote = "Needs --yes: a resize restarts the server and may charge more. " +
 	"--max-price caps a positive quoted adjustment in VND, default 0. A negative quote passes without " +
-	"--max-price; zero is refused as Unpriced. MonthlyPrice retains the signed quote, not the final charge " +
+	"--max-price; zero is refused as Unpriced. QuotedAdjustment retains the signed quote, not the final charge " +
 	"or a confirmed refund. A concurrent flavor, price, or discount change can turn a quoted credit into " +
 	"a charge even with --max-price 0: the API cannot enforce the cap on the final charge. " +
 	"Refuses invalid --max-price before any request. The same flavor is InvalidUsage; a server outside " +

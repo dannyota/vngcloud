@@ -32,7 +32,7 @@ func computeServerFlavorJSON(status, flavorID string) string {
 
 // TestGoldenComputeResizeServer checks resize-server's exact output shape.
 func TestGoldenComputeResizeServer(t *testing.T) {
-	v := &compute.ResizeServerOutput{Server: compute.Server{UUID: "server-1", Name: "web-1", Status: "ACTIVE"}, MonthlyPrice: 631600}
+	v := &compute.ResizeServerOutput{Server: compute.Server{UUID: "server-1", Name: "web-1", Status: "ACTIVE"}, QuotedAdjustment: 631600}
 	checkGolden(t, "compute-resize-server.json.golden", "json", "", v)
 	checkGolden(t, "compute-resize-server.table.golden", "table", "", v)
 }
@@ -166,14 +166,14 @@ func TestComputeResizeServerWithYesAndMaxPriceSendsResize(t *testing.T) {
 		t.Fatalf("resize-server: %v (stderr=%s)", err, stderr.String())
 	}
 	var out struct {
-		Server       compute.Server
-		MonthlyPrice float64
+		Server           compute.Server
+		QuotedAdjustment float64
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
 		t.Fatalf("stdout is not valid JSON: %v (%s)", err, stdout.String())
 	}
-	if out.Server.Flavor.FlavorID != "flavor-2" || out.MonthlyPrice != 631600 {
-		t.Fatalf("out = %+v, want the new flavor and quoted MonthlyPrice", out)
+	if out.Server.Flavor.FlavorID != "flavor-2" || out.QuotedAdjustment != 631600 {
+		t.Fatalf("out = %+v, want the new flavor and quoted QuotedAdjustment", out)
 	}
 }
 
@@ -216,7 +216,7 @@ func TestComputeResizeServerReadOnlyRefusedWithZeroRequests(t *testing.T) {
 
 // TestGoldenVolumeResizeVolume checks resize-volume's exact output shape.
 func TestGoldenVolumeResizeVolume(t *testing.T) {
-	v := &volume.ResizeVolumeOutput{Volume: exampleVolume(), MonthlyPrice: 64000}
+	v := &volume.ResizeVolumeOutput{Volume: exampleVolume(), QuotedAdjustment: 64000}
 	checkGolden(t, "volume-resize-volume.json.golden", "json", "", v)
 	checkGolden(t, "volume-resize-volume.table.golden", "table", "", v)
 }
@@ -349,14 +349,14 @@ func TestVolumeResizeVolumeWithYesAndMaxPriceSendsResize(t *testing.T) {
 		t.Fatalf("resize-volume: %v (stderr=%s)", err, stderr.String())
 	}
 	var out struct {
-		Volume       volume.Volume
-		MonthlyPrice float64
+		Volume           volume.Volume
+		QuotedAdjustment float64
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
 		t.Fatalf("stdout is not valid JSON: %v (%s)", err, stdout.String())
 	}
-	if out.Volume.Size != 20 || out.MonthlyPrice != 64000 {
-		t.Fatalf("out = %+v, want the new size and quoted MonthlyPrice", out)
+	if out.Volume.Size != 20 || out.QuotedAdjustment != 64000 {
+		t.Fatalf("out = %+v, want the new size and quoted QuotedAdjustment", out)
 	}
 }
 

@@ -122,8 +122,8 @@ func TestResizeServerSendsBodyAndSucceeds(t *testing.T) {
 	if out.Server.Flavor.FlavorID != "flavor-2" {
 		t.Fatalf("Flavor = %+v, want flavor-2", out.Server.Flavor)
 	}
-	if out.MonthlyPrice != 347800 {
-		t.Fatalf("MonthlyPrice = %v, want 347800", out.MonthlyPrice)
+	if out.QuotedAdjustment != 347800 {
+		t.Fatalf("QuotedAdjustment = %v, want 347800", out.QuotedAdjustment)
 	}
 }
 

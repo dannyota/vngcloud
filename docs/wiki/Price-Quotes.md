@@ -146,7 +146,7 @@ for creates, the quoted adjustment for resizes. An excess wraps
 a credit at every valid cap but refuse zero with `vngcloud.ErrUnpriced`.
 `ResizeVolume` refuses every nonpositive quote, naming the amount. Create
 quote reads refuse negatives; paid server, volume, and load balancer
-creates also refuse zero. `MonthlyPrice` retains its name and signed
+creates also refuse zero. `QuotedAdjustment` retains the signed
 `float64` type; it holds the quote, not the final charge or refund.
 
 The API cannot enforce `MaxPrice` on the final charge. A concurrent

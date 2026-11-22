@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Breaking: resize output `MonthlyPrice` is now `QuotedAdjustment`, and `PutBucketEncryptionInput.Enabled` is now a required `*bool`. Migrate by renaming field reads and passing a pointer to the intended boolean.
+
 - Harden compute, network, and portal identity, credential, inventory,
   replay, and wait guards. Server-group inputs rename `Page`/`Size` to
   `Offset`/`Limit`; migrate CLI flags to `--offset`/`--limit` and JSON input

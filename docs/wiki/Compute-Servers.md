@@ -362,7 +362,7 @@ case errors.Is(err, vngcloud.ErrPriceAboveMax):
 case err != nil:
 	log.Fatal(err)
 }
-log.Println(resized.Server.Flavor.FlavorID, resized.MonthlyPrice)
+log.Println(resized.Server.Flavor.FlavorID, resized.QuotedAdjustment)
 ```
 
 `QuoteResizeServer` is a read and works in CLI read-only mode. Its signed
@@ -386,7 +386,7 @@ The gateway's exact adjustment formula remains unverified.
 
 The resize is sent once. After an ambiguous failure or failed wait, read
 `GetServer` to reconcile before considering another write. Partial Output
-retains the signed quote in `MonthlyPrice` and the last server. The quote
+retains the signed quote in `QuotedAdjustment` and the last server. The quote
 is neither the final charge nor proof of a refund.
 
 Unless `NoWait` is set, the SDK polls every 5 seconds for up to 15 minutes

@@ -96,7 +96,7 @@ func TestResizeServerCreditSuccessSynthetic(t *testing.T) {
 				if noWait {
 					wantFlavor, wantGets = "flavor-1", 1
 				}
-				if err != nil || out == nil || out.MonthlyPrice != -180797 || out.Server.Flavor.FlavorID != wantFlavor || gets.Load() != wantGets || puts.Load() != 1 {
+				if err != nil || out == nil || out.QuotedAdjustment != -180797 || out.Server.Flavor.FlavorID != wantFlavor || gets.Load() != wantGets || puts.Load() != 1 {
 					t.Fatalf("out = %+v, err = %v, gets = %d, puts = %d", out, err, gets.Load(), puts.Load())
 				}
 			})
@@ -152,7 +152,7 @@ func TestResizeServerCreditPublicIPAndResponseSafetySynthetic(t *testing.T) {
 			}
 			if tc.reflection {
 				assertNoUnsafeServerOutput(t, out, err)
-			} else if out == nil || out.MonthlyPrice != -180797 || out.Server.PublicIP != "192.0.2.1" || out.Server.Flavor.FlavorID != wantFlavor {
+			} else if out == nil || out.QuotedAdjustment != -180797 || out.Server.PublicIP != "192.0.2.1" || out.Server.Flavor.FlavorID != wantFlavor {
 				t.Fatalf("out = %+v, err = %v, want signed credit and public address", out, err)
 			}
 			if tc.status == http.StatusAccepted {
@@ -214,7 +214,7 @@ func TestResizeServerCreditFailuresSynthetic(t *testing.T) {
 				}
 				return
 			}
-			if out == nil || out.MonthlyPrice != -180797 || out.Server.Flavor.FlavorID != "flavor-1" || !errors.Is(err, ErrNotSettled) || !strings.Contains(err.Error(), "GetServer") {
+			if out == nil || out.QuotedAdjustment != -180797 || out.Server.Flavor.FlavorID != "flavor-1" || !errors.Is(err, ErrNotSettled) || !strings.Contains(err.Error(), "GetServer") {
 				t.Fatalf("out = %+v, err = %v, want signed partial output and recovery read", out, err)
 			}
 			if status >= 500 {
@@ -271,7 +271,7 @@ func TestResizeServerCreditWaitSynthetic(t *testing.T) {
 			if outcome == "failed" {
 				wantErr = ErrFailed
 			}
-			if out == nil || out.MonthlyPrice != -180797 || out.Server.UUID != "server-1" || puts.Load() != 1 || !errors.Is(err, wantErr) || !strings.Contains(err.Error(), "GetServer") {
+			if out == nil || out.QuotedAdjustment != -180797 || out.Server.UUID != "server-1" || puts.Load() != 1 || !errors.Is(err, wantErr) || !strings.Contains(err.Error(), "GetServer") {
 				t.Fatalf("out = %+v, err = %v, puts = %d", out, err, puts.Load())
 			}
 			if outcome == "cancel" && !errors.Is(err, context.Canceled) {
@@ -317,7 +317,7 @@ func TestResizeServerCreditQuoteToSendRaceSynthetic(t *testing.T) {
 		)
 	}))
 	out, err := c.ResizeServer(context.Background(), validResizeServerInput())
-	if out == nil || out.MonthlyPrice != -180797 || !errors.Is(err, ErrNotSettled) || puts.Load() != 1 {
+	if out == nil || out.QuotedAdjustment != -180797 || !errors.Is(err, ErrNotSettled) || puts.Load() != 1 {
 		t.Fatalf("out = %+v, err = %v, puts = %d", out, err, puts.Load())
 	}
 	recovered, err := c.GetServer(context.Background(), &GetServerInput{ServerID: "server-1"})
@@ -357,7 +357,7 @@ func TestResizeServerCreditFailedDialSynthetic(t *testing.T) {
 	c := New(core.NewTestConfig("hcm-3", "project-1", endpoints.Set{VServer: srv.URL + "/", Portal: srv.URL + "/"}, tc))
 	out, err := c.ResizeServer(context.Background(), validResizeServerInput())
 	var apiErr *vngcloud.APIError
-	if out == nil || out.MonthlyPrice != -180797 || !errors.Is(err, ErrNotSettled) || !errors.As(err, &apiErr) || rt.dials.Load() != 1 {
+	if out == nil || out.QuotedAdjustment != -180797 || !errors.Is(err, ErrNotSettled) || !errors.As(err, &apiErr) || rt.dials.Load() != 1 {
 		t.Fatalf("out = %+v, err = %v, dials = %d", out, err, rt.dials.Load())
 	}
 }

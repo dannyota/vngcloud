@@ -411,8 +411,8 @@ results and the quote-to-charge race. No new dependency or CLI bypass is needed.
     resize quote reader report credits. A server-only opt-in would leave
     the generic and load balancer quote readers inconsistent.
 20. Credit presentation and guard. Decided: keep signed `OptimumPrice`
-    and the resize output's signed `QuotedAdjustment` (renamed from
-    `MonthlyPrice` before v1), with no new credit field, and let a credit pass
+    and the resize output's signed `QuotedAdjustment`, with no new credit
+    field, and let a credit pass
     `ResizeServer` at every valid `MaxPrice`; zero stays `ErrUnpriced`.
     The residual race is accepted explicitly: a concurrent change can
     turn a quoted credit into a charge at `MaxPrice` 0, because the write
