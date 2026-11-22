@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/globalloadbalancer"
 )
@@ -82,5 +84,19 @@ func TestGLBCreateHelpExplainsCharges(t *testing.T) {
 func TestGLBFailedClassification(t *testing.T) {
 	if got := classify(globalloadbalancer.ErrFailed).Code; got != "WriteFailed" {
 		t.Fatalf("code=%s", got)
+	}
+}
+
+func TestGLBFailedPrintsPartialOutput(t *testing.T) {
+	h := newFakeHarness(t)
+	op := createGlobalLoadBalancerOp()
+	op.call = func(_ *cobra.Command, _ *globalloadbalancer.Client, _ context.Context, _ any) (any, error) {
+		return &globalloadbalancer.CreateLoadBalancerOutput{LoadBalancer: globalloadbalancer.LoadBalancer{ID: "glb-1"}}, globalloadbalancer.ErrFailed
+	}
+	root := newTestRoot(h.e)
+	root.AddCommand(Service(h.e, "globalloadbalancer", "test", globalloadbalancer.New, op))
+	err := execCmd(t, root, []string{"--output", "json", "globalloadbalancer", "create-load-balancer", "--name", "demo", "--package-id", "pkg-1", "--yes"})
+	if classify(err).Code != "WriteFailed" || !strings.Contains(h.stdout.String(), `"glb-1"`) {
+		t.Fatalf("err=%v stdout=%s", err, h.stdout)
 	}
 }

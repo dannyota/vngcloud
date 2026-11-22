@@ -96,7 +96,7 @@ func (c *Client) CreateLoadBalancer(ctx context.Context, in *CreateLoadBalancerI
 	for {
 		lb, err := c.writeDetail(wait, id)
 		if err == nil {
-			if lb.ID != id || lb.Name != body.Name || lb.Package != body.Package {
+			if lb.ID != id || lb.Name != body.Name || lb.Package != body.Package || lb.Type != "Layer 4" {
 				return out, fmt.Errorf("%w: create detail does not match", ErrNotSettled)
 			}
 			switch strings.ToUpper(lb.Status) {
@@ -185,11 +185,11 @@ func (c *Client) writeDetail(ctx context.Context, id string) (LoadBalancer, erro
 	return LoadBalancer{ID: wire.ID, Name: wire.Name, Package: wire.Package, Status: wire.Status, Type: wire.Type}, sanitizeCreateError(err, nil, nil)
 }
 
-var unsafeProviderMessage = regexp.MustCompile(`(?i)(\b(?:password|passwd|secret|(?:access|refresh)?token|authorization|bearer|credential|cookie|session|api[-_ ]?key)\b\s*(?:[:=]|\bis\b)\s*[^\s,;]+|\bbearer\s+[^\s,;]+|\b[a-z][a-z0-9]*-[a-z0-9]*[0-9][a-z0-9-]*\b|\b[0-9]{8,}\b|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[\x00-\x1f\x7f])`)
+var unsafeProviderMessage = regexp.MustCompile(`(?i)(\b(?:password|passwd|secret|(?:access|refresh)?token|authorization|bearer|credential|cookie|session|api[-_ ]?key)\b\s*(?:[:=]|\bis\b)\s*[^\s,;]+|\bbearer\s+[^\s,;]+|\b[a-z][a-z0-9]*-[a-z0-9]*[0-9][a-z0-9-]*\b|\b[0-9]{8,}\b|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[\w.+-]+@[\w.-]+\.[a-z]{2,}|[\x00-\x1f\x7f])`)
 
 func sanitizeCreateError(err error, in *CreateLoadBalancerInput, credentials []string) error {
 	var api *vngcloud.APIError
-	if !errors.As(err, &api) || api.StatusCode < 400 || api.StatusCode >= 500 {
+	if !errors.As(err, &api) {
 		return err
 	}
 	safe := *api

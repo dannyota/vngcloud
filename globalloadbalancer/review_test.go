@@ -40,7 +40,7 @@ func TestReviewCreateUnknownStatusDoesNotWait(t *testing.T) {
 			_, _ = fmt.Fprint(w, `{"globalLoadBalancer":{"id":"glb-1"}}`)
 			return
 		}
-		_, _ = fmt.Fprint(w, `{"id":"glb-1","name":"demo","package":"pkg-1","status":"sensitive-unknown"}`)
+		_, _ = fmt.Fprint(w, `{"id":"glb-1","name":"demo","package":"pkg-1","type":"Layer 4","status":"sensitive-unknown"}`)
 	}))
 	started := time.Now()
 	out, err := c.CreateLoadBalancer(ctx, &CreateLoadBalancerInput{Name: "demo", PackageID: "pkg-1"})
@@ -67,7 +67,7 @@ func TestReviewCreateErrorIsTerminal(t *testing.T) {
 			_, _ = fmt.Fprint(w, `{"globalLoadBalancer":{"id":"glb-1"}}`)
 			return
 		}
-		_, _ = fmt.Fprint(w, `{"id":"glb-1","name":"demo","package":"pkg-1","status":"ERROR"}`)
+		_, _ = fmt.Fprint(w, `{"id":"glb-1","name":"demo","package":"pkg-1","type":"Layer 4","status":"ERROR"}`)
 	}))
 	out, err := c.CreateLoadBalancer(context.Background(), &CreateLoadBalancerInput{Name: "demo", PackageID: "pkg-1"})
 	if !errors.Is(err, ErrFailed) || out == nil || out.LoadBalancer.ID != "glb-1" {
@@ -117,5 +117,47 @@ func TestReviewPreflightCodeUsesHTTPStatus(t *testing.T) {
 	var api *vngcloud.APIError
 	if !errors.As(err, &api) || api.StatusCode != 403 || api.Code == "WrongProviderCode" {
 		t.Fatalf("err=%#v", err)
+	}
+}
+
+func TestReviewPreflight503HidesProviderCode(t *testing.T) {
+	c := newWriteTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(503)
+		_, _ = fmt.Fprint(w, `{"code":"provider-private-code","message":"unavailable"}`)
+	}))
+	_, err := c.DeleteLoadBalancer(context.Background(), &DeleteLoadBalancerInput{LoadBalancerID: "glb-1"})
+	var api *vngcloud.APIError
+	if !errors.As(err, &api) || api.StatusCode != 503 || api.Code == "provider-private-code" || strings.Contains(err.Error(), "provider-private-code") {
+		t.Fatalf("err=%#v", err)
+	}
+}
+
+func TestReviewCreateRedactsEmail(t *testing.T) {
+	c := newWriteTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(402)
+		_, _ = fmt.Fprint(w, `{"message":"contact alice@example.test"}`)
+	}))
+	_, err := c.CreateLoadBalancer(context.Background(), &CreateLoadBalancerInput{Name: "demo", PackageID: "pkg-1"})
+	var api *vngcloud.APIError
+	if !errors.As(err, &api) || strings.Contains(api.Message, "alice@example.test") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestReviewCreateRejectsWrongType(t *testing.T) {
+	for _, typ := range []string{"Layer 7", ""} {
+		t.Run(typ, func(t *testing.T) {
+			c := newWriteTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodPost {
+					_, _ = fmt.Fprint(w, `{"globalLoadBalancer":{"id":"glb-1"}}`)
+					return
+				}
+				_, _ = fmt.Fprintf(w, `{"id":"glb-1","name":"demo","package":"pkg-1","type":"Layer 4","status":"ACTIVE","type":%q}`, typ)
+			}))
+			out, err := c.CreateLoadBalancer(context.Background(), &CreateLoadBalancerInput{Name: "demo", PackageID: "pkg-1"})
+			if !errors.Is(err, ErrNotSettled) || out == nil || out.LoadBalancer.ID != "glb-1" {
+				t.Fatalf("out=%+v err=%v", out, err)
+			}
+		})
 	}
 }

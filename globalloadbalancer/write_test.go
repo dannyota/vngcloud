@@ -123,7 +123,7 @@ func TestCreateLoadBalancerBare(t *testing.T) {
 					_, _ = w.Write([]byte(`{"globalLoadBalancer":{"id":"glb-1"}}`))
 					return
 				}
-				_, _ = w.Write([]byte(`{"id":"glb-1","name":"demo","package":"pkg-1","status":"ACTIVE"}`))
+				_, _ = w.Write([]byte(`{"id":"glb-1","name":"demo","package":"pkg-1","type":"Layer 4","status":"ACTIVE"}`))
 			}))
 			out, err := c.CreateLoadBalancer(context.Background(), &CreateLoadBalancerInput{Name: "demo", PackageID: "pkg-1"})
 			if err != nil || out == nil || out.LoadBalancer.ID != "glb-1" || posts != 1 {
@@ -200,7 +200,7 @@ func TestCreateRejectsDuplicateDetailID(t *testing.T) {
 			_, _ = w.Write([]byte(`{"globalLoadBalancer":{"id":"glb-1"}}`))
 			return
 		}
-		_, _ = w.Write([]byte(`{"id":"wrong","ID":"glb-1","name":"demo","package":"pkg-1","status":"ACTIVE"}`))
+		_, _ = w.Write([]byte(`{"id":"wrong","ID":"glb-1","name":"demo","package":"pkg-1","type":"Layer 4","status":"ACTIVE"}`))
 	}))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -310,7 +310,7 @@ func TestCreateDetailWrongID(t *testing.T) {
 			_, _ = w.Write([]byte(`{"globalLoadBalancer":{"id":"glb-1"}}`))
 			return
 		}
-		_, _ = w.Write([]byte(`{"id":"glb-2","name":"demo","package":"pkg-1","status":"ACTIVE"}`))
+		_, _ = w.Write([]byte(`{"id":"glb-2","name":"demo","package":"pkg-1","type":"Layer 4","status":"ACTIVE"}`))
 	}))
 	out, err := c.CreateLoadBalancer(context.Background(), &CreateLoadBalancerInput{Name: "demo", PackageID: "pkg-1"})
 	if !errors.Is(err, ErrNotSettled) || out == nil || out.LoadBalancer.ID != "glb-1" {

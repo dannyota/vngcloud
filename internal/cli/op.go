@@ -648,7 +648,7 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 			errors.Is(callErr, tagging.ErrNotSettled) ||
 			errors.Is(callErr, volume.ErrFailed) || errors.Is(callErr, volume.ErrNotSettled) ||
 			errors.Is(callErr, loadbalancer.ErrFailed) || errors.Is(callErr, loadbalancer.ErrNotSettled) ||
-			errors.Is(callErr, storage.ErrNotSettled) || errors.Is(callErr, cdn.ErrNotSettled) || errors.Is(callErr, globalloadbalancer.ErrNotSettled)) && !isNilOutput(out) {
+			errors.Is(callErr, storage.ErrNotSettled) || errors.Is(callErr, cdn.ErrNotSettled) || errors.Is(callErr, globalloadbalancer.ErrNotSettled) || errors.Is(callErr, globalloadbalancer.ErrFailed)) && !isNilOutput(out) {
 			_ = renderOutput(e.stdout, format, "", out, true)
 		}
 		return callErr
