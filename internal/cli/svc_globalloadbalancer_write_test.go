@@ -8,8 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spf13/cobra"
-
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/globalloadbalancer"
 )
@@ -57,25 +55,6 @@ func TestGLBDeleteRequiresConsent(t *testing.T) {
 	}
 }
 
-func TestGLBCreateNestedFlagsOverrideJSON(t *testing.T) {
-	var input globalloadbalancer.CreateLoadBalancerInput
-	if err := json.Unmarshal([]byte(`{"Name":"demo","PackageID":"pkg-1","Listener":{"Name":"old","Port":80,"AllowedCIDRs":["10.0.0.0/8"]},"Pool":{"Name":"pool"}}`), &input); err != nil {
-		t.Fatal(err)
-	}
-	cmd := &cobra.Command{}
-	cmd.Flags().Bool("yes", false, "")
-	createGlobalLoadBalancerOp().extraFlags(cmd)
-	if err := cmd.Flags().Parse([]string{"--listener-name", "new", "--yes"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := globalLoadBalancerCreateGuard(cmd, &input); err != nil {
-		t.Fatal(err)
-	}
-	if input.Listener.Name != "new" || input.Listener.Port != 80 {
-		t.Fatalf("listener=%+v", input.Listener)
-	}
-}
-
 func TestGLBCreateRequiresConsent(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){})
 	root, _, _ := newSvcRoot(t, fixture)
@@ -93,9 +72,15 @@ func TestGLBCreateHelpExplainsCharges(t *testing.T) {
 	if err := root.ExecuteContext(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	for _, word := range []string{"credits", "three-day", "traffic", "CIDR"} {
+	for _, word := range []string{"credits", "three-day", "traffic"} {
 		if !strings.Contains(stdout.String(), word) {
 			t.Errorf("missing %s", word)
 		}
+	}
+}
+
+func TestGLBFailedClassification(t *testing.T) {
+	if got := classify(globalloadbalancer.ErrFailed).Code; got != "WriteFailed" {
+		t.Fatalf("code=%s", got)
 	}
 }

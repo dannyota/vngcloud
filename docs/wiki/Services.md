@@ -314,7 +314,7 @@ creates, updates, and deletes their pools (with health monitors and
 members), listeners, and L7 policies; see [Load Balancer](LoadBalancer.md)
 for the price guard, busy handling, waits, and errors.
 
-Global Load Balancer APIs are in `globalloadbalancer`.
+Global Load Balancer APIs are in `globalloadbalancer`. A caller-supplied HTTP client or transport is trusted caller code and lies outside the write endpoint guard.
 
 ```go
 glbClient := globalloadbalancer.New(cfg)

@@ -6,24 +6,13 @@
 
 Kind: Write.
 
-Requires --yes. Automated payment uses credits with a prepaid three-day hold; later connection and traffic charges apply. Listener CIDRs must be canonical restricted IPv4 prefixes, never /0. A listener requires a pool. Delete does not promise a refund. On NotSettled inspect inventory and billing before another mutation.
+Requires --yes. Automated payment uses credits with a prepaid three-day hold; later connection and traffic charges apply. Delete does not promise a refund. On NotSettled inspect inventory and billing before another mutation.
 
 | Flag | Type | Required |
 |-|-|-|
 | `--name` | `string` | yes |
 | `--package-id` | `string` | yes |
 | `--description` | `string` |  |
-| `Listener` (via `--cli-input-json` only) | `*globalloadbalancer.CreateListenerInput` |  |
-| `Pool` (via `--cli-input-json` only) | `*globalloadbalancer.CreatePoolInput` |  |
-| `--listener-allowed-cidrs` | `stringArray` |  |
-| `--listener-name` | `string` |  |
-| `--listener-port` | `int` |  |
-| `--member-address` | `string` |  |
-| `--member-port` | `int` |  |
-| `--member-region` | `string` |  |
-| `--member-subnet-id` | `string` |  |
-| `--member-vpc-id` | `string` |  |
-| `--pool-name` | `string` |  |
 
 ```sh
 vngcloud globalloadbalancer create-load-balancer --name <name> --package-id <package-id> --yes

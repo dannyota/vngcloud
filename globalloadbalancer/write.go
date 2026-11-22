@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/netip"
 	"regexp"
 	"strings"
 	"time"
@@ -20,6 +19,9 @@ import (
 // ErrNotSettled means a write may have succeeded but has not been confirmed.
 var ErrNotSettled = errors.New("globalloadbalancer: write not settled; inspect inventory and billing before another mutation")
 
+//nolint:revive
+var ErrFailed = errors.New("globalloadbalancer: write failed; inspect inventory and billing before another mutation")
+
 // CreateLoadBalancerInput selects a global load balancer configuration.
 type CreateLoadBalancerInput struct {
 	// Name is required.
@@ -28,56 +30,6 @@ type CreateLoadBalancerInput struct {
 	PackageID string `vngcloud:"required"`
 	// Description is optional.
 	Description string
-	// Listener optionally configures one TCP listener.
-	Listener *CreateListenerInput
-	// Pool optionally configures one TCP pool.
-	Pool *CreatePoolInput
-}
-
-// CreateListenerInput configures a TCP listener.
-type CreateListenerInput struct {
-	// Name is required.
-	Name string
-	// Port is between 1 and 65535.
-	Port int
-	// AllowedCIDRs contains canonical restricted IPv4 CIDRs.
-	AllowedCIDRs []string
-}
-
-// CreatePoolInput configures a TCP pool.
-type CreatePoolInput struct {
-	// Name is required.
-	Name string
-	// HealthCheck optionally overrides TCP health-check defaults.
-	HealthCheck *HealthCheckInput
-	// Members lists private backend members.
-	Members []PoolMemberInput
-}
-
-// HealthCheckInput configures TCP health checks.
-type HealthCheckInput struct {
-	// HealthyThreshold is the number of successful probes required.
-	HealthyThreshold int
-	// UnhealthyThreshold is the number of failed probes required.
-	UnhealthyThreshold int
-	// Interval is the probe interval.
-	Interval int
-	// Timeout is the probe timeout.
-	Timeout int
-}
-
-// PoolMemberInput identifies a private backend.
-type PoolMemberInput struct {
-	// Region identifies the backend region.
-	Region string
-	// VPCID identifies the backend VPC.
-	VPCID string
-	// SubnetID identifies the backend subnet.
-	SubnetID string
-	// Address is the backend IPv4 address.
-	Address string
-	// Port is between 1 and 65535.
-	Port int
 }
 
 // CreateLoadBalancerOutput contains the confirmed or partially confirmed load balancer.
@@ -101,8 +53,6 @@ type createBody struct {
 	Description string `json:"description,omitempty"`
 	PaymentFlow string `json:"paymentFlow"`
 	Type        string `json:"type"`
-	Listener    any    `json:"globalListener,omitempty"`
-	Pool        any    `json:"globalPool,omitempty"`
 }
 
 func buildCreate(in *CreateLoadBalancerInput) (createBody, error) {
@@ -112,42 +62,6 @@ func buildCreate(in *CreateLoadBalancerInput) (createBody, error) {
 		return body, err
 	}
 	body = createBody{Name: in.Name, Package: in.PackageID, Description: in.Description, PaymentFlow: "automated", Type: "Layer 4"}
-	if in.Listener != nil {
-		l := in.Listener
-		if in.Pool == nil || l.Name == "" || l.Port < 1 || l.Port > 65535 || len(l.AllowedCIDRs) == 0 {
-			return body, fmt.Errorf("%w: %s: listener requires a pool, name, port and restricted CIDRs", core.ErrInvalidInput, op)
-		}
-		for _, cidr := range l.AllowedCIDRs {
-			p, err := netip.ParsePrefix(cidr)
-			if err != nil || !p.Addr().Is4() || p.Bits() == 0 || p != p.Masked() || p.String() != cidr {
-				return body, fmt.Errorf("%w: %s: listener CIDRs must be canonical restricted IPv4 prefixes", core.ErrInvalidInput, op)
-			}
-		}
-		body.Listener = map[string]any{"name": l.Name, "port": l.Port, "allowedCidrs": strings.Join(l.AllowedCIDRs, ","), "protocol": "TCP", "timeoutClient": 50, "timeoutConnection": 5, "timeoutMember": 50}
-	}
-	if in.Pool != nil {
-		p := in.Pool
-		if p.Name == "" {
-			return body, fmt.Errorf("%w: %s: pool name is required", core.ErrInvalidInput, op)
-		}
-		h := HealthCheckInput{HealthyThreshold: 3, UnhealthyThreshold: 3, Interval: 30, Timeout: 5}
-		if p.HealthCheck != nil {
-			h = *p.HealthCheck
-		}
-		if h.HealthyThreshold < 1 || h.UnhealthyThreshold < 1 || h.Interval < 1 || h.Timeout < 1 || h.Timeout >= h.Interval {
-			return body, fmt.Errorf("%w: %s: invalid health check", core.ErrInvalidInput, op)
-		}
-		members := make([]any, 0, len(p.Members))
-		for i, m := range p.Members {
-			addr, err := netip.ParseAddr(m.Address)
-			if m.Region == "" || m.VPCID == "" || m.SubnetID == "" || err != nil || !addr.Is4() || m.Port < 1 || m.Port > 65535 {
-				return body, fmt.Errorf("%w: %s: invalid pool member", core.ErrInvalidInput, op)
-			}
-			name := fmt.Sprintf("member-%d", i+1)
-			members = append(members, map[string]any{"name": name, "region": m.Region, "vpcId": m.VPCID, "type": "PRIVATE", "members": []any{map[string]any{"address": m.Address, "subnetId": m.SubnetID, "port": m.Port, "backupRole": false}}})
-		}
-		body.Pool = map[string]any{"name": p.Name, "protocol": "TCP", "algorithm": "ROUND_ROBIN", "health": map[string]any{"protocol": "TCP", "healthyThreshold": h.HealthyThreshold, "unhealthyThreshold": h.UnhealthyThreshold, "interval": h.Interval, "timeout": h.Timeout}, "globalPoolMembers": members}
-	}
 	return body, nil
 }
 
@@ -185,9 +99,16 @@ func (c *Client) CreateLoadBalancer(ctx context.Context, in *CreateLoadBalancerI
 			if lb.ID != id || lb.Name != body.Name || lb.Package != body.Package {
 				return out, fmt.Errorf("%w: create detail does not match", ErrNotSettled)
 			}
-			out.LoadBalancer = lb
-			if strings.EqualFold(lb.Status, "active") {
+			switch strings.ToUpper(lb.Status) {
+			case "ACTIVE":
+				out.LoadBalancer = lb
 				return out, nil
+			case "ERROR":
+				return out, ErrFailed
+			case "CREATING", "PENDING", "PROVISIONING", "UPDATING":
+				out.LoadBalancer = lb
+			default:
+				return out, fmt.Errorf("%w: create status unrecognized", ErrNotSettled)
 			}
 		} else {
 			return out, fmt.Errorf("%w: create confirmation interrupted", ErrNotSettled)
@@ -214,15 +135,16 @@ func (c *Client) DeleteLoadBalancer(ctx context.Context, in *DeleteLoadBalancerI
 	if err != nil {
 		return nil, err
 	}
-	if got.ID != in.LoadBalancerID {
-		return nil, fmt.Errorf("%w: preflight ID mismatch", core.ErrInvalidInput)
+	if got.ID != in.LoadBalancerID || got.Type != "Layer 4" || (!strings.EqualFold(got.Status, "ACTIVE") && !strings.EqualFold(got.Status, "ERROR")) {
+		return nil, fmt.Errorf("%w: preflight resource is not eligible for deletion", core.ErrInvalidInput)
 	}
 	out := &DeleteLoadBalancerOutput{LoadBalancerID: in.LoadBalancerID}
 	notSent := false
-	err = c.c.DoJSON(ctx, transport.Request{Operation: op, Method: http.MethodDelete, URL: c.glbURL([]string{"global-load-balancers", in.LoadBalancerID}, nil), OK: []int{200, 202}, Once: true, NoRedirect: true, Sensitive: true, NotSent: &notSent, WithholdMessage: "response withheld"}, nil)
+	var sentCredentials []string
+	err = c.c.DoJSON(ctx, transport.Request{Operation: op, Method: http.MethodDelete, URL: c.glbURL([]string{"global-load-balancers", in.LoadBalancerID}, nil), OK: []int{200, 202}, Once: true, NoRedirect: true, Sensitive: true, KeepObservedStatus: true, NotSent: &notSent, SentCredentials: &sentCredentials}, nil)
 	if err != nil {
 		if definitiveWriteError(err, notSent) {
-			return nil, err
+			return nil, sanitizeCreateError(err, nil, sentCredentials)
 		}
 		return out, fmt.Errorf("%w: delete request unconfirmed", ErrNotSettled)
 	}
@@ -257,12 +179,13 @@ func (c *Client) writeDetail(ctx context.Context, id string) (LoadBalancer, erro
 		Name    string `json:"name"`
 		Package string `json:"package"`
 		Status  string `json:"status"`
+		Type    string `json:"type"`
 	}
 	err := c.c.DoJSON(ctx, transport.Request{Operation: "globalloadbalancer.WriteDetail", Method: http.MethodGet, URL: c.glbURL([]string{"global-load-balancers", id}, nil), OK: []int{200}, NoRedirect: true, StrictJSON: true, Sensitive: true, WithholdMessage: "response withheld"}, &wire)
-	return LoadBalancer{ID: wire.ID, Name: wire.Name, Package: wire.Package, Status: wire.Status}, err
+	return LoadBalancer{ID: wire.ID, Name: wire.Name, Package: wire.Package, Status: wire.Status, Type: wire.Type}, sanitizeCreateError(err, nil, nil)
 }
 
-var unsafeProviderMessage = regexp.MustCompile(`(?i)(password|passwd|secret|token|authorization|bearer|credential|cookie|session|api[-_ ]?key|\b(?:account|user|project|resource|vpc|subnet|uuid|id|[a-z]+id)\b|\b[a-z][a-z0-9]*-[a-z0-9]*[0-9][a-z0-9-]*\b|\b[0-9]{8,}\b|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|https?://|[\w.+-]+@[\w.-]+|\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b|[\x00-\x1f\x7f])`)
+var unsafeProviderMessage = regexp.MustCompile(`(?i)(\b(?:password|passwd|secret|(?:access|refresh)?token|authorization|bearer|credential|cookie|session|api[-_ ]?key)\b\s*(?:[:=]|\bis\b)\s*[^\s,;]+|\bbearer\s+[^\s,;]+|\b[a-z][a-z0-9]*-[a-z0-9]*[0-9][a-z0-9-]*\b|\b[0-9]{8,}\b|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[\x00-\x1f\x7f])`)
 
 func sanitizeCreateError(err error, in *CreateLoadBalancerInput, credentials []string) error {
 	var api *vngcloud.APIError
@@ -274,16 +197,9 @@ func sanitizeCreateError(err error, in *CreateLoadBalancerInput, credentials []s
 	if len(api.Message) > 512 || unsafeProviderMessage.MatchString(api.Message) {
 		safe.Message = "provider response withheld"
 	} else {
-		values := append([]string{in.Name, in.PackageID, in.Description}, credentials...)
-		if in.Listener != nil {
-			values = append(values, in.Listener.Name)
-			values = append(values, in.Listener.AllowedCIDRs...)
-		}
-		if in.Pool != nil {
-			values = append(values, in.Pool.Name)
-			for _, m := range in.Pool.Members {
-				values = append(values, m.Region, m.VPCID, m.SubnetID, m.Address)
-			}
+		values := append([]string(nil), credentials...)
+		if in != nil {
+			values = append(values, in.Name, in.PackageID, in.Description)
 		}
 		safe.Message = transport.RedactErrorText(api.Message, values...)
 	}

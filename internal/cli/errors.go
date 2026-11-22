@@ -314,7 +314,7 @@ func classify(err error) errorEnvelope {
 	// same WriteFailed class, as does loadbalancer.ErrFailed from every vLB
 	// write's post-write wait.
 	if errors.Is(err, dns.ErrFailed) || errors.Is(err, network.ErrFailed) || errors.Is(err, volume.ErrFailed) || errors.Is(err, compute.ErrFailed) ||
-		errors.Is(err, loadbalancer.ErrFailed) || errors.Is(err, storage.ErrFailed) {
+		errors.Is(err, loadbalancer.ErrFailed) || errors.Is(err, storage.ErrFailed) || errors.Is(err, globalloadbalancer.ErrFailed) {
 		return errorEnvelope{Code: "WriteFailed", Message: err.Error()}
 	}
 	// compute.ErrNotSettled, containerregistry.ErrNotSettled,

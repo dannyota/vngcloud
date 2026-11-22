@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -134,19 +133,6 @@ func TestCreateLoadBalancerBare(t *testing.T) {
 	}
 }
 
-func TestCreateRejectsUnsafeListener(t *testing.T) {
-	for _, cidr := range []string{"0.0.0.0/0", "10.0.0.1/24", "garbage"} {
-		t.Run(cidr, func(t *testing.T) {
-			requests := 0
-			c := newWriteTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
-			_, err := c.CreateLoadBalancer(context.Background(), &CreateLoadBalancerInput{Name: "demo", PackageID: "pkg-1", Listener: &CreateListenerInput{Name: "listener", Port: 80, AllowedCIDRs: []string{cidr}}, Pool: &CreatePoolInput{Name: "pool"}})
-			if err == nil || requests != 0 {
-				t.Fatalf("err=%v requests=%d", err, requests)
-			}
-		})
-	}
-}
-
 func TestCreateDefinitiveRejectionMessage(t *testing.T) {
 	for _, status := range []int{400, 402, 403, 429} {
 		t.Run(http.StatusText(status), func(t *testing.T) {
@@ -248,7 +234,7 @@ func TestDeleteWaitsForAbsence(t *testing.T) {
 				calls++
 				switch calls {
 				case 1:
-					_, _ = w.Write([]byte(`{"id":"glb-1"}`))
+					_, _ = w.Write([]byte(`{"id":"glb-1","type":"Layer 4","status":"ACTIVE"}`))
 				case 2:
 					if r.Method != http.MethodDelete || r.URL.Path != "/v1/global-load-balancers/glb-1" {
 						t.Errorf("unexpected delete %s %s", r.Method, r.URL.Path)
@@ -265,41 +251,6 @@ func TestDeleteWaitsForAbsence(t *testing.T) {
 				t.Fatalf("out=%+v err=%v calls=%d", out, err, calls)
 			}
 		})
-	}
-}
-
-func TestCreateBundleWire(t *testing.T) {
-	var body map[string]any
-	c := newWriteTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost {
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-				t.Error(err)
-			}
-			_, _ = w.Write([]byte(`{"globalLoadBalancer":{"id":"glb-1"}}`))
-			return
-		}
-		_, _ = w.Write([]byte(`{"id":"glb-1","name":"demo","package":"pkg-1","status":"ACTIVE"}`))
-	}))
-	_, err := c.CreateLoadBalancer(context.Background(), &CreateLoadBalancerInput{Name: "demo", PackageID: "pkg-1", Listener: &CreateListenerInput{Name: "listener", Port: 443, AllowedCIDRs: []string{"10.0.0.0/8", "192.168.0.0/16"}}, Pool: &CreatePoolInput{Name: "pool", Members: []PoolMemberInput{{Region: "han-1", VPCID: "vpc-1", SubnetID: "subnet-1", Address: "10.0.0.2", Port: 80}}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	const expected = `{"name":"demo","package":"pkg-1","paymentFlow":"automated","type":"Layer 4","globalListener":{"name":"listener","port":443,"allowedCidrs":"10.0.0.0/8,192.168.0.0/16","protocol":"TCP","timeoutClient":50,"timeoutConnection":5,"timeoutMember":50},"globalPool":{"name":"pool","protocol":"TCP","algorithm":"ROUND_ROBIN","health":{"protocol":"TCP","healthyThreshold":3,"unhealthyThreshold":3,"interval":30,"timeout":5},"globalPoolMembers":[{"name":"member-1","region":"han-1","vpcId":"vpc-1","type":"PRIVATE","members":[{"address":"10.0.0.2","subnetId":"subnet-1","port":80,"backupRole":false}]}]}}`
-	var want map[string]any
-	if err := json.Unmarshal([]byte(expected), &want); err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(body, want) {
-		t.Fatalf("body=%v want=%v", body, want)
-	}
-}
-
-func TestCreateListenerRequiresPool(t *testing.T) {
-	calls := 0
-	c := newWriteTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls++ }))
-	_, err := c.CreateLoadBalancer(context.Background(), &CreateLoadBalancerInput{Name: "demo", PackageID: "pkg-1", Listener: &CreateListenerInput{Name: "listener", Port: 443, AllowedCIDRs: []string{"10.0.0.0/8"}}})
-	if err == nil || calls != 0 {
-		t.Fatalf("err=%v calls=%d", err, calls)
 	}
 }
 
@@ -389,7 +340,7 @@ func TestDeleteWaitRejectsWrongID(t *testing.T) {
 		calls++
 		switch calls {
 		case 1:
-			_, _ = w.Write([]byte(`{"id":"glb-1"}`))
+			_, _ = w.Write([]byte(`{"id":"glb-1","type":"Layer 4","status":"ACTIVE"}`))
 		case 2:
 			w.WriteHeader(202)
 		case 3:
