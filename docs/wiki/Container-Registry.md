@@ -109,8 +109,9 @@ diagnostics and `SecretFile` output. Use the original `--secret-file`
 argument to locate the saved file.
 
 Both name lookups walk the established user `page` and `size` parameters.
-Missing or conflicting list envelopes, invalid or changing totals, repeated IDs,
-and exhausted page limits fail instead of proving absence. Dependent reads
+Missing or conflicting list envelopes, missing or invalid row names, invalid or
+changing totals, repeated IDs, and exhausted page limits fail instead of proving
+absence. No create is sent on incomplete name evidence. Dependent reads
 withhold captures and reject reflections of issued secrets and every credential
 sent during the operation. `SecretKey` remains a `vngcloud.Secret`; never log
 `Reveal()`.

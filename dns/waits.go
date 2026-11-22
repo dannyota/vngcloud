@@ -80,28 +80,39 @@ func contextSleep(ctx context.Context, d time.Duration) error {
 }
 
 func poll(ctx context.Context, now clockFunc, sleep sleepFunc, step func(ctx context.Context) (stop bool, err error), onTimeout func() error) error {
-	ctx, cancel := context.WithTimeout(ctx, pollBound)
+	return pollWithBound(ctx, pollBound, now, sleep, step, onTimeout)
+}
+
+func pollWithBound(ctx context.Context, bound time.Duration, now clockFunc, sleep sleepFunc, step func(ctx context.Context) (stop bool, err error), onTimeout func() error) error {
+	parent := ctx
+	ctx, cancel := context.WithTimeout(ctx, bound)
 	defer cancel()
-	deadline := now().Add(pollBound)
-	for {
-		if err := ctx.Err(); err != nil {
+	deadline := now().Add(bound)
+	checkDeadline := func() error {
+		if err := parent.Err(); err != nil {
 			return err
 		}
-		if !now().Before(deadline) {
+		if ctx.Err() != nil || !now().Before(deadline) {
 			return onTimeout()
+		}
+		return nil
+	}
+	for {
+		if err := checkDeadline(); err != nil {
+			return err
 		}
 		stop, err := step(ctx)
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if !now().Before(deadline) {
-			return onTimeout()
+		if deadlineErr := checkDeadline(); deadlineErr != nil {
+			return deadlineErr
 		}
 		if stop {
 			return err
 		}
 		delay := min(pollInterval, deadline.Sub(now()))
 		if err := sleep(ctx, delay); err != nil {
+			if deadlineErr := checkDeadline(); deadlineErr != nil {
+				return deadlineErr
+			}
 			return err
 		}
 	}
@@ -145,13 +156,6 @@ func (c *Client) getHostedZone(ctx context.Context, op, zoneID string) (*HostedZ
 	return &out, nil
 }
 
-// waitZoneReady is the pre-write wait every zone update and delete, and
-// every record write (CreateRecord, UpdateRecord, DeleteRecord), runs
-// before sending anything: it reads the zone until its Status is
-// StatusActive or StatusError, the two states the server accepts a write
-// against; CREATING, UPDATING, and any status this SDK does not recognize
-// all count as busy. It always runs, NoWait or not, since nothing has been
-// sent yet, and it turns the zone lock's 400 into a short wait instead.
 func (c *Client) waitZoneReady(ctx context.Context, op, zoneID string) (*HostedZone, error) {
 	var zone *HostedZone
 	err := poll(ctx, c.now, c.sleep,
@@ -164,7 +168,7 @@ func (c *Client) waitZoneReady(ctx context.Context, op, zoneID string) (*HostedZ
 			return z.Status == StatusActive || z.Status == StatusError, nil
 		},
 		func() error {
-			return fmt.Errorf("%w: %s: hosted zone %s did not leave %s within %s", ErrZoneBusy, op, zoneID, zone.Status, pollBound)
+			return fmt.Errorf("%w: %s: hosted zone %s was not confirmed ready within %s", ErrZoneBusy, op, zoneID, pollBound)
 		},
 	)
 	if err != nil {

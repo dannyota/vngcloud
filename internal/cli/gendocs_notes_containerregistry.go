@@ -29,7 +29,8 @@ const containerRegistryUserNameNote = "The server applies no account prefix: a r
 const containerRegistryCreateUserNote = "Needs --secret-file <path>, which must be new, including no existing symlink. " +
 	"The server requires names of 6 to 14 letters, digits, '_' or '-', starting with a letter or digit. " +
 	"Permissions[].Actions must match list-permissions exactly. The SDK refuses an existing exact name " +
-	"before creating and checks every supported user page. Set --duration-days for temporary users. " +
+	"before creating and checks every supported user page. A missing or invalid row name refuses the " +
+	"create because absence is unproven. Set --duration-days for temporary users. " +
 	"The create sends once. Its response carries a secret but no attributable user ID, so even one " +
 	"exact-name match is only a candidate. The SDK returns UserNotFound with the secret retained and User " +
 	"empty; the CLI saves the secret at mode 0600 and exits 1. Inspect both output and error in SDK callers. " +

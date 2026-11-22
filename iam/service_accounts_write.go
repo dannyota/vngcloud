@@ -29,6 +29,7 @@ type CreateServiceAccountInput struct {
 type CreateServiceAccountOutput struct {
 	ServiceAccount ServiceAccount
 	ClientSecret   vngcloud.Secret
+	cleanup        *serviceAccountCleanup
 }
 
 type createServiceAccountBody struct {
@@ -73,8 +74,9 @@ func (c *Client) CreateServiceAccount(ctx context.Context, in *CreateServiceAcco
 	}
 	secret := vngcloud.Secret(resp.ClientSecret)
 	opts := guardUserReadOptions(userReadOptions{Redact: []string{resp.ClientSecret}, SentCredentials: &sent})
+	out := &CreateServiceAccountOutput{ClientSecret: secret}
+	defer func() { out.cleanup = newServiceAccountCleanup(out.ServiceAccount.ID, opts) }()
 	if resp.ID == "" || core.CheckPathID(op, "ServiceAccountID", resp.ID) != nil || opts.containsCredential(resp.ID) {
-		out := &CreateServiceAccountOutput{ClientSecret: secret}
 		err := fmt.Errorf("%s: %w: create identity is unproven; retain the secret and reconcile with list-service-accounts before any cleanup", op, ErrCreateUnconfirmed)
 		if secret == "" {
 			err = fmt.Errorf("%w: %w", err, ErrNoSecret)
@@ -83,13 +85,13 @@ func (c *Client) CreateServiceAccount(ctx context.Context, in *CreateServiceAcco
 	}
 	got, err := c.getServiceAccount(ctx, &GetServiceAccountInput{ServiceAccountID: resp.ID}, opts)
 	if opts.containsCredential(resp.ID) {
-		return &CreateServiceAccountOutput{ClientSecret: secret}, fmt.Errorf("%s: %w: create identity is unsafe; reconcile ownership before cleanup", op, ErrCreateUnconfirmed)
+		return out, fmt.Errorf("%s: %w: create identity is unsafe; reconcile ownership before cleanup", op, ErrCreateUnconfirmed)
 	}
 	if err != nil {
-		out := &CreateServiceAccountOutput{ServiceAccount: ServiceAccount{ID: resp.ID}, ClientSecret: secret}
+		out.ServiceAccount = ServiceAccount{ID: resp.ID}
 		return out, fmt.Errorf("%s: service account %s was created but the read to confirm it failed: %w: %w", op, resp.ID, ErrCreateUnconfirmed, err)
 	}
-	out := &CreateServiceAccountOutput{ServiceAccount: got.ServiceAccount, ClientSecret: secret}
+	out.ServiceAccount = got.ServiceAccount
 	if secret == "" {
 		return out, fmt.Errorf("%s: %w: create response had no client secret; run reset-service-account-secret to get one", op, ErrNoSecret)
 	}
@@ -187,6 +189,7 @@ func (c *Client) UpdateServiceAccount(ctx context.Context, in *UpdateServiceAcco
 type DeleteServiceAccountInput struct {
 	// ServiceAccountID is required; use ASCII letters, digits, or hyphens.
 	ServiceAccountID string `vngcloud:"required"`
+	cleanup          *serviceAccountCleanup
 }
 
 // DeleteServiceAccountOutput carries no result fields.
@@ -201,12 +204,18 @@ func (c *Client) DeleteServiceAccount(ctx context.Context, in *DeleteServiceAcco
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
 	}
+	var credentials []string
+	if in.cleanup != nil {
+		credentials = append([]string(nil), in.cleanup.credentials...)
+	}
+	defer func() { clear(credentials) }()
+	opts := guardUserReadOptions(userReadOptions{SentCredentials: &credentials})
+	if err := guardRequestOperands(op, []string{in.ServiceAccountID}, opts); err != nil {
+		return nil, err
+	}
 	if err := core.CheckPathID(op, "ServiceAccountID", in.ServiceAccountID); err != nil {
 		return nil, err
 	}
-	var credentials []string
-	defer func() { clear(credentials) }()
-	opts := guardUserReadOptions(userReadOptions{SentCredentials: &credentials})
 	if err := c.guardServiceAccountWrite(ctx, op, in.ServiceAccountID, opts); err != nil {
 		return nil, err
 	}

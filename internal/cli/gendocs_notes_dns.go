@@ -12,4 +12,6 @@ const dnsZoneReplacementNote = "Reads the requested zone before replacing its de
 
 const dnsWaitEvidenceNote = "Polling requests and sleeps share the earlier caller or 60-second operation " +
 	"deadline. Late responses cannot confirm success, and confirmation must identify the requested resource. " +
+	"A pre-write operation timeout returns ZoneBusy without a mutation, including when a read stalls. " +
+	"Caller cancellation or an earlier caller deadline returns the context error instead. " +
 	"TXT payloads compare exactly, so old and OLD never confirm the same update."

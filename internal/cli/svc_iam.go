@@ -171,7 +171,7 @@ func callCreateServiceAccount(cmd *cobra.Command, client *iam.Client, ctx contex
 	case err != nil:
 		return nil, err
 	}
-	if writeErr := writeServiceAccountSecretFile(client, ctx, out.ServiceAccount.ID, out.ClientSecret.Reveal(), path); writeErr != nil {
+	if writeErr := writeServiceAccountSecretFile(client, ctx, out, path); writeErr != nil {
 		return nil, writeErr
 	}
 	return &createServiceAccountOutput{CreateServiceAccountOutput: *out, SecretFile: transport.RedactErrorText(path, out.ClientSecret.Reveal())}, nil
@@ -183,7 +183,7 @@ func finishUnconfirmedServiceAccountCreate(client *iam.Client, ctx context.Conte
 	if secret == "" {
 		return nil, newSecretFileNoSecret("service account", id, "reset-service-account-secret")
 	}
-	if writeErr := writeServiceAccountSecretFile(client, ctx, id, secret, path); writeErr != nil {
+	if writeErr := writeServiceAccountSecretFile(client, ctx, out, path); writeErr != nil {
 		return nil, writeErr
 	}
 	safePath := transport.RedactErrorText(path, secret)
@@ -193,8 +193,10 @@ func finishUnconfirmedServiceAccountCreate(client *iam.Client, ctx context.Conte
 	return nil, newServiceAccountCreateUnconfirmed(id, safePath, "list-service-accounts")
 }
 
-func writeServiceAccountSecretFile(client *iam.Client, ctx context.Context, serviceAccountID, secret, path string) error {
-	safeID := transport.RedactErrorText(serviceAccountID, secret)
+func writeServiceAccountSecretFile(client *iam.Client, ctx context.Context, out *iam.CreateServiceAccountOutput, path string) error {
+	cleanupInput := out.CleanupInput()
+	serviceAccountID := cleanupInput.ServiceAccountID
+	secret := out.ClientSecret.Reveal()
 	if !strings.HasSuffix(secret, "\n") {
 		secret += "\n"
 	}
@@ -204,10 +206,10 @@ func writeServiceAccountSecretFile(client *iam.Client, ctx context.Context, serv
 		}
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), secretFileCleanupDeleteTimeout)
 		defer cancel()
-		if _, delErr := client.DeleteServiceAccount(cleanupCtx, &iam.DeleteServiceAccountInput{ServiceAccountID: serviceAccountID}); delErr != nil && !vngcloud.IsNotFound(delErr) {
-			return newSecretFileCleanupFailed("service account", safeID)
+		if _, delErr := client.DeleteServiceAccount(cleanupCtx, cleanupInput); delErr != nil && !vngcloud.IsNotFound(delErr) {
+			return secretFileFailedError{msg: "could not write --secret-file; cleanup could not be confirmed; reconcile ownership with list-service-accounts before any deletion"}
 		}
-		return newSecretFileWriteFailed("service account", safeID, errors.New("secret file could not be saved"))
+		return secretFileFailedError{msg: "could not write --secret-file; the new service account was deleted"}
 	}
 	return nil
 }

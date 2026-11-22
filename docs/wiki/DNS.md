@@ -223,8 +223,10 @@ vDNS writes are asynchronous. Every `UpdateHostedZone` and
 `StatusActive` or `StatusError`, the two states the server accepts a write
 against; this always runs, since nothing has been sent yet, and it turns
 the server's zone-lock 400 into a short wait instead. If the zone stays
-busy (`CREATING` or `UPDATING`) past the wait's bound, the call returns
-`dns.ErrZoneBusy` and sends nothing; running it again is safe.
+busy (`CREATING` or `UPDATING`) past the wait's bound, or a pre-write read
+stalls until that operation deadline, the call returns `dns.ErrZoneBusy`
+and sends nothing; running it again is safe. Caller cancellation or an
+earlier caller deadline instead returns the caller's context error.
 
 A zone already in `StatusError` counts as ready too, not busy, so
 `UpdateHostedZone`, `CreateRecord`, and `UpdateRecord` still send their

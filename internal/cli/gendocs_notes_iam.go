@@ -24,7 +24,12 @@ const iamCreateServiceAccountNote = "Needs a new --secret-file path, including n
 	"secret before handling an SDK error. A failed confirmation retains the attributable create ID and secret. " +
 	"A missing, invalid, or unsafe create ID returns ErrCreateUnconfirmed with the secret retained and an " +
 	"empty ID, which grants no cleanup authority. Dependent reads withhold captures and reject credential " +
-	"reflections. Missing secrets return ErrNoSecret. The create sends once; reconcile with list-service-accounts " +
+	"reflections. After secret-file failure, cleanup retains the issued secret and accumulated credentials " +
+	"as private values through every guard and request. Cleanup messages omit IDs because credentials can " +
+	"refresh during cleanup. SDK cleanup uses created.CleanupInput() with " +
+	"DeleteServiceAccount; use keyed SDK literals and compare public fields explicitly because equality " +
+	"includes private state identity. Missing secrets return " +
+	"ErrNoSecret. The create sends once; reconcile with list-service-accounts " +
 	"before another create. A name match alone never proves ownership. Recover ClientID for a safe create ID " +
 	"with get-service-account --service-account-id <id>, never another create. Configure a fresh profile using " +
 	"client_id and stdin-only client_secret, then set read_only last; see " +

@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
@@ -232,6 +234,9 @@ func (c *Client) listUsersExactMatch(ctx context.Context, name string, privacy .
 		for _, u := range items {
 			if core.CheckPathID("containerregistry.ListUsers", "UserID", u.ID) != nil || seen[u.ID] {
 				return nil, errors.New("containerregistry: missing or repeated user identity")
+			}
+			if strings.TrimSpace(u.Name) == "" || !utf8.ValidString(u.Name) || strings.ContainsFunc(u.Name, unicode.IsControl) {
+				return nil, errors.New("containerregistry: missing or invalid user name")
 			}
 			seen[u.ID] = true
 			if u.Name == name {

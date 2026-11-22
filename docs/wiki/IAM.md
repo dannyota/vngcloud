@@ -286,9 +286,16 @@ handling the error. The SDK withholds dependent captures and rejects credential
 reflections in models and errors, including credentials sent before a token
 refresh.
 
-If a saved-file path contains the issued secret, that value is redacted in
-diagnostics and `SecretFile` output. Use the original `--secret-file`
-argument to locate the saved file.
+If a saved-file path contains the issued secret, diagnostics and `SecretFile`
+redact that value. Use the original `--secret-file` argument to locate the file.
+
+After secret-file failure, use `created.CleanupInput()` with
+`iamClient.DeleteServiceAccount`, as the CLI does. It carries the create ID,
+issued secret, and prior credentials through cleanup; an empty ID grants no
+cleanup authority. Cleanup messages omit IDs because credentials can refresh.
+`CreateServiceAccountOutput` and `DeleteServiceAccountInput` retain private
+state: use keyed literals and compare public fields explicitly, since `==`
+includes private identity. No flags or JSON fields are added.
 
 An accepted `UpdateServiceAccount` whose response handling or confirmation fails
 returns partial output and `iam.ErrNotSettled`. Check that sentinel before
