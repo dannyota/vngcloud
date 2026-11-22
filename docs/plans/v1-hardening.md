@@ -44,7 +44,7 @@ For each code slice, run its focused commands below while working and `make chec
 
 ## CLI privacy and consent
 
-- [ ] Risk: high security and accidental deletion.
+- [x] Risk: high security and accidental deletion.
 - Owned paths: `internal/cli/`; `cmd/vngcloud/`.
 - Closes: value-bearing query diagnostics at `internal/cli/errors.go:61`; registry follow-up/cleanup leaks and unproven cleanup ownership at `internal/cli/svc_containerregistry.go:105`, `internal/cli/svc_containerregistry.go:133`, and `internal/cli/svc_containerregistry.go:159`; substituted IAM cleanup targets at `internal/cli/svc_iam.go:249`; null ACL priority at `internal/cli/svc_network_acl.go:45`.
 - Closes: lost read-only latch at `internal/cli/configfile.go:378`; canceled configuration writes at `internal/cli/configure.go:102`; quota success hidden by query failure at `internal/cli/svc_monitor.go:411`; heterogeneous row corruption at `internal/cli/render.go:98`; ambiguity classification mismatch at `internal/cli/errors.go:539` and `internal/cli/errors_exit.go:121`.

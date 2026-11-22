@@ -1,12 +1,7 @@
 # Release Notes
 
-## Unreleased
+## v0.98.0 - Core, storage, SDK input, and CLI hardening
 
-- Breaking: query failures no longer include result values, ambiguous projects
-  report `InvalidConfig`, and ACL rule removal rejects null priority. Use the
-  error class instead of parsing query details and provide `--priority 0` or
-  JSON `"Priority":0` explicitly when targeting priority zero. Monitor check
-  creation now accepts repeatable `--locations` flags.
 - Harden compute, network, and portal identity, credential, inventory,
   replay, and wait guards. Server-group inputs rename `Page`/`Size` to
   `Offset`/`Limit`; migrate CLI flags to `--offset`/`--limit` and JSON input
@@ -38,6 +33,11 @@
   signed remaining-term quote; CLI JSON and query keys follow.
   `PutBucketEncryptionInput.Enabled` is a required `*bool`, and nil sends
   nothing. Rename field reads and pass a pointer to the intended boolean.
+- Breaking: query failures no longer include result values, ambiguous projects
+  report `InvalidConfig`, and ACL rule removal rejects null priority. Use the
+  error class instead of parsing query details and provide `--priority 0` or
+  JSON `"Priority":0` explicitly when targeting priority zero. Monitor check
+  creation now accepts repeatable `--locations` flags.
 - Breaking: table output now aligns heterogeneous rows by the union of their
   keys. Tables exceeding 100 columns, 1,000,000 cells, or a projected 64 MiB
   are refused; use `--output json` for larger results and scripts parsing named
