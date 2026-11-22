@@ -111,7 +111,7 @@ func TestDeleteRefusesBeforeAnyWrite(t *testing.T) {
 		"listener: two listeners":     {"listener", listeners, `[` + base.listenerJSON() + `,{"id":"glis-2"}]`, nil},
 		"listener: two pools":         {"listener", pools, `[` + base.poolJSON() + `,{"id":"gpool-2"}]`, nil},
 		"group: listener present":     {"group", listeners, `[` + base.listenerJSON() + `]`, nil},
-		"group: not active":           {"group", groupGet, strings.Replace(base.groupJSON(), `"status":"ACTIVE","members"`, `"status":"ERROR","members"`, 1), nil},
+		"group: not active":           {"group", groupGet, strings.Replace(base.groupJSON(), `"status":"OFFLINE","members"`, `"status":"ERROR","members"`, 1), nil},
 		"group: public":               {"group", groupGet, strings.Replace(base.groupJSON(), `PRIVATE`, `PUBLIC`, 1), nil},
 		"group: other pool":           {"group", groupGet, strings.Replace(base.groupJSON(), `"globalPoolId":"gpool-1"`, `"globalPoolId":"gpool-2"`, 1), nil},
 		"group: two groups":           {"group", groups, `[` + base.groupJSON() + `,{"id":"gmem-2"}]`, nil},

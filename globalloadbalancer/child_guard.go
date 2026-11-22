@@ -192,6 +192,9 @@ func (r *run) readChain(ctx context.Context, spec chainSpec) (chain, error) {
 	if !checkGroup(out.group, spec.glb, spec.poolID, groups[0].ID, spec.backend) {
 		return out, refuse("the member group does not match the supported private backend")
 	}
-	out.verdict = combine(createState(out.pool.Status), createState(out.group.Status), createState(out.group.Members[0].Status))
+	out.verdict = combine(createState(out.pool.Status), createState(out.pool.Health.Status))
+	if !memberHealth(out.group.Status) || !memberHealth(out.group.Members[0].Status) {
+		out.verdict = stateUnknown
+	}
 	return out, nil
 }

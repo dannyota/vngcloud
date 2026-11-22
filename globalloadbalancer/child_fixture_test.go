@@ -43,7 +43,7 @@ type fixture struct {
 }
 
 func newFixture(t *testing.T) *fixture {
-	return &fixture{t: t, bodies: map[string][]byte{}, override: map[string]http.HandlerFunc{}, poolStatus: "ACTIVE", groupStatus: "ACTIVE", listenerStatus: "ACTIVE", acceptStatus: 202, poolName: "tcp-pool", groupName: "tcp-backend", rowAddr: "10.1.2.3", listenerCIDRs: fxCIDRs, listenerPool: fxPool}
+	return &fixture{t: t, bodies: map[string][]byte{}, override: map[string]http.HandlerFunc{}, poolStatus: "ACTIVE", groupStatus: "OFFLINE", listenerStatus: "ACTIVE", acceptStatus: 202, poolName: "tcp-pool", groupName: "tcp-backend", rowAddr: "10.1.2.3", listenerCIDRs: fxCIDRs, listenerPool: fxPool}
 }
 
 func (f *fixture) withChildren() *fixture {

@@ -156,8 +156,12 @@ func (c *Client) DeletePoolMember(ctx context.Context, in *DeletePoolMemberInput
 	if err != nil {
 		return nil, err
 	}
-	if _, err := r.inPool(ctx, in.LoadBalancerID, in.PoolID); err != nil {
+	pool, err := r.inPool(ctx, in.LoadBalancerID, in.PoolID)
+	if err != nil {
 		return nil, err
+	}
+	if !deleteEligible(pool.Status) || pool.Health == nil || !deleteEligible(pool.Health.Status) {
+		return nil, refuse("the pool is not in a stable state")
 	}
 	if err := r.requireNoListeners(ctx, in.LoadBalancerID); err != nil {
 		return nil, err
@@ -173,7 +177,7 @@ func (c *Client) DeletePoolMember(ctx context.Context, in *DeletePoolMemberInput
 	if err != nil {
 		return nil, err
 	}
-	if !checkGroup(g, in.LoadBalancerID, in.PoolID, in.PoolMemberID, nil) || !deleteEligible(g.Status) {
+	if !checkGroup(g, in.LoadBalancerID, in.PoolID, in.PoolMemberID, nil) || !memberHealth(g.Status) || !memberHealth(g.Members[0].Status) {
 		return nil, refuse("the member group is not an eligible sole private group")
 	}
 	out := &DeletePoolMemberOutput{LoadBalancerID: in.LoadBalancerID, PoolID: in.PoolID, PoolMemberID: in.PoolMemberID}
@@ -213,7 +217,7 @@ func (c *Client) DeletePool(ctx context.Context, in *DeletePoolInput) (*DeletePo
 	if err != nil {
 		return nil, err
 	}
-	if !deleteEligible(p.Status) {
+	if !deleteEligible(p.Status) || p.Health == nil || !deleteEligible(p.Health.Status) {
 		return nil, refuse("the pool is not in a stable state")
 	}
 	if err := r.requireNoListeners(ctx, in.LoadBalancerID); err != nil {

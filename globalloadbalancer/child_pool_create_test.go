@@ -233,11 +233,11 @@ func TestCreatePoolWaitsThroughTransition(t *testing.T) {
 		reads++
 		if reads < 3 {
 			f.mu.Lock()
-			f.poolStatus, f.groupStatus = "CREATING", "CREATING"
+			f.poolStatus = "CREATING"
 			f.mu.Unlock()
 		} else {
 			f.mu.Lock()
-			f.poolStatus, f.groupStatus = "ACTIVE", "ACTIVE"
+			f.poolStatus = "ACTIVE"
 			f.mu.Unlock()
 		}
 		f.mu.Lock()
@@ -262,6 +262,24 @@ func TestCreatePoolFailureStates(t *testing.T) {
 	out, err = f.client(t).CreatePool(bg(), poolInput())
 	if !errors.Is(err, ErrNotSettled) || out == nil || out.Pool.ID != fxPool || strings.Contains(err.Error(), "SOMETHING-NEW") {
 		t.Fatalf("unknown state out=%+v err=%v", out, err)
+	}
+}
+
+func TestCreatePoolAcceptsMemberHealth(t *testing.T) {
+	for _, health := range []string{"ONLINE", "OFFLINE"} {
+		f := newFixture(t)
+		f.groupStatus = health
+		out, err := f.client(t).CreatePool(bg(), poolInput())
+		if err != nil || out == nil || out.PoolMember.Status != health {
+			t.Fatalf("health=%s out=%+v err=%v", health, out, err)
+		}
+	}
+	f := newFixture(t)
+	f.on("GET "+glbPrefix+"/global-pools/"+fxPool, jsonBody(strings.Replace(f.poolJSON(), `"status":"ACTIVE"}`, `"status":"CREATING"}`, 1)))
+	ctx, cancel := context.WithTimeout(bg(), 50*time.Millisecond)
+	defer cancel()
+	if _, err := f.client(t).CreatePool(ctx, poolInput()); !errors.Is(err, ErrNotSettled) {
+		t.Fatalf("health not active err=%v", err)
 	}
 }
 

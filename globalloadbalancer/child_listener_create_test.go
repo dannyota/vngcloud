@@ -83,7 +83,7 @@ func TestCreateListenerRefusesWhenChainIsNotExact(t *testing.T) {
 		"no group":          {groups, `[]`},
 		"two groups":        {groups, `[` + base.groupJSON() + `,{"id":"gmem-2"}]`},
 		"group public":      {group, strings.Replace(base.groupJSON(), `PRIVATE`, `PUBLIC`, 1)},
-		"group not active":  {group, strings.Replace(base.groupJSON(), `"status":"ACTIVE","members"`, `"status":"ERROR","members"`, 1)},
+		"group not active":  {group, strings.Replace(base.groupJSON(), `"status":"OFFLINE","members"`, `"status":"ERROR","members"`, 1)},
 		"group id":          {group, strings.Replace(base.groupJSON(), `"id":"gmem-1","name"`, `"id":"gmem-2","name"`, 1)},
 		"row backup":        {group, strings.Replace(base.groupJSON(), `"backupRole":false`, `"backupRole":true`, 1)},
 		"row count":         {group, strings.Replace(base.groupJSON(), `"members":[`, `"members":[{"id":"x"},`, 1)},
