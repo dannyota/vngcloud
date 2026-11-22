@@ -13,3 +13,13 @@ description = "volume encryption type names are public enum values"
 regexTarget = "match"
 regexes = ['''aes-xts-plain64_(128|256)''']
 paths = ['''testdata/volume/list_encryption_types_keys\.json''', '''volume/volume_test\.go''']
+
+# jwt matches a redaction-test canary in one commit of the floating IP live
+# test helpers: an unsigned alg:none token whose subject names a canary. It
+# authenticates nowhere. All three criteria must match.
+[[allowlists]]
+description = "unsigned canary JWT in the floating IP live test redaction table"
+condition = "AND"
+targetRules = ["jwt"]
+commits = ["0c5966e6fc6e00414a8391ae64155f90fa8e3b96"]
+paths = ['''livetest/live_write_floating_ip_helpers_test\.go''']
