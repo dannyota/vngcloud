@@ -15,6 +15,7 @@ import (
 	"danny.vn/vngcloud/cdn"
 	"danny.vn/vngcloud/compute"
 	"danny.vn/vngcloud/containerregistry"
+	"danny.vn/vngcloud/database"
 	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/globalloadbalancer"
 	"danny.vn/vngcloud/iam"
@@ -39,6 +40,7 @@ var serviceClients = map[string]reflect.Type{
 	"cdn":                reflect.TypeFor[*cdn.Client](),
 	"compute":            reflect.TypeFor[*compute.Client](),
 	"containerregistry":  reflect.TypeFor[*containerregistry.Client](),
+	"database":           reflect.TypeFor[*database.Client](),
 	"dns":                reflect.TypeFor[*dns.Client](),
 	"globalloadbalancer": reflect.TypeFor[*globalloadbalancer.Client](),
 	"iam":                reflect.TypeFor[*iam.Client](),

@@ -173,6 +173,17 @@ func TestVServerBackupEndpoint(t *testing.T) {
 	}
 }
 
+func TestDatabaseEndpoint(t *testing.T) {
+	got := ResolveIAMUser("hcm-3", Overrides{})
+	if got.Database != "https://vdb.console.greennode.ai/vdb/" {
+		t.Fatalf("unexpected database endpoint: %s", got.Database)
+	}
+	got = ResolveIAMUser("hcm-3", Overrides{Database: "http://example.test/database"})
+	if got.Database != "http://example.test/database/" {
+		t.Fatalf("unexpected database override: %s", got.Database)
+	}
+}
+
 func TestBackupCenter(t *testing.T) {
 	if got := ResolveIAMUser("hcm-3", Overrides{}).BackupCenter; got != "https://hcm-3.api.vngcloud.vn/vbackup-gateway/" {
 		t.Fatal(got)

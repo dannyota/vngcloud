@@ -11,6 +11,7 @@
 - [CDN](CLI-CDN.md)
 - [Compute](CLI-Compute.md)
 - [ContainerRegistry](CLI-ContainerRegistry.md)
+- [Database](CLI-Database.md)
 - [DNS](CLI-DNS.md)
 - [GlobalLoadBalancer](CLI-GlobalLoadBalancer.md)
 - [IAM](CLI-IAM.md)

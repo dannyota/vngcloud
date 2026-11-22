@@ -242,6 +242,7 @@ func runGenDocs(dir string) error {
 		buildDocService("tagging", taggingOps),
 		buildDocService("storage", storageOps),
 		buildDocService("vks", vksOps),
+		buildDocService("database", databaseOps),
 		buildDocService("backup", backupOps),
 	}
 	for i := range services {

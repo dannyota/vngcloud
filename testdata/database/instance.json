@@ -1,0 +1,1 @@
+{"code":200,"message":"synthetic","data":{"id":"instance","name":"db","status":"ACTIVE","datastoreType":"mysql","datastoreVersion":"8.0","zoneId":"zone","projectId":"project","subnetId":"subnet","volumeType":"SSD","volumeSize":10,"publicAccess":false,"backupAuto":false}}

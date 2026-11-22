@@ -68,4 +68,5 @@ type EndpointOverrides struct {
 	VKS                string
 	VServerBackup      string
 	BackupCenter       string
+	Database           string
 }

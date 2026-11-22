@@ -50,6 +50,8 @@ const (
 	// ProductBackupCenter is Backup Center's gateway, which differs from the
 	// vServer snapshot gateway.
 	ProductBackupCenter Product = "backupcenter"
+	// ProductDatabase identifies the database service endpoint.
+	ProductDatabase Product = "database"
 )
 
 // Endpoints resolves service endpoints by product.

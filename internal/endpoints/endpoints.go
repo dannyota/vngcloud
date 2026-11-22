@@ -70,6 +70,7 @@ type Overrides struct {
 	VKS                string
 	VServerBackup      string
 	BackupCenter       string
+	Database           string
 }
 
 // Set holds resolved service endpoints for a region.
@@ -94,6 +95,7 @@ type Set struct {
 	VKS           string
 	VServerBackup string
 	BackupCenter  string
+	Database      string
 }
 
 // Backup Center IAM routing is verified only in hcm-3.
@@ -125,6 +127,7 @@ func ResolveIAMUser(region string, overrides Overrides) Set {
 		CDN:           DefaultCDN,
 		VServerBackup: VServerBackup(region),
 		BackupCenter:  backupCenterEndpoints[region],
+		Database:      "https://vdb.console.greennode.ai/vdb/",
 	}
 	switch region {
 	case "hcm-3":
@@ -191,6 +194,9 @@ func ResolveIAMUser(region string, overrides Overrides) Set {
 	if overrides.BackupCenter != "" {
 		set.BackupCenter = overrides.BackupCenter
 	}
+	if overrides.Database != "" {
+		set.Database = overrides.Database
+	}
 	return set.Normalize()
 }
 
@@ -224,6 +230,7 @@ func (s Set) Normalize() Set {
 	s.CDN = normalizeURL(s.CDN)
 	s.VServerBackup = normalizeURL(s.VServerBackup)
 	s.BackupCenter = normalizeURL(s.BackupCenter)
+	s.Database = normalizeURL(s.Database)
 	return s
 }
 
