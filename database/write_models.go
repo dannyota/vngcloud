@@ -39,8 +39,6 @@ type CreateDatabaseInstanceInput struct {
 	Username string `vngcloud:"required"`
 	// Password is the master user password. It is sent only in the create request.
 	Password vngcloud.Secret
-	// NoWait returns after the create is accepted, without waiting for ACTIVE.
-	NoWait bool
 }
 
 // CreateDatabaseInstanceOutput holds the instance as last read; on a partial result only the ID is certain.

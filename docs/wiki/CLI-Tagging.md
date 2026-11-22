@@ -62,4 +62,3 @@ Needs no --yes: the write's own Previous field names Key's value before the chan
 ```sh
 vngcloud tagging untag-resource --resource-id <resource-id> --resource-type <resource-type> --key <key>
 ```
-

@@ -87,4 +87,3 @@ No fields.
 ```sh
 vngcloud portal list-zones
 ```
-

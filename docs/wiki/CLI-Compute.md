@@ -663,4 +663,3 @@ Kind: Write.
 ```sh
 vngcloud compute update-server-group --server-group-id <server-group-id> --name <name>
 ```
-

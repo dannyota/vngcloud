@@ -50,6 +50,20 @@ func (c *Client) deletePreflight(ctx context.Context, id string) error {
 	case len(inst.Replicas) > 0 || inst.ReplicaSourceID != "":
 		return refuse("the instance has replication")
 	}
+	projectID, err := c.c.RequireProjectID(ctx)
+	if err != nil {
+		return err
+	}
+	if inst.ProjectID == "" || inst.ProjectID != projectID {
+		return refuse("the instance is not in the selected project")
+	}
+	zones, err := c.ListDatabaseZones(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if inst.ZoneID == "" || !hasMatch(zones.Items, func(z Zone) bool { return z.UUID == inst.ZoneID || z.Name == inst.ZoneID }) {
+		return refuse("the instance zone is not a database zone of this region")
+	}
 	var backups []struct {
 		ID string `json:"id"`
 	}
@@ -89,12 +103,12 @@ func (c *Client) DeleteDatabaseInstance(ctx context.Context, in *DeleteDatabaseI
 	status, err := c.c.DoJSONStatus(ctx, transport.Request{
 		Operation: deleteOp, Method: http.MethodPost,
 		URL:  c.c.RouteURL(routes.Route{Product: routes.ProductDatabase, Version: "vdb-relational/v1", Parts: []string{"database-instances", in.ID, "delete"}}),
-		Body: body, OK: []int{200, 201, 202, 204}, AllowEmptyBody: true, Once: true, NoRedirect: true, Sensitive: true, KeepObservedStatus: true,
+		Body: body, OK: okStatuses2xx(), AllowEmptyBody: true, Once: true, NoRedirect: true, Sensitive: true, KeepObservedStatus: true,
 		MaxBody: 1 << 20, NotSent: &notSent, SentCredentials: &credentials,
 	}, &raw)
 	if err != nil {
 		if definitiveWriteError(err, notSent, status) {
-			return nil, writeError(deleteOp, err, credentials, nil)
+			return nil, writeError(deleteOp, err, nil)
 		}
 		return out, fmt.Errorf("%w: delete request unconfirmed", ErrNotSettled)
 	}
@@ -132,11 +146,8 @@ const (
 )
 
 func deleteReply(raw []byte, credentials []string) int {
-	text := string(raw)
-	for _, c := range credentials {
-		if c != "" && strings.Contains(text, c) {
-			return replyUnsafe
-		}
+	if leaksDecoded(raw, credentials) {
+		return replyUnsafe
 	}
 	var env struct {
 		Data []struct {
@@ -151,4 +162,12 @@ func deleteReply(raw []byte, credentials []string) int {
 		}
 	}
 	return replyOK
+}
+
+func okStatuses2xx() []int {
+	codes := make([]int, 100)
+	for i := range codes {
+		codes[i] = 200 + i
+	}
+	return codes
 }

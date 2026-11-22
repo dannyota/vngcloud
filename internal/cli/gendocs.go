@@ -633,7 +633,7 @@ func renderServicePage(svc docService) string {
 		}
 		fmt.Fprintf(&b, "```sh\n%s\n```\n\n", buildExample(svc.name, op))
 	}
-	return b.String()
+	return strings.TrimRight(b.String(), "\n") + "\n"
 }
 
 // buildExample builds one example command line for op: docExampleOverride's

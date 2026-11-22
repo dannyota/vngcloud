@@ -312,4 +312,3 @@ Budget and threshold writes are sent once and never follow redirects. Responses 
 ```sh
 vngcloud billing update-budget-threshold --budget-uuid <budget-uuid> --threshold-uuid <threshold-uuid>
 ```
-

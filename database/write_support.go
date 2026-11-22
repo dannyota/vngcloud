@@ -1,18 +1,20 @@
 package database
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/endpoints"
 	"danny.vn/vngcloud/internal/routes"
-	"danny.vn/vngcloud/internal/transport"
 )
 
 func (c *Client) writeProvenance() error {
@@ -71,83 +73,70 @@ func reflects(inst Instance, password string) bool {
 	return strings.Contains(text, password) || strings.Contains(text, strings.Trim(string(escaped), `"`))
 }
 
-var unsafeProviderMessage = regexp.MustCompile(`(?i)(\b(?:password|passwd|secret|(?:access|refresh)?token|authorization|bearer|credential|cookie|session|api[-_ ]?key)\b\s*(?:[:=]|\bis\b)\s*[^\s,;]+|\bbearer\s+[^\s,;]+|\b[a-z][a-z0-9]*-[a-z0-9]*[0-9][a-z0-9-]*\b|\b[0-9]{8,}\b|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[\w.+-]+@[\w.-]+\.[a-z]{2,}|[\x00-\x1f\x7f])`)
+var requestFieldNames = map[string]string{
+	"name": "Name", "password": "Password", "user.password": "Password",
+	"user.name": "Username", "username": "Username",
+	"databases.name": "DatabaseName", "user.databases.name": "DatabaseName", "databasename": "DatabaseName",
+	"volumetype": "StorageTypeID", "volumesize": "StorageSize", "packageid": "FlavorID", //nolint:misspell // lowercased API field packageId
+	"locatezoneid": "ZoneID", "netids": "SubnetID",
+}
 
-type fieldDetail struct{ Field, Message string }
+var indexPattern = regexp.MustCompile(`\[[0-9]*\]`)
 
 const maxFieldErrors = 5
 
-var fieldNamePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.\[\]]{0,63}$`)
-
-func parseFieldErrors(body []byte) []fieldDetail {
+func parseFieldErrors(body []byte) []string {
 	var env struct {
 		FieldError []struct {
-			Field   string `json:"field"`
-			Message string `json:"message"`
+			Field string `json:"field"`
 		} `json:"fieldError"`
 	}
 	if json.Unmarshal(body, &env) != nil {
 		return nil
 	}
-	var out []fieldDetail
-	for _, e := range env.FieldError {
-		if len(out) == maxFieldErrors {
+	var out []string
+	for i, e := range env.FieldError {
+		if i == 20 || len(out) == maxFieldErrors {
 			break
 		}
-		out = append(out, fieldDetail{Field: e.Field, Message: e.Message})
+		name, ok := requestFieldNames[strings.ToLower(indexPattern.ReplaceAllString(e.Field, ""))]
+		if ok && !slices.Contains(out, name) {
+			out = append(out, name)
+		}
 	}
 	return out
 }
 
-func leaksSecret(text string, secrets []string) bool {
-	for _, secret := range secrets {
-		escaped, _ := json.Marshal(secret)
-		if secret != "" && (strings.Contains(text, secret) || strings.Contains(text, strings.Trim(string(escaped), `"`))) {
-			return true
-		}
-	}
-	return false
-}
-
-func describeFields(fields []fieldDetail, secrets []string) string {
-	var parts []string
-	for _, f := range fields {
-		if !fieldNamePattern.MatchString(f.Field) || leaksSecret(f.Field, secrets) {
-			continue
-		}
-		part := f.Field
-		m := strings.TrimSpace(f.Message)
-		if m != "" && len(m) <= 200 && !unsafeProviderMessage.MatchString(m) && !leaksSecret(m, secrets) {
-			part += ": " + transport.RedactErrorText(m, secrets...)
-		}
-		parts = append(parts, part)
-	}
-	return strings.Join(parts, "; ")
-}
-
-func writeError(op string, err error, secrets []string, fields []fieldDetail) error {
+func writeError(op string, err error, fields []string) error {
 	safe := safeError(op, err)
 	var provider *core.APIError
-	if !errors.As(err, &provider) || provider.Message == "" {
-		return safe
-	}
-	message := provider.Message
-	withhold := len(message) > 512 || unsafeProviderMessage.MatchString(message)
-	for _, secret := range secrets {
-		escaped, _ := json.Marshal(secret)
-		if secret != "" && (strings.Contains(message, secret) || strings.Contains(message, strings.Trim(string(escaped), `"`))) {
-			withhold = true
+	if errors.As(err, &provider) && provider.StatusCode >= 400 {
+		safe.Message = "request rejected by the API"
+		if len(fields) > 0 {
+			safe.Message = "invalid input rejected by the API: " + strings.Join(fields, ", ")
 		}
 	}
-	if withhold {
-		safe.Message = "provider response withheld"
-	} else {
-		safe.Message = transport.RedactErrorText(message, secrets...)
-	}
-	if detail := describeFields(fields, secrets); detail != "" {
-		safe.Message += ": " + detail
-	}
 	return safe
+}
+
+func leaksDecoded(raw []byte, secrets []string) bool {
+	d := json.NewDecoder(bytes.NewReader(raw))
+	for {
+		token, err := d.Token()
+		if errors.Is(err, io.EOF) {
+			return false
+		}
+		if err != nil {
+			return true
+		}
+		if text, ok := token.(string); ok {
+			for _, s := range secrets {
+				if s != "" && strings.Contains(text, s) {
+					return true
+				}
+			}
+		}
+	}
 }
 
 func definitiveWriteError(err error, notSent bool, status int) bool {

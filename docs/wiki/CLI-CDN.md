@@ -243,4 +243,3 @@ Requires detail with explicit status and matching CDN ID before writing. Merges 
 ```sh
 vngcloud cdn update-web-accelerator --cdn-id <cdn-id> --cli-input-json file://changes.json
 ```
-

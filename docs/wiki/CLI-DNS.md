@@ -163,4 +163,3 @@ Polling requests and sleeps share the earlier caller or 60-second operation dead
 ```sh
 vngcloud dns update-record --hosted-zone-id <hosted-zone-id> --record-id <record-id> --ttl <ttl>
 ```
-

@@ -572,4 +572,3 @@ Refuses, before any request, with error code SelfChange when the service account
 ```sh
 vngcloud iam update-service-account --service-account-id <service-account-id>
 ```
-

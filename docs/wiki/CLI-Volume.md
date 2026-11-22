@@ -355,4 +355,3 @@ If this resource is managed by OpenTofu or Terraform, a write made here drifts f
 ```sh
 vngcloud volume resize-volume --volume-id <volume-id> --size <size> --yes
 ```
-

@@ -46,9 +46,11 @@ catalogs, before it sends anything.
 - `Name` is 1 to 20 letters, digits, hyphens, or underscores, starting with a
   letter or digit; a longer name returns `vngcloud.ErrInvalidInput` before any
   request.
-- A 400 reply returns a sanitized `vngcloud.APIError` whose message lists up to
-  5 rejected field names from `fieldError`, each with its sanitized message
-  and never the rejected value, for example `in_valid: name: <message>`.
+- A 4xx reply returns a `vngcloud.APIError` with fixed SDK text, never a
+  provider message or an echoed value. When the body lists `fieldError`
+  entries, the message names the matching input fields, such as
+  `invalid input rejected by the API: Name, Password`; otherwise it reads
+  `request rejected by the API`.
 - The request is a single node with `publicAccess: false` and
   `backupAuto: false`, one logical database, and the master user.
 - The request is sent once and never resent after any failure, including a
@@ -59,19 +61,22 @@ catalogs, before it sends anything.
   starting with a letter and ending with a letter or digit; otherwise the call
   returns `vngcloud.ErrInvalidInput` naming `Password`, without the value, before
   any request. It is a `vngcloud.Secret`. It appears only in the create request
-  body, never in outputs, errors, logs, or captures. An error message from
-  the service is kept only after redaction, and is withheld when it looks
-  like it carries a credential or an ID.
-- A returned instance ID must be path-safe and differ from the password and
-  the bearer token. Anything else returns `database.ErrNotSettled`.
+  body, never in outputs, errors, logs, or captures.
+- A returned instance ID must match the path-safe ID pattern. The reply is
+  rejected when any decoded string, including the ID, contains the password or
+  the bearer token, even in a JSON-escaped form. Anything else returns
+  `database.ErrNotSettled`.
 - The call then reads the instance at once and every 10 seconds, for at most
-  30 minutes or the caller's earlier deadline. A 404 right after the create is treated as not yet visible and keeps the wait going. It succeeds only when the state
-  is `ACTIVE`, with matching engine, version, flavor, backup off, and no
-  public access. `NoWait` returns after the create is accepted.
+  30 minutes or the caller's earlier deadline. Reads never follow redirects,
+  and a redirect returns `database.ErrNotSettled`. A 404 right after the
+  create is treated as not yet visible and keeps the wait going. It succeeds
+  only when the state is `ACTIVE`, with matching engine, version, flavor,
+  backup off, and no public access.
 - A state of `ERROR` or `FAILED` returns `database.ErrFailed`. An unknown
   state, a failed read, a timeout, a cancelled context, or an uncertain send
-  returns `database.ErrNotSettled`. Both return an `Output` holding the
-  instance ID when known. A 4xx reply returns a sanitized `vngcloud.APIError`.
+  returns `database.ErrNotSettled`. Both return an `Output` holding only the
+  instance ID when known; the full instance is returned only once it is
+  confirmed `ACTIVE`.
   Inspect inventory and billing before any further mutation.
 
 ## Delete
@@ -81,8 +86,12 @@ out, err := client.DeleteDatabaseInstance(ctx, &database.DeleteDatabaseInstanceI
 ```
 
 The call reads the exact ID first and sends nothing, returning
-`database.ErrDeleteRefused`, unless the instance is an `ACTIVE` MySQL instance, not shared (`owner` is not false), with no replication and no backups. It then sends one delete with no
-final backup and no backup purge, accepts any 2xx reply except one echoing a credential or an explicit `success: false` row, and waits up to 30 minutes for a 404 or a
-`DELETED` state. `Deleted` is true only after that. A timeout or unknown state
+`database.ErrDeleteRefused`, unless the instance is an `ACTIVE` MySQL instance
+in the client's project, in a zone that `ListDatabaseZones` returns, not shared
+(`owner` is not false), with no replication and no backups. A missing or
+different project or zone is refused. It then sends one delete with no final
+backup and no backup purge, accepts any 2xx reply except one echoing a
+credential or an explicit `success: false` row, and waits up to 30 minutes for
+a 404 or a `DELETED` state; redirects are never followed. `Deleted` is true only after that. A timeout or unknown state
 returns `database.ErrNotSettled` with the ID. Deleting does not promise a
 refund.

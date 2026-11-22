@@ -268,32 +268,23 @@ func TestCreateSendsOnce(t *testing.T) {
 	}
 }
 
-func TestCreateClientErrorMessagesAreSanitized(t *testing.T) {
-	cases := []struct {
-		name, body, want string
-	}{
-		{"benign", `{"message":"Insufficient credits"}`, "Insufficient credits"},
-		{"password echoed", `{"message":"bad password ` + testPassword + ` rejected"}`, "[redacted]"},
-		{"escaped password", `{"message":"bad ` + strings.ReplaceAll(testPassword, "_", "\\u005f") + `"}`, "[redacted]"},
-		{"credential pair", `{"message":"password: abc123"}`, "withheld"},
-		{"bearer", `{"message":"token bearer-synthetic"}`, "[redacted]"},
-		{"long", `{"message":"` + strings.Repeat("x", 600) + `"}`, "withheld"},
-		{"id like", `{"message":"instance db-1234 exists"}`, "withheld"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			s := &script{create: func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 400, tc.body) }}
-			h := newHarness(t, s.handler())
-			_, err := h.client.CreateDatabaseInstance(context.Background(), validCreateInput())
-			var api *vngcloud.APIError
-			if !errors.As(err, &api) || api.StatusCode != 400 || !strings.Contains(api.Message, tc.want) || strings.Contains(api.Message, "bearer-synthetic") {
-				t.Fatalf("err=%v", err)
-			}
-			assertNoSecret(t, "error", err)
-			if strings.Contains(fmt.Sprintf("%#v", api.Unwrap()), testPassword) {
-				t.Fatal("unwrap chain leaks")
-			}
-		})
+func TestCreateClientErrorMessagesAreFixedText(t *testing.T) {
+	for _, body := range []string{
+		`{"message":"Insufficient credits"}`,
+		`{"message":"Name demo-db is invalid"}`,
+		`{"message":"bad password ` + testPassword + ` rejected"}`,
+		`{"message":"bad ` + strings.Replace(testPassword, "C", "\\u0043", 1) + `"}`,
+		`{"message":"token bearer-synthetic"}`,
+		`{"message":"` + strings.Repeat("x", 600) + `"}`,
+	} {
+		s := &script{create: func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 400, body) }}
+		h := newHarness(t, s.handler())
+		_, err := h.client.CreateDatabaseInstance(context.Background(), validCreateInput())
+		var api *vngcloud.APIError
+		if !errors.As(err, &api) || api.StatusCode != 400 || api.Message != "request rejected by the API" {
+			t.Fatalf("body %s err=%v", body, err)
+		}
+		assertNoSecret(t, "error", err)
 	}
 }
 
@@ -304,6 +295,10 @@ func TestCreateRejectsUnsafeAcceptance(t *testing.T) {
 		{"unsafe ID", `{"code":200,"data":[{"resourceId":"a/b"}]}`},
 		{"dot ID", `{"code":200,"data":[{"resourceId":".."}]}`},
 		{"password ID", `{"code":200,"data":[{"resourceId":"` + testPassword + `"}]}`},
+		{"escaped password ID", `{"code":200,"data":[{"resourceId":"` + strings.Replace(testPassword, "C", "\\u0043", 1) + `"}]}`},
+		{"password inside ID", `{"code":200,"data":[{"resourceId":"db-` + testPassword + `-x"}]}`},
+		{"escaped password in another field", `{"code":200,"message":"` + strings.Replace(testPassword, "C", "\\u0043", 1) + `","data":[{"resourceId":"db-1"}]}`},
+		{"bearer inside ID", `{"code":200,"data":[{"resourceId":"x-bearer-synthetic-x"}]}`},
 		{"bearer ID", `{"code":200,"data":[{"resourceId":"bearer-synthetic"}]}`},
 		{"reflected in order", `{"code":200,"data":[{"resourceId":"db-1","orderId":"` + testPassword + `"}]}`},
 		{"reflected in message", `{"code":200,"message":"` + testPassword + `","data":[{"resourceId":"db-1"}]}`},
@@ -351,7 +346,7 @@ func TestCreateWaits(t *testing.T) {
 			}
 		}},
 		{name: "error state", detail: []string{building, detailBody("ERROR", nil)}, check: func(t *testing.T, _ *harness, out *CreateDatabaseInstanceOutput, err error) {
-			if !errors.Is(err, ErrFailed) || out == nil || out.Instance.ID != "db-1" || out.Instance.Status != "ERROR" {
+			if !errors.Is(err, ErrFailed) || out == nil || !reflect.DeepEqual(out.Instance, Instance{ID: "db-1"}) {
 				t.Fatalf("out=%v err=%v", out, err)
 			}
 		}},
@@ -370,6 +365,12 @@ func TestCreateWaits(t *testing.T) {
 		{name: "not visible then active", detail: []string{"404", building, active}, check: func(t *testing.T, h *harness, out *CreateDatabaseInstanceOutput, err error) {
 			if err != nil || out.Instance.Status != "ACTIVE" || h.count("GET", pathDetail) != 3 || h.posts() != 1 {
 				t.Fatalf("out=%v err=%v reads=%d", out, err, h.count("GET", pathDetail))
+			}
+		}},
+		{name: "redirect to a 404", detail: []string{"302"}, check: func(t *testing.T, h *harness, out *CreateDatabaseInstanceOutput, err error) {
+			notSettled(t, h, out, err)
+			if h.count("GET", "/elsewhere") != 0 {
+				t.Fatal("followed the redirect")
 			}
 		}},
 		{name: "never visible", def: "404", check: func(t *testing.T, h *harness, out *CreateDatabaseInstanceOutput, err error) {
@@ -417,7 +418,7 @@ func TestCreateWaits(t *testing.T) {
 
 func notSettled(t *testing.T, _ *harness, out *CreateDatabaseInstanceOutput, err error) {
 	t.Helper()
-	if !errors.Is(err, ErrNotSettled) || errors.Is(err, ErrFailed) || out == nil || out.Instance.ID != "db-1" {
+	if !errors.Is(err, ErrNotSettled) || errors.Is(err, ErrFailed) || out == nil || !reflect.DeepEqual(out.Instance, Instance{ID: "db-1"}) {
 		t.Fatalf("out=%v err=%v", out, err)
 	}
 }
@@ -430,17 +431,6 @@ func TestCreateExpiredCallerContextDoesNotResend(t *testing.T) {
 	out, err := h.client.CreateDatabaseInstance(ctx, validCreateInput())
 	if out != nil && out.Instance.ID != "" || err == nil || h.posts() != 0 {
 		t.Fatalf("out=%v err=%v posts=%d", out, err, h.posts())
-	}
-}
-
-func TestCreateNoWait(t *testing.T) {
-	s := &script{}
-	h := newHarness(t, s.handler())
-	in := validCreateInput()
-	in.NoWait = true
-	out, err := h.client.CreateDatabaseInstance(context.Background(), in)
-	if err != nil || out.Instance.ID != "db-1" || h.count("GET", pathDetail) != 0 || h.posts() != 1 {
-		t.Fatalf("out=%v err=%v", out, err)
 	}
 }
 
@@ -553,12 +543,15 @@ func TestCreate400EchoingTheRequestNeverLeaksThePassword(t *testing.T) {
 		t.Fatalf("out=%v err=%v", out, err)
 	}
 	assertNoSecret(t, "error", err, out, api)
-	for _, want := range []string{"in_valid", "name: Name is too long", "password: This password must be right format", "databases[0].name"} {
+	if api.Message != "invalid input rejected by the API: Name, Password, DatabaseName" {
+		t.Fatalf("message %q", api.Message)
+	}
+	for _, want := range []string{"Name", "Password"} {
 		if !strings.Contains(api.Message, want) {
 			t.Fatalf("message %q lacks %q", api.Message, want)
 		}
 	}
-	if strings.Contains(api.Message, "bad ") || strings.Contains(api.Message, "rejectedValue") || strings.Contains(api.Message, "demo-db") || strings.Contains(api.Message, "d: 4") {
+	if strings.Contains(api.Message, "bad ") || strings.Contains(api.Message, "rejectedValue") || strings.Contains(api.Message, "demo-db") || strings.Contains(api.Message, "too long") || strings.Contains(api.Message, "in_valid") {
 		t.Fatalf("message %q carries echoed or excess values", api.Message)
 	}
 	if strings.Contains(logs.String(), testPassword) || captured != 0 {

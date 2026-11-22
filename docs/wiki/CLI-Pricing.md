@@ -106,4 +106,3 @@ Prices are VND totals that include VAT; the API gives no VAT breakdown. Empty --
 ```sh
 vngcloud pricing get-quote --resource-type <resource-type>
 ```
-

@@ -88,4 +88,3 @@ vngcloud vks list-clusters \
   --query 'Items[].{ID:ID,Name:Name,Status:Status,Version:Version}' \
   --output table
 ```
-

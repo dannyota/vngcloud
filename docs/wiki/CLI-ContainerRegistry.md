@@ -136,4 +136,3 @@ The server applies no account prefix: a row's Name is exactly the value given to
 ```sh
 vngcloud containerregistry list-users
 ```
-

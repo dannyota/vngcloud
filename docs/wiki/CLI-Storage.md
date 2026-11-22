@@ -596,4 +596,3 @@ Kind: Read.
 ```sh
 vngcloud storage quote-create-project --type <type> --quota-gb <quota-gb>
 ```
-

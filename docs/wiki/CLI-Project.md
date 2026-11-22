@@ -13,4 +13,3 @@ Kind: Read.
 ```sh
 vngcloud project list-projects
 ```
-

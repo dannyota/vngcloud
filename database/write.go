@@ -202,7 +202,8 @@ func hasMatch[T any](rows []T, match func(T) bool) bool {
 }
 
 // CreateDatabaseInstance sends one create request for a private, single-node
-// MySQL 8.0 instance with automatic backup off, then waits for ACTIVE. It never
+// MySQL 8.0 instance with automatic backup off, then waits for ACTIVE. The
+// output holds only the ID until the instance is confirmed ACTIVE. It never
 // resends the request: an unconfirmed result returns ErrNotSettled with the
 // instance ID when one is known.
 func (c *Client) CreateDatabaseInstance(ctx context.Context, in *CreateDatabaseInstanceInput) (*CreateDatabaseInstanceOutput, error) {
@@ -219,7 +220,7 @@ func (c *Client) CreateDatabaseInstance(ctx context.Context, in *CreateDatabaseI
 	password := in.Password.Reveal()
 	var raw json.RawMessage
 	var credentials []string
-	var fields []fieldDetail
+	var fields []string
 	notSent := false
 	status, err := c.c.DoJSONStatus(ctx, transport.Request{
 		Operation: createOp, Method: http.MethodPost,
@@ -232,7 +233,7 @@ func (c *Client) CreateDatabaseInstance(ctx context.Context, in *CreateDatabaseI
 	secrets := append(append([]string(nil), credentials...), password)
 	if err != nil {
 		if definitiveWriteError(err, notSent, status) {
-			return nil, writeError(createOp, err, secrets, fields)
+			return nil, writeError(createOp, err, fields)
 		}
 		return nil, fmt.Errorf("%w: create request unconfirmed", ErrNotSettled)
 	}
@@ -241,9 +242,6 @@ func (c *Client) CreateDatabaseInstance(ctx context.Context, in *CreateDatabaseI
 		return nil, fmt.Errorf("%w: create response lacks a valid instance ID", ErrNotSettled)
 	}
 	out := &CreateDatabaseInstanceOutput{Instance: Instance{ID: id}}
-	if in.NoWait {
-		return out, nil
-	}
 	err = c.poll(ctx, func(ctx context.Context) (bool, error) {
 		got, err := c.GetDatabaseInstance(ctx, &GetDatabaseInstanceInput{ID: id})
 		if core.IsNotFound(err) {
@@ -256,12 +254,12 @@ func (c *Client) CreateDatabaseInstance(ctx context.Context, in *CreateDatabaseI
 		if reflects(inst, password) {
 			return true, fmt.Errorf("%w: create detail withheld", ErrNotSettled)
 		}
-		out.Instance = inst
 		switch strings.ToUpper(inst.Status) {
 		case "ACTIVE":
 			if !createMatches(inst, body) {
 				return true, fmt.Errorf("%w: create detail does not match the request", ErrNotSettled)
 			}
+			out.Instance = inst
 			return true, nil
 		case "BUILD", "BUILDING":
 			return false, nil
@@ -280,13 +278,7 @@ func createMatches(inst Instance, body createBody) bool {
 }
 
 func parseCreateReply(raw []byte, secrets []string) (string, bool) {
-	text := string(raw)
-	for _, s := range secrets {
-		if s != "" && strings.Contains(text, s) {
-			return "", false
-		}
-	}
-	if !uniqueJSON(raw, secrets) {
+	if leaksDecoded(raw, secrets) || !uniqueJSON(raw, secrets) {
 		return "", false
 	}
 	var env struct {
@@ -300,7 +292,7 @@ func parseCreateReply(raw []byte, secrets []string) (string, bool) {
 		return "", false
 	}
 	id := rows[0].ResourceID
-	if !validID(id) {
+	if !validID(id) || core.CheckPathID(createOp, "ID", id) != nil {
 		return "", false
 	}
 	for _, s := range secrets {

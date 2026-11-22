@@ -107,7 +107,7 @@ func iamConfig(t *testing.T, rt http.RoundTripper, extra ...vngcloud.LoadOption)
 		}
 		return w.Result(), nil
 	})
-	opts := []vngcloud.LoadOption{vngcloud.WithRegion("hcm-3"), vngcloud.WithIAMUser(&vngcloud.IAMUserAuth{RootEmail: "root", Username: "user", Password: "synthetic", HTTPClient: &http.Client{Transport: auth}}), vngcloud.WithTransport(rt), vngcloud.WithRetry(0, 0)}
+	opts := []vngcloud.LoadOption{vngcloud.WithRegion("hcm-3"), vngcloud.WithIAMUser(&vngcloud.IAMUserAuth{RootEmail: "root", Username: "user", Password: "synthetic", HTTPClient: &http.Client{Transport: auth}}), vngcloud.WithTransport(rt), vngcloud.WithRetry(0, 0), vngcloud.WithProjectID("project-1")}
 	cfg, err := vngcloud.NewConfig(append(opts, extra...)...)
 	if err != nil {
 		t.Fatal(err)
@@ -136,7 +136,7 @@ func newHarness(t *testing.T, handler func(w http.ResponseWriter, r *http.Reques
 		clone.URL = &u
 		clone.URL.Scheme = target.Scheme
 		clone.URL.Host = target.Host
-		clone.URL.Path = "/" + strings.TrimPrefix(clone.URL.Path, "/vdb/")
+		clone.URL.Path = strings.TrimPrefix(clone.URL.Path, "/vdb")
 		clone.Host = target.Host
 		return server.Client().Transport.RoundTrip(clone)
 	})
@@ -234,12 +234,19 @@ func (s *script) handler() func(http.ResponseWriter, *http.Request, *harness) {
 				return
 			}
 			writeJSON(w, 200, `{"code":200,"data":[]}`)
+		case r.URL.Path == "/elsewhere":
+			writeJSON(w, 404, `{"code":404}`)
 		case r.URL.Path == pathDetail:
 			i := s.details
 			s.details++
 			body := s.detailDefault
 			if i < len(s.detail) {
 				body = s.detail[i]
+			}
+			if body == "302" {
+				w.Header().Set("Location", "/elsewhere")
+				w.WriteHeader(302)
+				return
 			}
 			if body == "404" {
 				writeJSON(w, 404, `{"code":404,"message":"not found"}`)

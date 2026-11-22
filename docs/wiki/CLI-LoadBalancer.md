@@ -595,4 +595,3 @@ The members write replaces the whole list: this command reads every member first
 ```sh
 vngcloud loadbalancer update-pool-member --load-balancer-id <load-balancer-id> --pool-id <pool-id> --address <address> --port <port> --weight <weight>
 ```
-

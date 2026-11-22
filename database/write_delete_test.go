@@ -87,6 +87,11 @@ func TestDeletePreflightRefusals(t *testing.T) {
 		{"has backups", detailBody("ACTIVE", nil), `{"code":200,"data":[{"id":"bk-1"}]}`, true},
 		{"backups malformed", detailBody("ACTIVE", nil), `{"code":200,"data":null}`, false},
 		{"detail missing", "404", "", false},
+		{"other project", detailBody("ACTIVE", map[string]any{"projectId": "project-2"}), "", true},
+		{"missing project", detailBody("ACTIVE", map[string]any{"projectId": nil}), "", true},
+		{"missing zone", detailBody("ACTIVE", map[string]any{"zoneId": nil}), "", true},
+		{"unknown zone", detailBody("ACTIVE", map[string]any{"zoneId": "zone-9"}), "", true},
+		{"redirect preflight", "302", "", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -143,8 +148,11 @@ func TestDeleteSendsOnce(t *testing.T) {
 		{"success false", func(w http.ResponseWriter, _ *http.Request) {
 			writeJSON(w, 200, `{"code":200,"data":[{"databaseInstances":"db-1","action":"delete","success":false,"errorMsg":"busy"}]}`)
 		}, 200, false},
-		{"password echoed", func(w http.ResponseWriter, _ *http.Request) {
+		{"bearer echoed", func(w http.ResponseWriter, _ *http.Request) {
 			writeJSON(w, 200, `{"message":"bearer-synthetic"}`)
+		}, 0, true},
+		{"escaped bearer echoed", func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(w, 200, `{"message":"\u0062earer-synthetic"}`)
 		}, 0, true},
 		{"one of two rows rejected", func(w http.ResponseWriter, _ *http.Request) {
 			writeJSON(w, 200, `{"data":[{"success":true},{"success":false}]}`)
@@ -201,6 +209,11 @@ func TestDeleteWaits(t *testing.T) {
 			}
 			if total != 30*time.Minute {
 				t.Fatalf("total %v", total)
+			}
+		}},
+		{name: "redirect to a 404", detail: []string{active, "302"}, check: func(t *testing.T, h *harness) {
+			if h.count("GET", "/elsewhere") != 0 {
+				t.Fatal("followed the redirect")
 			}
 		}},
 		{name: "unknown state", detail: []string{active, detailBody("WEIRD", nil)}},

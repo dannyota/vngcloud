@@ -791,4 +791,3 @@ Refuses a NaN or infinite --threshold-value, and --query-string set without an i
 ```sh
 vngcloud monitor update-log-alarm --alarm-id <alarm-id>
 ```
-

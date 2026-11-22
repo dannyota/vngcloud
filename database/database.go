@@ -67,7 +67,7 @@ func (c *Client) read(ctx context.Context, op string, parts []string, q url.Valu
 	}
 	var raw json.RawMessage
 	var credentials []string
-	status, err := c.c.DoJSONStatus(ctx, transport.Request{Operation: op, Method: "GET", URL: c.c.RouteURL(routes.Route{Product: routes.ProductDatabase, Version: "vdb-relational/v1", Parts: parts, Query: q}), OK: []int{200}, Sensitive: true, WithholdMessage: "database response withheld", SentCredentials: &credentials}, &raw)
+	status, err := c.c.DoJSONStatus(ctx, transport.Request{Operation: op, Method: "GET", URL: c.c.RouteURL(routes.Route{Product: routes.ProductDatabase, Version: "vdb-relational/v1", Parts: parts, Query: q}), OK: []int{200}, NoRedirect: true, Sensitive: true, WithholdMessage: "database response withheld", SentCredentials: &credentials}, &raw)
 	if err != nil {
 		if status == 200 {
 			return malformed(op)

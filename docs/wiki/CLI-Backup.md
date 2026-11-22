@@ -36,4 +36,3 @@ enable flags.
 vngcloud backup list-policies \
   --query 'Items[].{ID:ID,Name:Name,Default:IsDefault}' --output table
 ```
-

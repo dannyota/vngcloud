@@ -170,4 +170,3 @@ Unverified live: the test account has no global load balancer, so this output sh
 ```sh
 vngcloud globalloadbalancer list-usage-histories --load-balancer-id <load-balancer-id>
 ```
-
