@@ -30,7 +30,10 @@ runs the live create and delete on disposable resources before landing. The
    Load Balancer writes: credential-, ID-, and email-shaped text is
    withheld; benign reasons stay. A login failure before any VKS request is
    returned unchanged, not as not settled.
-9. The sections below describe the stricter long-term design; where they
+9. On `NotSettled` or `WriteFailed`, the CLI prints the validated partial
+   output (cluster ID and last status) on stdout with exit 1 and the error on
+   stderr, matching the existing CLI rule for other writes.
+10. The sections below describe the stricter long-term design; where they
    conflict with these decisions, these decisions win.
 
 ## Recommendation
