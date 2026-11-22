@@ -1,6 +1,14 @@
 # v1 hardening plan
 
-Close credential disclosure, destructive guard bypasses, and mutation replay before freezing v1.0.0; keep unsupported API changes gated on evidence and manager decisions.
+Close credential disclosure, destructive guard bypasses, and mutation replay. Hardening alone does not qualify the first stable release.
+
+## v1.0.0 feature gate
+
+Complete AWS CLI-style resource creation coverage before tagging `v1.0.0`, including creates that charge existing GreenNode wallet credits. Account funding, top-ups, and payment-method management are out of scope. Ship completed slices in `0.x` while coverage is open.
+
+- [ ] Inventory resource creates service by service using GreenNode's official API and product documentation and the accepted domain designs. Match each create to its SDK method and CLI command; record missing operations and their prerequisites. Use the [resource creates plan](resource-creates.md) for the six known gaps.
+- [ ] Prioritize creates with verified API contracts. For paid creates, show the quote, cap the quoted amount, require explicit consent, and reconcile uncertain outcomes without replaying the order. Use billing reads as needed to check debits and refunds; do not assume that deleting a resource always returns unused credit or that charges are always usage-based.
+- [ ] Ship and document every in-scope operation with the required tests and live evidence. Keep missing API contracts, permissions, or test resources visible as blockers. Only an owner decision changes scope. This gate does not authorize live calls or charges.
 
 ## Cross-cutting rules
 

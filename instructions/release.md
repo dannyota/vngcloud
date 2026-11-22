@@ -4,6 +4,8 @@ Ship one feature per `v0.x.y` tag when the feature is done and CI is green. Do n
 
 ## Release gates
 
+Do not tag `v1.0.0` until the [feature coverage gate](../docs/plans/v1-hardening.md#v100-feature-gate) is complete. Continue shipping finished features under `0.x`.
+
 Run [local checks](testing.md#required-checks) before each commit. A tag requires green GitHub validation on that exact commit under the [manual evidence procedure](workflow.md#manual-ci-evidence), including every applicable master-push run after landing. Inspect every triggered validation workflow; merge-ref results and missing, skipped, cancelled, pending, or failed required runs do not establish success. Classify review-only work by its reviewed workflow or app purpose, not its display name. Available GitHub reviews and comments, including Copilot's, are optional input: read them and fix or answer concrete findings without waiting for more or blocking on an absent, pending, failed, or unavailable review-only run. A validation run triggered by a review remains required. Fix red validation runs forward at once.
 
 Findings from `govulncheck`, gitleaks, or golangci-lint, including gosec, block release until fixed. Suppress only verified false positives with the reason under [security](security.md#tools-and-scanners). Keep full-history gitleaks and the other CI scanner gates. CodeQL alerts through code scanning and is not a merge or release gate.
