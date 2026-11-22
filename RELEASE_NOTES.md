@@ -1,6 +1,6 @@
 # Release Notes
 
-## Unreleased
+## v0.100.0 - Private VKS cluster create
 
 - Add `vks create-cluster` and `delete-cluster` for a private cluster with
   one private node group, paid from credits with auto-renew off. A recorded
