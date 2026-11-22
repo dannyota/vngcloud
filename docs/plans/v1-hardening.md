@@ -173,10 +173,10 @@ For each code slice, run its focused commands below while working and `make chec
 - [ ] Risk: medium false verification; tooling only.
 - Owned paths: `examples/basic/check.go`; new `examples/basic/check_test.go`.
 - Closes: decode-error false success at `examples/basic/check.go:96` and the SDK-only artifact flag that is never populated.
-- Change: fail a resource when its SDK artifact records any error, when either artifact is missing or is not valid JSON, and when an SDK artifact has no raw counterpart. Leave key and row comparison as it is; a broader comparison produced endless false failures. Do not read existing example output or run the basic example.
+- Change: walk both artifact trees recursively and fail a resource when its SDK artifact records any error, when either artifact is not valid JSON, or when a raw capture has no SDK artifact. Report SDK-only artifacts without failing, because many SDK operations have no one-to-one raw capture. Leave key and row comparison as it is; a broader comparison produced endless false failures. Do not read existing example output or run the basic example.
 - Breaking: no public SDK/CLI break; false-positive smoke checks become failures.
 - Manager decision: narrowed scope; use synthetic temporary artifacts only.
-- Failing tests first: successful raw capture plus SDK decode error fails; missing raw or SDK artifact fails; malformed JSON in either artifact fails; SDK-only artifact fails; matched successful artifacts with explicit empty lists still pass.
+- Failing tests first: successful raw capture plus SDK decode error fails; missing SDK artifact fails; malformed JSON in either artifact fails; a nested SDK artifact with an error fails; an SDK-only artifact is reported and passes; matched successful artifacts with explicit empty lists still pass.
 - Checks: `go test -count=1 ./examples/basic`; `go vet ./examples/basic`; `make check` in the future authorized implementation workspace, without running the example or inspecting `examples/basic/output/`.
 
 ## Documentation and evidence

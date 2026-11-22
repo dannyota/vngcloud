@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -14,6 +15,7 @@ import (
 const outputRoot = "examples/basic/output"
 
 var operationOutputPaths = map[string]string{
+	"backup.ListBackends":                        "backup/backends",
 	"iam.ListUsers":                              "iam/user",
 	"iam.GetUser":                                "iam/user_detail",
 	"project.ListProjects":                       "project/project",
@@ -166,6 +168,14 @@ func (s *rawCaptureStore) add(config, region string, captured vngcloud.ResponseC
 	if !ok {
 		return
 	}
+	if captured.Operation == "volume.ListSnapshotPolicies" {
+		if parsed, err := url.Parse(captured.URL); err == nil {
+			ids := parsed.Query()["backendId"]
+			if len(ids) == 1 && validBackendID(ids[0]) {
+				path += "/" + ids[0]
+			}
+		}
+	}
 	resource := s.resources[path]
 	if resource == nil {
 		resource = &rawResourceOutput{}
@@ -185,6 +195,19 @@ func (s *rawCaptureStore) add(config, region string, captured vngcloud.ResponseC
 		item.BodyText = string(captured.Body)
 	}
 	resource.Regions = append(resource.Regions, item)
+}
+
+func validBackendID(id string) bool {
+	if id == "" {
+		return false
+	}
+	for _, c := range id {
+		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func (s *rawCaptureStore) writeAll() error {

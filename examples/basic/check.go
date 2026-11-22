@@ -3,11 +3,14 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 )
 
 type rawFile struct {
@@ -55,11 +58,11 @@ var payloadKeys = []string{"listData", "data", "items", "content", "results", "p
 func checkSmokeOutput(root string) ([]resourceReport, error) {
 	rawRoot := filepath.Join(root, "raw")
 	sdkRoot := filepath.Join(root, "sdk")
-	rawPaths, err := filepath.Glob(filepath.Join(rawRoot, "**", "*.json"))
+	rawPaths, err := artifactPaths(rawRoot)
 	if err != nil {
 		return nil, err
 	}
-	sdkPaths, err := filepath.Glob(filepath.Join(sdkRoot, "**", "*.json"))
+	sdkPaths, err := artifactPaths(sdkRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -90,35 +93,73 @@ func checkSmokeOutput(root string) ([]resourceReport, error) {
 		if err != nil {
 			return nil, err
 		}
-		if _, err := os.Stat(filepath.Join(rawRoot, rel)); os.IsNotExist(err) {
-			reports = append(reports, resourceReport{
+		if _, err := os.Stat(filepath.Join(rawRoot, rel)); err != nil {
+			report := resourceReport{
 				resource:      strings.TrimSuffix(filepath.ToSlash(rel), ".json"),
 				sdkWithoutRaw: true,
-			})
+			}
+			if !os.IsNotExist(err) && !errors.Is(err, syscall.ENOTDIR) {
+				report.unreadable = err.Error()
+			}
+			var sdk sdkFile
+			if err := readJSON(sdkPath, &sdk); err != nil {
+				report.unreadable = err.Error()
+			} else {
+				sdkPayloadKeys(sdk, &report)
+			}
+			reports = append(reports, report)
 		}
 	}
 	sort.Slice(reports, func(i, j int) bool { return reports[i].resource < reports[j].resource })
 	return reports, nil
 }
 
+func artifactPaths(root string) ([]string, error) {
+	var paths []string
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			if path == root && os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
+			paths = append(paths, path)
+		}
+		return nil
+	})
+	return paths, err
+}
+
 func printSmokeCheck(reports []resourceReport) bool {
+	return writeSmokeCheck(os.Stdout, reports)
+}
+
+func writeSmokeCheck(w io.Writer, reports []resourceReport) bool {
 	failed := false
+	var sdkOnly []string
 	for _, report := range reports {
+		if report.sdkWithoutRaw {
+			sdkOnly = append(sdkOnly, report.resource)
+		}
 		if report.unreadable != "" {
 			failed = true
-			fmt.Printf("%s: unreadable: %s\n", report.resource, report.unreadable)
+			_, _ = fmt.Fprintf(w, "%s: unreadable: %s\n", report.resource, report.unreadable)
 			continue
 		}
-		if report.sdkErrors > 0 || len(report.missingKeys) > 0 || report.rawWithoutSDK > 0 || report.sdkWithoutRaw {
+		if report.sdkErrors > 0 || len(report.missingKeys) > 0 || report.rawWithoutSDK > 0 {
 			failed = true
-			fmt.Printf("%s: raw_ok=%d raw_rows=%d sdk_rows=%d sdk_errors=%d missing_keys=%v raw_without_sdk=%d sdk_without_raw=%t\n",
+			_, _ = fmt.Fprintf(w, "%s: raw_ok=%d raw_rows=%d sdk_rows=%d sdk_errors=%d missing_keys=%v raw_without_sdk=%d sdk_without_raw=%t\n",
 				report.resource, report.rawSuccess, report.rawRows, report.sdkRows, report.sdkErrors, report.missingKeys, report.rawWithoutSDK, report.sdkWithoutRaw)
 		}
+	}
+	if len(sdkOnly) > 0 {
+		_, _ = fmt.Fprintf(w, "sdk_only=%d paths=%v\n", len(sdkOnly), sdkOnly)
 	}
 	if failed {
 		return false
 	}
-	fmt.Printf("smokecheck: ok (%d resources)\n", len(reports))
+	_, _ = fmt.Fprintf(w, "smokecheck: ok (%d resources)\n", len(reports))
 	return true
 }
 
