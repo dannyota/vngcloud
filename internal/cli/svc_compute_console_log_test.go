@@ -124,7 +124,7 @@ func TestComputeConsoleLogErrors(t *testing.T) {
 				if !errors.As(err, &queryErr) {
 					t.Fatalf("error type = %T", err)
 				}
-				if queryErr.err != nil || errors.Unwrap(queryErr) != nil {
+				if errors.Unwrap(queryErr) != nil {
 					t.Fatal("query error retained an underlying error")
 				}
 				for current := fmt.Errorf("command: %w", err); current != nil; current = errors.Unwrap(current) {
@@ -211,7 +211,7 @@ func TestComputeConsoleLogQueryStderr(t *testing.T) {
 }
 
 func TestWithheldQueryErrorUnwrap(t *testing.T) {
-	err := &queryFailedError{withheldMessage: "console log query failed; result withheld", err: errors.New("JMESPath: synthetic-marker")}
+	err := &queryFailedError{withheldMessage: "console log query failed; result withheld"}
 	if errors.Unwrap(err) != nil {
 		t.Fatal("withheld query error exposed its cause")
 	}

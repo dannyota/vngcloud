@@ -55,7 +55,7 @@ func renderOutput(w io.Writer, format, query string, out any, writeSucceeded boo
 
 	result, err := runQuery(jp, data)
 	if err != nil {
-		return &queryFailedError{err: err, writeSucceeded: writeSucceeded}
+		return &queryFailedError{writeSucceeded: writeSucceeded}
 	}
 
 	switch format {

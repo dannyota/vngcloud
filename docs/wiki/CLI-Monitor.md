@@ -39,7 +39,7 @@ Check response validation distinguishes ordinary request data from credentials i
 |-|-|-|
 | `--name` | `string` | yes |
 | `--url` | `string` | yes |
-| `Locations` (via `--cli-input-json` only) | `[]string` | yes |
+| `--locations` | `[]string` | yes |
 | `--method` | `string` |  |
 | `Headers` (via `--cli-input-json` only) | `map[string]string` |  |
 | `Query` (via `--cli-input-json` only) | `map[string]string` |  |
@@ -52,7 +52,7 @@ Check response validation distinguishes ordinary request data from credentials i
 | `Notifications` (via `--cli-input-json` only) | `monitor.CheckNotifications` |  |
 
 ```sh
-vngcloud monitor create-check --name <name> --url <url> --cli-input-json '{"Locations":["<location-id>"]}'
+vngcloud monitor create-check --name <name> --url <url> --locations <locations>
 ```
 
 ## create-log-alarm

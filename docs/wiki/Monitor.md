@@ -130,6 +130,9 @@ if _, err := client.DeleteCheck(ctx, &monitor.DeleteCheckInput{CheckID: created.
 }
 ```
 
+For CLI creates, repeat `--locations <id>` for each location. When both the
+flag and `--cli-input-json` set `Locations`, the flag replaces the JSON list.
+
 `Name`, `URL`, and `Locations` are required; every other field defaults to
 what the console's own create form sends when left at zero: `Method` `GET`,
 empty `Headers` and `Query` objects, an empty `Body`, a 10-second `Timeout`,

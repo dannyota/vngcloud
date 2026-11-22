@@ -146,7 +146,7 @@ func TestExitCode(t *testing.T) {
 		{"project ambiguous", fmt.Errorf("%w: hcm-3", vngcloud.ErrProjectAmbiguous), 2},
 		{
 			"query failed after write succeeded falls through to 1",
-			&queryFailedError{err: errors.New("bad projection"), writeSucceeded: true},
+			&queryFailedError{writeSucceeded: true},
 			1,
 		},
 		{
@@ -384,7 +384,7 @@ func TestClassify(t *testing.T) {
 		{"plain error falls back", errors.New("boom"), "RequestFailed", 0, ""},
 		{
 			"query failed",
-			&queryFailedError{err: errors.New("bad projection")},
+			&queryFailedError{},
 			"QueryFailed", 0, "",
 		},
 		{

@@ -47,7 +47,6 @@ func (e readOnlyError) Error() string {
 // caller not to retry it.
 type queryFailedError struct {
 	withheldMessage string
-	err             error
 	writeSucceeded  bool
 }
 
@@ -56,16 +55,13 @@ func (e *queryFailedError) Error() string {
 		return e.withheldMessage
 	}
 	if e.writeSucceeded {
-		return fmt.Sprintf("query failed after the write succeeded: %s", e.err)
+		return "query failed after the write succeeded"
 	}
-	return fmt.Sprintf("query failed: %s", e.err)
+	return "query failed"
 }
 
 func (e *queryFailedError) Unwrap() error {
-	if e.withheldMessage != "" {
-		return nil
-	}
-	return e.err
+	return nil
 }
 
 // errorEnvelope is the one JSON line the CLI prints to stderr for a failed
@@ -536,7 +532,7 @@ func classify(err error) errorEnvelope {
 	if errors.Is(err, vngcloud.ErrInvalidInput) {
 		return errorEnvelope{Code: "InvalidUsage", Message: err.Error()}
 	}
-	if errors.Is(err, vngcloud.ErrInvalidConfig) {
+	if errors.Is(err, vngcloud.ErrInvalidConfig) || errors.Is(err, vngcloud.ErrProjectAmbiguous) {
 		return errorEnvelope{Code: "InvalidConfig", Message: err.Error()}
 	}
 	if errors.Is(err, cdn.ErrPageFormat) {

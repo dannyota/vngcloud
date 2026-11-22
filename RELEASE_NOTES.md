@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Breaking: query failures no longer include result values, ambiguous projects
+  report `InvalidConfig`, and ACL rule removal rejects null priority. Use the
+  error class instead of parsing query details and provide `--priority 0` or
+  JSON `"Priority":0` explicitly when targeting priority zero. Monitor check
+  creation now accepts repeatable `--locations` flags.
+
 - Harden compute, network, and portal identity, credential, inventory,
   replay, and wait guards. Server-group inputs rename `Page`/`Size` to
   `Offset`/`Limit`; migrate CLI flags to `--offset`/`--limit` and JSON input

@@ -638,10 +638,6 @@ func genDocsSection(t *testing.T, data, op string) string {
 	return rest
 }
 
-// TestGenDocsCreateCheckExampleIncludesLocations checks that create-check's
-// example command line is runnable as printed: Locations has no flag type,
-// so a runnable example must set it through --cli-input-json, not leave it
-// out the way a plain required-flag example would.
 func TestGenDocsCreateCheckExampleIncludesLocations(t *testing.T) {
 	dir := t.TempDir()
 	if err := runGenDocs(dir); err != nil {
@@ -651,7 +647,7 @@ func TestGenDocsCreateCheckExampleIncludesLocations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile CLI-Monitor.md: %v", err)
 	}
-	want := `--cli-input-json '{"Locations":["<location-id>"]}'`
+	want := `--locations <locations>`
 	if !strings.Contains(string(data), want) {
 		t.Errorf("create-check example is missing %q:\n%s", want, data)
 	}

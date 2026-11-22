@@ -328,8 +328,9 @@ list in [CLI](cli.md#errors-and-exit-codes) gains `UnexpectedStatus` and
   A deploy script reads `Changed` with `--query Changed`.
 - `create-check` takes `--name`, `--url`, `--method`, `--body`,
   `--timeout`, `--test-frequency`, `--tests`, and `--failed-locations` as
-  flags. `Locations`, `Headers`, `Query`, and `Assertions` are not flag
-  types today, so they come through `--cli-input-json`.
+  flags, and `Locations` as a repeatable `--locations` flag that overrides
+  the JSON value. `Headers`, `Query`, and `Assertions` are not flag types,
+  so they come through `--cli-input-json`.
 
 aboutme's deploy saves `pause-check --query Changed`, and runs
 `resume-check` from a trap when it was `true` or when `pause-check` failed

@@ -152,7 +152,7 @@ func TestBillingHistoryErrors(t *testing.T) {
 				}
 				if tc.code == "QueryFailed" {
 					var qe *queryFailedError
-					if !errors.As(err, &qe) || qe.err != nil || errors.Unwrap(qe) != nil {
+					if !errors.As(err, &qe) || errors.Unwrap(qe) != nil {
 						t.Fatal("query failure retained peer-bearing cause")
 					}
 				}

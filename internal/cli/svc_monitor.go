@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -14,29 +15,6 @@ import (
 	"danny.vn/vngcloud/monitor"
 )
 
-// monitorOps is monitor's operation table. PauseCheck and ResumeCheck are
-// Write, per the monitor design, but not Destructive: resume-check undoes
-// pause-check, so neither needs --yes. CreateCheck and UpdateCheck are Write
-// but not Destructive either. DeleteCheck is Write and Destructive: a
-// deleted check and its history cannot be restored by one more command, so
-// it needs --yes. A read-only profile refuses every Write op,
-// before any request. CreateCheckInput's Headers, Query, and Assertions
-// fields have no flag-settable type, so they reach the command only through
-// --cli-input-json; Locations is []string, a type flags.go can bind a
-// repeatable flag to (compute's CreateServerInput.SecurityGroupIDs needs
-// it), but WriteNoFlag keeps it JSON-only here too, since giving
-// create-check a new flag is outside the design that added []string
-// support. Every other CreateCheckInput field gets a flag from flags.go's
-// reflection. UpdateCheckInput's Name, URL, Method,
-// Body, Timeout, TestFrequency, Tests, and FailedLocations are pointers to a
-// flag-settable type, so each still gets a flag the same way; its Headers,
-// Query, Locations, Assertions, and Notifications are pointers to a map,
-// slice, or struct, so, like CreateCheckInput's own Locations, Headers,
-// Query, and Assertions, they reach the command only through
-// --cli-input-json. UpdateCheck needs no Guard: unlike a channel's Address, a
-// check's request headers carry no CLI-enforced secrecy rule (the monitor
-// design prints them in full), so the flags.go reflection alone is enough.
-//
 // ListChannels and GetChannel carry Redact: the vMonitor Alerts design's CLI
 // redaction rule applies to every reader of a Channel, and there is no flag
 // to turn it off. ListChannelTypes returns no Channel, so it needs none.
@@ -157,7 +135,7 @@ var monitorOps = []Op[monitor.Client]{
 	Write[monitor.Client, monitor.ResumeCheckInput, monitor.ResumeCheckOutput](
 		kebab("ResumeCheck"), (*monitor.Client).ResumeCheck),
 	Write[monitor.Client, monitor.CreateCheckInput, monitor.CreateCheckOutput](
-		kebab("CreateCheck"), (*monitor.Client).CreateCheck, WriteNoFlag("Locations")),
+		kebab("CreateCheck"), (*monitor.Client).CreateCheck),
 	Write[monitor.Client, monitor.UpdateCheckInput, monitor.UpdateCheckOutput](
 		kebab("UpdateCheck"), (*monitor.Client).UpdateCheck),
 	Write[monitor.Client, monitor.DeleteCheckInput, monitor.DeleteCheckOutput](
@@ -386,7 +364,14 @@ func newMonitorCmd(e *env) *cobra.Command {
 }
 
 func monitorQuotaView(op Op[monitor.Client]) Op[monitor.Client] {
-	op.render = renderMonitorQuota
+	op.render = func(w io.Writer, format, query string, out any) error {
+		err := renderMonitorQuota(w, format, query, out)
+		var queryErr *queryFailedError
+		if op.kind == kindWrite && errors.As(err, &queryErr) {
+			queryErr.writeSucceeded = true
+		}
+		return err
+	}
 	switch op.name {
 	case "quota-status":
 		op.short = "Read sequential quota status; --kind selects synthetic, email, or sms; suggested writes require explicit guards from a fresh read"
@@ -420,7 +405,7 @@ func renderMonitorQuota(w io.Writer, format, query string, out any) error {
 	}
 	result, err := runQuery(jp, data)
 	if err != nil {
-		return &queryFailedError{err: err}
+		return &queryFailedError{}
 	}
 	result = monitorQuotaCells(result)
 	if format == outputTable {
@@ -550,7 +535,7 @@ func monitorCoverageQuery(w io.Writer, format, query string, out any) error {
 	}
 	result, err := runQuery(jp, data)
 	if err != nil {
-		return &queryFailedError{err: err}
+		return &queryFailedError{}
 	}
 	return monitorCoverageRows(w, format, result)
 }
