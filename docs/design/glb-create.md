@@ -15,11 +15,20 @@ runs the live create and delete on disposable resources before landing.
    `--yes` without a quote. Help states the prepaid three-day credit hold,
    later usage charges, and that delete does not promise a refund. Add a
    quote command if the live run finds a price endpoint.
-5. First release: `Name`, `PackageID`, Layer 4 type, and optionally one TCP
-   listener and one TCP pool with explicit members (region, VPC, subnet,
-   address, port). The listener requires a restricted CIDR, never
-   `0.0.0.0/0`. The sections below describe the stricter long-term design;
-   where they conflict with these decisions, these decisions win.
+5. First release: `Name`, `PackageID`, and Layer 4 type only, which the live
+   run verified. Listener and pool creation follows in a later slice with
+   its own live evidence for backend scope, listener CIDR, and child
+   read-back.
+6. Delete reads the exact ID first and sends only for a Layer 4 load
+   balancer in a stable state. The create response's ID is attributable to
+   the caller and may be cleaned up.
+7. Create polls only documented transitional states; `ERROR` is a terminal
+   failure; any other state is not settled. Errors use status-derived codes
+   and a sanitized provider message.
+8. A caller-supplied HTTP client or transport is the caller's own trusted
+   code and is outside the endpoint guard; the wiki says so.
+9. The sections below describe the stricter long-term design; where they
+   conflict with these decisions, these decisions win.
 
 ## Scope and alternatives
 
