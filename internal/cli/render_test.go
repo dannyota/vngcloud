@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -177,6 +178,58 @@ func TestRenderTableCellLimit(t *testing.T) {
 	err := renderTable(&buf, rows)
 	if err == nil || exitCode(err) != 2 || !strings.Contains(err.Error(), "--output json") || buf.Len() != 0 {
 		t.Fatalf("error = %v, output = %q", err, buf.String())
+	}
+}
+
+type rejectTableWriter struct{ called bool }
+
+func (w *rejectTableWriter) Write([]byte) (int, error) {
+	w.called = true
+	return 0, errors.New("unexpected output")
+}
+
+func TestRenderTableScalarColumnLimit(t *testing.T) {
+	row := make(map[string]any)
+	for i := range 100 {
+		row[fmt.Sprintf("key-%d", i)] = "v"
+	}
+	for _, rows := range [][]any{{row, "scalar"}, {"scalar", row}} {
+		var buf bytes.Buffer
+		err := renderTable(&buf, rows)
+		if err == nil || exitCode(err) != 2 || buf.Len() != 0 {
+			t.Fatalf("error = %v, bytes = %d", err, buf.Len())
+		}
+	}
+}
+
+func TestRenderTableProjectedBytes(t *testing.T) {
+	rows := make([]any, 10000)
+	for i := range rows {
+		rows[i] = map[string]any{"a": "v"}
+	}
+	rows[len(rows)-1] = map[string]any{"rare": strings.Repeat("x", 1<<20)}
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	w := &rejectTableWriter{}
+	err := renderTable(w, rows)
+	runtime.ReadMemStats(&after)
+	if err == nil || exitCode(err) != 2 || !strings.Contains(err.Error(), "--output json") || w.called {
+		t.Fatalf("error = %v, wrote = %v", err, w.called)
+	}
+	if allocated := after.TotalAlloc - before.TotalAlloc; allocated > 8<<20 {
+		t.Fatalf("allocated %d bytes", allocated)
+	}
+}
+
+func TestRenderTableLimitAfterWrite(t *testing.T) {
+	row := make(map[string]any)
+	for i := range 101 {
+		row[fmt.Sprintf("key-%d", i)] = "v"
+	}
+	var buf bytes.Buffer
+	err := renderOutput(&buf, outputTable, "", row, true)
+	if err == nil || exitCode(err) != 1 || !strings.Contains(err.Error(), "write succeeded") || !strings.Contains(err.Error(), "do not") || buf.Len() != 0 {
+		t.Fatalf("error = %v, exit = %d, bytes = %d", err, exitCode(err), buf.Len())
 	}
 }
 

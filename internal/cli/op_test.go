@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -255,6 +256,24 @@ func execCmd(t *testing.T, cmd *cobra.Command, args []string) error {
 	t.Helper()
 	cmd.SetArgs(args)
 	return cmd.ExecuteContext(context.Background())
+}
+
+func TestOpWriteTableLimitCustomRenderer(t *testing.T) {
+	h := newFakeHarness(t)
+	op := h.fakeOps()[2]
+	op.render = func(w io.Writer, _, _ string, _ any) error {
+		row := make(map[string]any)
+		for i := range 101 {
+			row[fmt.Sprintf("key-%d", i)] = "v"
+		}
+		return renderTable(w, row)
+	}
+	root := newTestRoot(h.e)
+	root.AddCommand(Service(h.e, "fake", "fake", h.newClient, op))
+	err := execCmd(t, root, []string{"--yes", "--output", "table", "fake", "fake-delete", "--id", "x"})
+	if atomic.LoadInt32(&h.calls) != 1 || err == nil || exitCode(err) != 1 || !strings.Contains(err.Error(), "write succeeded") || !strings.Contains(err.Error(), "do not rerun") || h.stdout.Len() != 0 {
+		t.Fatalf("calls = %d, error = %v, output = %q", atomic.LoadInt32(&h.calls), err, h.stdout.String())
+	}
 }
 
 func TestOpReadCallsTheServiceAndPrintsOutput(t *testing.T) {

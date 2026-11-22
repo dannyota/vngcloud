@@ -615,7 +615,7 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 		return callErr
 	}
 	if op.render != nil {
-		return op.render(e.stdout, format, e.flags.query, out)
+		return tableWriteError(op.render(e.stdout, format, e.flags.query, out), op.kind == kindWrite)
 	}
 	return renderOutput(e.stdout, format, e.flags.query, out, op.kind == kindWrite)
 }

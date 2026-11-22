@@ -2,12 +2,14 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"reflect"
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -62,7 +64,7 @@ func renderOutput(w io.Writer, format, query string, out any, writeSucceeded boo
 	case outputJSON:
 		return renderJSON(w, result)
 	case outputTable:
-		return renderTable(w, result)
+		return tableWriteError(renderTable(w, result), writeSucceeded)
 	default:
 		return renderText(w, result)
 	}
@@ -91,60 +93,91 @@ func renderText(w io.Writer, result any) error {
 	return nil
 }
 
+type tableLimitError struct{}
+
+func (tableLimitError) Error() string {
+	return "table output exceeds 100 columns, 1000000 cells, or 64 MiB; use --output json"
+}
+
+func (e tableLimitError) Unwrap() error { return newUsageError("%s", e.Error()) }
+
+func tableWriteError(err error, writeSucceeded bool) error {
+	var limit tableLimitError
+	if writeSucceeded && errors.As(err, &limit) {
+		return &queryFailedError{withheldMessage: "table output exceeds the limit after the write succeeded; do not rerun the write; use --output json"}
+	}
+	return err
+}
+
 func renderTable(w io.Writer, result any) error {
 	source := rowSource(result)
 	items, ok := source.([]any)
 	if !ok {
 		items = []any{source}
 	}
-	keys := make(map[string]bool)
-	for _, item := range items {
-		if m, ok := item.(map[string]any); ok {
-			for key := range m {
-				keys[key] = true
-				if len(keys) > 100 || len(items) > 1000000/len(keys) {
-					return newUsageError("table output exceeds 100 columns or 1000000 cells; use --output json")
-				}
-			}
-		} else {
-			keys["Value"] = true
+	type columnSize struct{ width, extra int }
+	sizes := make(map[string]columnSize)
+	measure := func(key string, value any) {
+		size, exists := sizes[key]
+		if !exists {
+			header := escapeControlChars(key)
+			size.width = utf8.RuneCountInString(header)
+			size.extra = len(header) - size.width
 		}
-	}
-	if len(keys) == 0 && len(items) == 0 {
-		keys["Value"] = true
-	}
-	if len(keys) > 0 && len(items) > 1000000/len(keys) {
-		return newUsageError("table output exceeds 100 columns or 1000000 cells; use --output json")
-	}
-	columns := make([]string, 0, len(keys))
-	for key := range keys {
-		columns = append(columns, key)
-	}
-	sort.Strings(columns)
-	headers := make([]string, len(columns))
-	for i, key := range columns {
-		headers[i] = escapeControlChars(key)
-	}
-	widths := make([]int, len(headers))
-	indices := make(map[string]int, len(columns))
-	for i, h := range headers {
-		widths[i] = len([]rune(h))
-		indices[columns[i]] = i
+		cell := cellText(value)
+		width := utf8.RuneCountInString(cell)
+		if width > size.width {
+			size.width = width
+		}
+		if extra := len(cell) - width; extra > size.extra {
+			size.extra = extra
+		}
+		sizes[key] = size
 	}
 	for _, item := range items {
 		if m, ok := item.(map[string]any); ok {
 			for key, value := range m {
-				i := indices[key]
-				if width := len([]rune(cellText(value))); width > widths[i] {
-					widths[i] = width
+				measure(key, value)
+				if len(sizes) > 100 {
+					return tableLimitError{}
 				}
 			}
 		} else {
-			i := indices["Value"]
-			if width := len([]rune(cellText(item))); width > widths[i] {
-				widths[i] = width
+			measure("Value", item)
+			if len(sizes) > 100 {
+				return tableLimitError{}
 			}
 		}
+	}
+	if len(sizes) == 0 && len(items) == 0 {
+		measure("Value", nil)
+	}
+	if len(sizes) > 0 && len(items) > 1000000/len(sizes) {
+		return tableLimitError{}
+	}
+	const maxBytes = 64 << 20
+	rowBytes := 2 + 3*len(sizes)
+	for _, size := range sizes {
+		if size.width > maxBytes-rowBytes || size.extra > maxBytes-rowBytes-size.width {
+			return tableLimitError{}
+		}
+		rowBytes += size.width + size.extra
+	}
+	if len(items) > maxBytes/rowBytes {
+		return tableLimitError{}
+	}
+	columns := make([]string, 0, len(sizes))
+	for key := range sizes {
+		columns = append(columns, key)
+	}
+	sort.Strings(columns)
+	headers := make([]string, len(columns))
+	widths := make([]int, len(columns))
+	indices := make(map[string]int, len(columns))
+	for i, key := range columns {
+		headers[i] = escapeControlChars(key)
+		widths[i] = sizes[key].width
+		indices[key] = i
 	}
 
 	var sb strings.Builder
