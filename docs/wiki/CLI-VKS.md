@@ -40,7 +40,7 @@ vngcloud vks create-cluster --name <name> --version <version> --vpc-id <vpc-id> 
 
 Kind: Write, destructive.
 
-Deletion does not promise a refund.
+Deletes the cluster named by exact ID, public or private. A 404 after a successful preflight read confirms deletion. Deletion does not promise a refund.
 
 | Flag | Type | Required |
 |-|-|-|

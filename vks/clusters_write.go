@@ -78,7 +78,7 @@ type DeleteClusterOutput struct {
 var clusterNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{3,18}[a-z0-9]$`)
 var groupNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{3,13}[a-z0-9]$`)
 var clusterStatusPattern = regexp.MustCompile(`^[A-Z][A-Z0-9_-]{0,63}$`)
-var providerIDPattern = regexp.MustCompile(`(?i)\b(?:k8s|vpc|subnet|sub|flavor|vtype|secg|ssh|zone|project|region|image|volume|vol)-[a-z0-9-]+\b|\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b`)
+var unsafeProviderMessage = regexp.MustCompile(`(?i)(\b(?:password|passwd|secret|(?:access|refresh)?token|authorization|bearer|credential|cookie|session|api[-_ ]?key)\b\s*(?:[:=]|\bis\b)\s*[^\s,;]+|\bbearer\s+[^\s,;]+|\b[a-z][a-z0-9]*-[a-z0-9]*[0-9][a-z0-9-]*\b|\b[0-9]{8,}\b|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[\w.+-]+@[\w.-]+\.[a-z]{2,}|[\x00-\x1f\x7f])`)
 var providerCredentialPattern = regexp.MustCompile(`(?i)bearer|token|password|secret|credential|authorization|api[ _-]?key`)
 
 func (c *Client) clusterURL(id string, q url.Values) string {
@@ -179,7 +179,7 @@ func createRefusalMessage(body []byte, credentials, ids []string) string {
 		return withheld
 	}
 	message := strings.TrimSpace(envelope.Error.Message)
-	if message == "" || len(message) > 1024 || providerCredentialPattern.MatchString(message) || transport.RedactErrorText(message, credentials...) != message {
+	if message == "" || len(message) > 512 || providerCredentialPattern.MatchString(message) || unsafeProviderMessage.MatchString(message) || transport.RedactErrorText(message, credentials...) != message {
 		return withheld
 	}
 	for _, r := range message {
@@ -187,7 +187,6 @@ func createRefusalMessage(body []byte, credentials, ids []string) string {
 			return withheld
 		}
 	}
-	message = providerIDPattern.ReplaceAllString(message, "[redacted]")
 	for _, id := range ids {
 		if id != "" {
 			message = strings.ReplaceAll(message, id, "[redacted]")
@@ -264,8 +263,12 @@ func (c *Client) CreateCluster(ctx context.Context, in *CreateClusterInput) (*Cr
 	body := map[string]any{"name": in.Name, "version": in.Version, "releaseChannel": "STABLE", "enablePrivateCluster": true, "networkType": "CILIUM_OVERLAY", "vpcId": in.VPCID, "cidr": in.PodCIDR, "azStrategy": "SINGLE", "listSubnetIds": []string{in.SubnetID}, "enabledLoadBalancerPlugin": false, "enabledBlockStoreCsiPlugin": false, "nodeGroup": map[string]any{"name": in.NodeGroupName, "numNodes": in.NumNodes, "os": in.OS, "flavorId": in.FlavorID, "diskSize": in.DiskSize, "diskType": in.DiskTypeID, "enablePrivateNodes": true, "securityGroups": in.SecurityGroupIDs, "sshKeyId": in.SSHKeyID, "subnetId": in.SubnetID, "upgradeConfig": map[string]any{"strategy": "SURGE"}}}
 	out := &CreateClusterOutput{}
 	var credentials []string
-	status, _, response, err := c.c.DoRaw(ctx, transport.Request{Operation: op, Method: http.MethodPost, URL: c.clusterURL("", url.Values{"autoRenewal": {"false"}, "poc": {"false"}}), Body: body, OK: []int{200, 202}, Once: true, NoRedirect: true, Sensitive: true, SentCredentials: &credentials, WithholdMessage: "VKS response withheld"})
+	var notSent bool
+	status, _, response, err := c.c.DoRaw(ctx, transport.Request{Operation: op, Method: http.MethodPost, URL: c.clusterURL("", url.Values{"autoRenewal": {"false"}, "poc": {"false"}}), Body: body, OK: []int{200, 202}, Once: true, NoRedirect: true, Sensitive: true, NotSent: &notSent, SentCredentials: &credentials, WithholdMessage: "VKS response withheld"})
 	if err != nil {
+		if notSent {
+			return nil, err
+		}
 		return out, unsettled(safeError(op, err))
 	}
 	if status >= 400 && status < 500 && status != http.StatusRequestTimeout {

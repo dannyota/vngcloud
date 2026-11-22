@@ -1,7 +1,8 @@
 # VKS
 
 `danny.vn/vngcloud/vks` reads Kubernetes cluster inventory, supported
-versions, and account quota and creates and deletes private clusters in `hcm-3` and `han-1`.
+versions, and account quota, creates private clusters, and deletes public or private
+clusters by exact ID in `hcm-3` and `han-1`.
 
 See [Storage Workload Access](Storage-Workload-Access.md) for cloud-side
 identity, bucket permissions, and private S3 key handoff to applications on
@@ -40,8 +41,9 @@ minutes.
 The disk type, flavor, and subnet must be in the same zone. Use
 `network get-subnet` to find `ZoneID`, then `volume get-default-volume-type
 --zone-id <that zone>` to find the disk type.
-`DeleteCluster` reads the exact cluster before sending one delete and waits for
-absence. Deletion does not promise a refund. `NoWait` returns after acceptance,
+`DeleteCluster` reads the cluster named by exact ID, public or private, before
+sending one delete. A 404 after a successful preflight read confirms deletion.
+Deletion does not promise a refund. `NoWait` returns after acceptance,
 not completion. An uncertain outcome returns `vks.ErrNotSettled`; reconcile
 before retrying a write.
 

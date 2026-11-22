@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -58,6 +59,31 @@ func TestVKSCreateJSON(t *testing.T) {
 	root.SetArgs([]string{"--region", "hcm-3", "--yes", "vks", "create-cluster", "--cli-input-json", `{"Name":"cluster","Version":"v1","VPCID":"vpc-1","SubnetID":"subnet-1","PodCIDR":"10.20.0.0/16","NodeGroupName":"group","NumNodes":1,"FlavorID":"flavor-1","OS":"ubuntu","DiskSize":20,"DiskTypeID":"disk-1","SecurityGroupIDs":["sg-1"],"SSHKeyID":"key-1","NoWait":true}`})
 	if err := root.ExecuteContext(context.Background()); err != nil || !called {
 		t.Fatalf("err=%v called=%v", err, called)
+	}
+}
+
+func TestVKSCreatePartialOutput(t *testing.T) {
+	for _, tc := range []struct {
+		name, status string
+		err          error
+	}{
+		{"canceled", "CREATING", errors.Join(vks.ErrNotSettled, context.Canceled)},
+		{"failed", "ERROR", vks.ErrFailed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newFakeHarness(t)
+			op := Write[vks.Client, vks.CreateClusterInput, vks.CreateClusterOutput]("create-cluster", (*vks.Client).CreateCluster)
+			op.call = func(_ *cobra.Command, _ *vks.Client, _ context.Context, _ any) (any, error) {
+				return &vks.CreateClusterOutput{ID: "cluster-1", Status: tc.status}, tc.err
+			}
+			root := newTestRoot(h.e)
+			root.AddCommand(Service(h.e, "vks", "test", vks.New, op))
+			root.SetArgs([]string{"--region", "hcm-3", "--yes", "vks", "create-cluster", "--cli-input-json", `{"Name":"cluster","Version":"v1","VPCID":"vpc-1","SubnetID":"subnet-1","PodCIDR":"10.20.0.0/16","NodeGroupName":"group","NumNodes":1,"FlavorID":"flavor-1","OS":"ubuntu","DiskSize":20,"DiskTypeID":"disk-1","SecurityGroupIDs":["sg-1"],"SSHKeyID":"key-1"}`})
+			err := root.ExecuteContext(context.Background())
+			if !errors.Is(err, tc.err) || !strings.Contains(h.stdout.String(), "cluster-1") || !strings.Contains(h.stdout.String(), tc.status) {
+				t.Fatalf("err=%v output=%s", err, h.stdout.String())
+			}
+		})
 	}
 }
 

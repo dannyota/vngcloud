@@ -130,8 +130,10 @@ func TestCreateClusterDefiniteRejection(t *testing.T) {
 	}{
 		{"zone", "Disk type does not match the subnet zone.", "Disk type does not match the subnet zone."},
 		{"token", "Bearer test-token is invalid", "withheld"},
-		{"id", "Subnet subnet-1 is invalid.", "redacted"},
-		{"other-id", "Zone zone-abc123 does not match.", "redacted"},
+		{"email", "Contact person@example.com for help", "withheld"},
+		{"unknown-id", "Order order-123 is invalid", "withheld"},
+		{"id", "Subnet subnet-1 is invalid.", "withheld"},
+		{"other-id", "Zone zone-abc123 does not match.", "withheld"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			calls := 0
@@ -146,6 +148,19 @@ func TestCreateClusterDefiniteRejection(t *testing.T) {
 				t.Fatalf("out=%+v err=%v calls=%d", out, err, calls)
 			}
 		})
+	}
+}
+
+func TestCreateClusterLoginFailureIsNotSent(t *testing.T) {
+	calls := 0
+	auth := roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("login failed")
+	})
+	c := writeTestClient(t, func(http.ResponseWriter, *http.Request) { calls++ }, vngcloud.WithIAMUser(&vngcloud.IAMUserAuth{RootEmail: "root", Username: "user", Password: "synthetic", HTTPClient: &http.Client{Transport: auth}}))
+	_, err := c.CreateCluster(context.Background(), validCreate())
+	var login *vngcloud.LoginError
+	if !errors.As(err, &login) || errors.Is(err, ErrNotSettled) || calls != 0 {
+		t.Fatalf("err=%v calls=%d", err, calls)
 	}
 }
 
