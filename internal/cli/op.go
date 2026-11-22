@@ -394,11 +394,29 @@ func newOpCmd[C any](e *env, serviceName string, newClient func(vngcloud.Config)
 		Short: op.short,
 		Args:  noArgs,
 	}
+	if note := docOpNotes[serviceName+" "+op.name]; note != "" {
+		cmd.Long = strings.TrimSpace(op.short + "\n\n" + note)
+	}
 	if op.estimate {
-		cmd.Long = estimateHelp
+		cmd.Long = estimateHelp + "\n\n" + docOpNotes["pricing estimate"]
 		cmd.Example = docExampleOverride["pricing estimate"]
 	}
 	bound := registerFlags(cmd, specs)
+	for _, field := range docFieldsFor(input, op.noFlag, op.optional, nil) {
+		if field.viaJSON {
+			continue
+		}
+		if flag := cmd.Flags().Lookup(field.name); flag != nil {
+			description := "Input type: " + field.goType
+			if field.required {
+				description += "; required (may be supplied via --cli-input-json)"
+			}
+			if flag.Usage != "" {
+				description += "; " + flag.Usage
+			}
+			flag.Usage = description
+		}
+	}
 	cmd.Flags().String("cli-input-json", "", "a JSON object ('<json>' or file://path) supplying Input fields by their Go name")
 	if op.extraFlags != nil {
 		op.extraFlags(cmd)

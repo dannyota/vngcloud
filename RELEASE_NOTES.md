@@ -48,6 +48,10 @@
 - Serialize config and credentials edits with per-file locks so a concurrent
   edit cannot clear a read-only profile, and write nothing when configure
   input or a lock wait is canceled.
+- Runtime `--help` shows the same operation notes as the generated reference,
+  including consent, destructive confirmation, ACL priority zero, and the
+  pricing estimate resource shape, and marks each flag's type and whether it
+  is required.
 
 ## v0.97.0 - Pre-1.0 hardening
 

@@ -37,7 +37,7 @@ func init() {
 		"The purchase starts with auto-renew enabled. After the NAT is ACTIVE, this command disables renewal through billing and " +
 		"confirms it. The command waits for both steps. If it fails after purchase, renewal may remain enabled; inspect the NAT and billing before taking another action.\n\n" +
 		natScopeHelp + "\n" + natPlacementHelp + "\n" + natWriteSupportHelp + "\n" +
-		"Requires --yes and an explicit --max-price (or non-null JSON MaxPrice) before any request. Read-only profiles refuse this command. " +
+		"Requires --yes and explicit --max-price consent (or non-null JSON MaxPrice) before any request. Read-only profiles refuse this command. " +
 		"Buys one month prepaid in VND, using a fresh quote. Unpriced or PriceAboveMax stops before purchase. The cap is not a server price lock. " +
 		"Waits up to 15 minutes after the order attempt, including renewal confirmation; a shorter context deadline wins. " +
 		"There is no --no-wait, period, renewal toggle, or raw request body.\n" +
