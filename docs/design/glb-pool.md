@@ -1,8 +1,8 @@
 # Global Load Balancer TCP children
 
-Status: Proposed. Owner decisions below are recorded; independent design
-review precedes code. Wire values marked candidate are frozen from the live
-probe's read-back before landing.
+Status: Accepted with the owner decisions below. Wire values marked
+candidate and the child waiter states are frozen from the live probe's
+record before landing.
 
 ## Owner decisions
 
