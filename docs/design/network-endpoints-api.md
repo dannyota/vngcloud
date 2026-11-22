@@ -2,10 +2,10 @@
 
 Endpoint inventory reads ship in the SDK and CLI. Bounded manager-run
 IAM-user GETs verify selected Hanoi catalogs and a VPC response shape.
-The hcm-3 IAM-user console verifies one monthly vStorage Standard quote and
-the outgoing create request with renewal on. No endpoint mutation response
-or billing effect is verified. The [hcm-3 write proposal](endpoint-create.md)
-and the [broader lifecycle proposal](network-endpoints.md) remain gated.
+In `hcm-3`, the console verifies the catalog reads, one monthly vStorage
+Standard quote, and one create and delete with its billing effect. The
+[hcm-3 write design](endpoint-create.md) uses that record; the
+[broader lifecycle proposal](network-endpoints.md) remains gated.
 
 ## Sources and confidence
 
@@ -207,6 +207,33 @@ The blocked request used the same envelope and `resourceInfo` as quote,
 plus top-level `"tagDetails": []`. It included neither `period` nor
 `paymentType`, and no separate `/create-order` request appeared.
 
+## Recorded hcm-3 catalog reads
+
+Source: the same `hcm-3` console session, read-only. Every catalog GET
+takes a `params` JSON query with `search`, `sort`, `page`, and `size`
+(the console sends size 1000) under
+`/vnetwork-gateway/vnetwork/v1/{regionUuid}/{projectUuid}/endpoints`.
+
+- **Zones.** `GET /zones` returns `message`, `code` (200), `success`, and
+  `data` rows with `uuid`, `name`, `zoneType`, `isEnabled`, and
+  `isDefault`. `HCM03-1C` has `isEnabled: true`.
+- **Categories.** `GET /categories` returns one row, `VNGEndpoint`, with
+  `isDefault: true`.
+- **Services.** `GET /{categoryUuid}/services?zoneUuid=<zone>` returns
+  seven rows, each with `uuid`, `name`, `endpointUrl`, `endpointType`
+  (`Gateway`), and nested `packages`. `vstorage.hcm03` appears once per
+  zone, and its `uuid` differs between zones.
+- **Packages.** `GET /{serviceUuid}/packages` returns one row named
+  `Standard` with `serviceName`, `monthlyPrice`, `currencyUnit`, `price`,
+  and `uuid`.
+- **VPCs.** `GET /vpcs` filtered by `status`, `endpointServiceId`, and
+  `zoneType` returns `success`, `data`, `page`, `size`, `totalPage`, and
+  `total`; rows carry `uuid`, `projectUuid`, `regionUuid`, and `status`.
+- **Subnets.** `GET /vpcs/{vpcUuid}/subnets` filtered by
+  `isEndpointUsable=true` and `zoneUuid` returns `message`, `code` (0),
+  and `success`. With no eligible subnet it omits `data`, which explains
+  the Hanoi response above.
+
 ## Recorded hcm-3 create and delete probe
 
 Source: one manager-run console create and delete in `hcm-3` under owner
@@ -313,7 +340,7 @@ by the inspected VKS documentation, provider, or API reference.
 
 Only the manager performs live evidence runs with runtime credentials and
 private captures under the [live-data rules](../../instructions/live-data.md).
-Use the [hcm-3 probe gates](endpoint-create.md#probe-gates-and-release-order)
+Use the [hcm-3 probe gates](endpoint-create.md#probe-record-and-release-order)
 for the vStorage Standard lifecycle. Verify the read-only gates before a
 paid run; a captured request does not authorize replay. Record sanitized
 schema and outcome evidence, not account values or raw captures.

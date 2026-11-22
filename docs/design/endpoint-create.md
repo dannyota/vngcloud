@@ -78,17 +78,24 @@ catalog and picker reads are private in this slice.
   VPC, `sub-<uuid>` for subnet, and UUIDs for service and package. The
   endpoint ID form needs live evidence. Require a nonblank name without
   control characters; leave product naming rules to the server.
-- Require a unique eligible vStorage service and Standard package through
-  the category, service, and package catalog joins. Use evidence-backed
-  product and package discriminators from the catalog, not display labels
-  alone, inferred hostnames, default flags, or hard-coded catalog UUIDs.
-  Reject absent, ambiguous, or conflicting rows. The console summary is
-  not a catalog discriminator.
-- Prove an active, eligible caller-selected VPC in the resolved project and
-  region, and an eligible subnet of that VPC in the enabled HCM03-1C zone.
-  Verify the console-label-to-zone mapping and the actual picker semantics.
-  Ordinary VPC/subnet existence and a successful quote do not prove endpoint
-  eligibility. Do not substitute a different VPC, subnet, or zone.
+- Resolve the offer through the [recorded catalog reads](network-endpoints-api.md#recorded-hcm-3-catalog-reads),
+  all under the pinned base. Zone: `GET .../endpoints/zones` must hold
+  exactly one row with `uuid` `HCM03-1C` and `isEnabled: true`. Category:
+  `GET .../endpoints/categories` must hold exactly one row, and it must
+  have `isDefault: true`. Service: `GET .../endpoints/{categoryUuid}/services`
+  with `zoneUuid=HCM03-1C` must hold exactly one row with `name`
+  `vstorage.hcm03` and `endpointType` `Gateway`; the service UUID differs
+  by zone. Package: `GET .../endpoints/{serviceUuid}/packages` must hold
+  exactly one row with `name` `Standard` and `serviceName`
+  `vstorage.hcm03`. Absent, repeated, or conflicting rows refuse.
+- The caller names the VPC and subnet. `GET .../endpoints/vpcs` filtered by
+  `status=ACTIVE`, the resolved `endpointServiceId`, and
+  `zoneType=AVAILABILITY` must hold exactly one row with that `uuid`, the
+  pinned `projectUuid`, and `regionUuid`. `GET .../endpoints/vpcs/{vpcUuid}/subnets`
+  filtered by `isEndpointUsable=true` and `zoneUuid=HCM03-1C` must hold
+  exactly one row with that subnet `uuid`. An envelope without `data` is an
+  empty result and refuses. Do not substitute a different VPC, subnet, or
+  zone.
 
 ## Quote and create
 
@@ -96,9 +103,10 @@ catalog and picker reads are private in this slice.
    serializer and use the [observed request fields](network-endpoints-api.md#recorded-hcm-3-console-quote-and-create-request).
    Set `isBuyMorePoc: false`, `isPoc: false`, `isEnableAutoRenew: false`,
    `enableAZ: true`, and `enableDnsName: false` in both calls. Create adds
-   only `tagDetails: []`. Do not send `period` or `paymentType`. The recorded
-   console used renewal on; prove that both routes accept and honor the
-   renewal-off contract before shipping. No retry with renewal on.
+   only `tagDetails: []`. Do not send `period` or `paymentType`. The probe
+   accepted renewal off on create; the implementation's live run must also
+   show a renewal-off quote with HTTP 200 before landing. No retry with
+   renewal on.
 2. Before create, read a complete endpoint inventory in the pinned project
    and region to establish an ID baseline. Refuse an existing exact name in
    the selected VPC or an unprovable baseline. Quote alone does not take that
@@ -121,50 +129,40 @@ catalog and picker reads are private in this slice.
    Over cap returns `ErrPriceAboveMax` and sends no create. The cap bounds
    the fresh quote, not the actual debit, tax, later usage, or a server-side
    price lock. A quote is not proof of prepaid term, payment, or refund.
-5. Send one POST to the endpoint collection. Require HTTP 200 or 202 and
-   the live-verified acceptance envelope and endpoint ID. Do not apply
-   NAT's 201 or ID-less acceptance here. Never adopt a candidate from a
-   name, even with a baseline. If no usable ID is returned, report
-   `ErrNotSettled` without an ID; an ID-less response blocks this design
-   until a different correlation rule is reviewed.
-6. Read the exact returned ID; require that it was absent from the baseline
-   and match the name, project, region, VPC, subnet, service, and package
-   through verified scoped reads. Confirm an observed ready state, private
-   DNS off, and evidence-defined payment settlement with observed renewal
-   off for that same ID. A request flag, global balance change, or readiness
-   state alone cannot prove billing or renewal. Poll documented transitional
-   states only. Return `ErrFailed` only for a matched, verified terminal
-   failure and `ErrNotSettled` for unknown or contradictory states. A known
-   billing discrepancy is unsettled, not success.
+5. Send one POST to the endpoint collection. Accept only HTTP 201 with
+   `code: 0`, `success: true`, `data.uuid` of `enp-<uuid>` form, and
+   `data.name` equal to the requested name. Any other reply is
+   `ErrNotSettled` with the ID when one validates. Never resend or adopt a
+   candidate from a name.
+6. Wait for the returned ID in the complete scoped list: it must be absent
+   from the baseline and match the name, VPC, subnet, service, package, and
+   `HCM03-1C`, with `enableDnsName: false`. `ACTIVE` is success;
+   `PROVISIONING` is transitional; any other state is `ErrNotSettled`.
+   `billingStatus` is reported, not required. Output reports readiness
+   only. The API exposes no per-ID renewal or settlement read, so output
+   never claims renewal off or payment settled, and help says the request
+   asks for renewal off.
 
 ## Delete
 
-1. Read the exact `EndpointID` in the pinned project and region. Require
-   exactly one matching row in complete project inventory and a matching
-   detail. Match the explicit `VPCID`, supported vStorage/Standard identity,
-   and a verified deletable state. A path scope or a filtered row alone
-   does not establish ownership. Before dispatch, proven absence is
-   `ErrNotFound`; inconsistent scope or identity refuses the write.
-2. Require an authoritative platform read to prove the endpoint is user-owned
-   and not VKS-managed or reused. A previous create response, names, tags,
-   apparent idleness, and `--yes` do not establish that an endpoint is
-   currently unused by VKS. Do not query a cluster or delete when provenance
-   or consumers are unknown. The operator coordinates other workload use
-   and concurrent VKS or endpoint changes; the preflight is not a lock.
-3. Send one DELETE to the exact detail path with `endpointUuid`, `vpcUuid`,
-   `endpointServiceUuid`, `regionUuid`, and `projectUuid`. Construct the
-   body from proven identity and scope. The service field must map from
-   verified target data; do not assume it equals create's `serviceUuid` or
-   accept it from the caller. Require HTTP 200 or 202 and the verified
-   delete acceptance shape.
-4. Confirm exact detail absence with a verified not-found response and a
-   complete, consistent inventory scan of the same scope that omits the
-   ID. A DELETE 404, collection 404, empty page, transitional state, or
-   missing payload proves nothing. Also establish the verified end of
-   future charges for that ID. If evidence establishes that confirmed
-   absence ends charges, no separate runtime billing read is needed for
-   delete; otherwise require the authoritative billing confirmation.
-   Success promises no refund amount or timing.
+1. Read the complete scoped list and require exactly one row for the exact
+   `EndpointID`, matching the caller's `VPCID`, the resolved
+   `vstorage.hcm03`/Standard offer, `HCM03-1C`, and `status: ACTIVE`.
+   Require `endpointResource` present and `null`, and `endpointDomains`
+   present and an empty array; missing, wrongly typed, or other values
+   refuse. These fields do not prove that no cluster uses the endpoint;
+   help warns that deleting an endpoint a cluster uses breaks its private
+   access. Absence before dispatch is `ErrNotFound`.
+2. Send one DELETE to the exact detail path with body `endpointUuid`,
+   `vpcUuid`, `endpointServiceUuid` (the row's `endpointServiceId`),
+   `regionUuid`, and `projectUuid`, all from the matched row and pinned
+   scope. Accept only HTTP 200 with `code: 0` and `success: true`.
+3. `DELETING` is transitional. Set `Deleted=true` only when a complete,
+   consistent scoped list omits the ID; an envelope without `data` counts
+   only with `total: 0` and `totalPage: 0`. A detail 404 is not required.
+   An unproven absence is `ErrNotSettled` with the ID and `Deleted=false`.
+   Deletion promises no refund; one recorded probe returned the full
+   charge, which help may state as observed, not guaranteed.
 
 ## Dispatch, waits, and errors
 
@@ -208,12 +206,15 @@ price, and unsettled failures 1. Cancellation retains shared precedence.
 ## Probe record and release order
 
 The [probe record](network-endpoints-api.md#recorded-hcm-3-create-and-delete-probe)
-closes the gates this slice needs: renewal-off create is accepted with HTTP
+and the [catalog reads](network-endpoints-api.md#recorded-hcm-3-catalog-reads)
+fix the contract: renewal-off create is accepted with HTTP
 201 and an `enp-<uuid>` ID in `data.uuid`; the list row shape, the
 `PROVISIONING`, `ACTIVE`, and `DELETING` states, and absence from the list
 are observed; the delete body maps from create's values, with
 `endpointServiceUuid` equal to the row's `endpointServiceId`; and the
-quoted 712,400 VND is debited at create and fully returned after delete.
+quoted 712,400 VND is debited at create and returned after that one delete.
+One gate remains before landing: the SDK's live run shows a renewal-off
+quote with HTTP 200 and then creates and deletes through the SDK.
 
 Use these values. `ACTIVE` is success; `PROVISIONING` and `DELETING` are
 transitional; any other state is NotSettled. `billingStatus` is not a
