@@ -53,7 +53,7 @@ Kind: Write, destructive.
 
 Destroys the volume's data; there is no undo. Refuses, before any request, with error code VolumeInUse when a pre-delete read shows the volume attached to a server; detach it first. Without --no-wait, waits up to 5 minutes for the volume to reach 404 or DELETED; a timeout, or ERROR during that wait, is NotSettled or WriteFailed, but a rerun is always safe, since this command reads the volume first every time.
 
-If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it.
+If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it. The detail UUID must match --volume-id. Deletion requires AVAILABLE or ERROR and explicit empty serverId and serverIdList fields. Missing, null, conflicting, or unknown state sends no DELETE. Polling requests and sleeps use the earlier caller or five-minute deadline; late success cannot settle a write.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -144,6 +144,8 @@ vngcloud volume get-volume-type --volume-type-id <volume-type-id> --query Volume
 ## list-all-snapshots
 
 Kind: Read.
+
+Reads every volume page and every snapshot page per volume, up to 50 pages per list. Missing lists, conflicting fields, repeated pages or IDs, unstable totals, count mismatches, and wrong parent volumes fail without partial aggregate output.
 
 No fields.
 

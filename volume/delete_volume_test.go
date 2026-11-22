@@ -61,7 +61,7 @@ func TestDeleteVolumeSendsDeleteWhenClear(t *testing.T) {
 			deleteCalled.Store(true)
 			w.WriteHeader(http.StatusAccepted)
 		case http.MethodGet:
-			_, _ = w.Write([]byte(`{"data":{"uuid":"volume-1","status":"AVAILABLE"}}`))
+			_, _ = w.Write([]byte(`{"data":{"uuid":"volume-1","status":"AVAILABLE","serverId":"","serverIdList":[]}}`))
 		}
 	}))
 
@@ -99,7 +99,7 @@ func TestDeleteVolumeStatuses(t *testing.T) {
 			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.Method {
 				case http.MethodGet:
-					_, _ = w.Write([]byte(`{"data":{"uuid":"volume-1","status":"AVAILABLE"}}`))
+					_, _ = w.Write([]byte(`{"data":{"uuid":"volume-1","status":"AVAILABLE","serverId":"","serverIdList":[]}}`))
 				case http.MethodDelete:
 					w.WriteHeader(status)
 					_, _ = w.Write([]byte(`{"message":"failed"}`))
@@ -123,7 +123,7 @@ func TestDeleteVolumeWaitSettlesTo404(t *testing.T) {
 		case http.MethodGet:
 			getCalls++
 			if getCalls <= 1 {
-				_, _ = w.Write([]byte(`{"data":{"uuid":"volume-1","status":"AVAILABLE"}}`))
+				_, _ = w.Write([]byte(`{"data":{"uuid":"volume-1","status":"AVAILABLE","serverId":"","serverIdList":[]}}`))
 				return
 			}
 			w.WriteHeader(http.StatusNotFound)
@@ -148,7 +148,7 @@ func TestDeleteVolumeWaitSettlesOnDeletedStatus(t *testing.T) {
 			if getCalls > 1 {
 				status = "DELETED"
 			}
-			_, _ = w.Write([]byte(`{"data":{"uuid":"volume-1","status":"` + status + `"}}`))
+			_, _ = w.Write([]byte(`{"data":{"uuid":"volume-1","status":"` + status + `","serverId":"","serverIdList":[]}}`))
 		}
 	})))
 
@@ -163,7 +163,7 @@ func TestDeleteVolumeWaitFailsOnError(t *testing.T) {
 		case http.MethodDelete:
 			w.WriteHeader(http.StatusAccepted)
 		case http.MethodGet:
-			_, _ = w.Write([]byte(`{"data":{"uuid":"volume-1","status":"ERROR"}}`))
+			_, _ = w.Write([]byte(`{"data":{"uuid":"volume-1","status":"ERROR","serverId":"","serverIdList":[]}}`))
 		}
 	})))
 
@@ -174,12 +174,18 @@ func TestDeleteVolumeWaitFailsOnError(t *testing.T) {
 }
 
 func TestDeleteVolumeWaitBoundReached(t *testing.T) {
+	reads := 0
 	c := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodDelete:
 			w.WriteHeader(http.StatusAccepted)
 		case http.MethodGet:
-			_, _ = w.Write([]byte(`{"data":{"uuid":"volume-1","status":"DELETING"}}`))
+			reads++
+			status := "DELETING"
+			if reads == 1 {
+				status = "AVAILABLE"
+			}
+			_, _ = w.Write([]byte(`{"data":{"uuid":"volume-1","status":"` + status + `","serverId":"","serverIdList":[]}}`))
 		}
 	})))
 
@@ -197,7 +203,7 @@ func TestDeleteVolumeNoWaitSkipsWait(t *testing.T) {
 			w.WriteHeader(http.StatusAccepted)
 		case http.MethodGet:
 			getCalls++
-			_, _ = w.Write([]byte(`{"data":{"uuid":"volume-1","status":"AVAILABLE"}}`))
+			_, _ = w.Write([]byte(`{"data":{"uuid":"volume-1","status":"AVAILABLE","serverId":"","serverIdList":[]}}`))
 		}
 	})))
 

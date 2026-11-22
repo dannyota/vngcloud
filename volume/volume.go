@@ -77,13 +77,17 @@ func (c *Client) ListVolumes(ctx context.Context, in *ListVolumesInput) (*ListVo
 	q.Set("page", strconv.Itoa(page))
 	q.Set("size", strconv.Itoa(size))
 
-	var resp listVolumesResponse
+	var raw json.RawMessage
 	if err := c.c.DoJSON(ctx, transport.Request{
 		Operation: "volume.ListVolumes",
 		Method:    "GET",
 		URL:       c.volumeURL("v2", []string{projectID, "volumes"}, q),
 		OK:        []int{200},
-	}, &resp); err != nil {
+	}, &raw); err != nil {
+		return nil, err
+	}
+	var resp listVolumesResponse
+	if err := decodeInventoryPage("volume.ListVolumes", raw, &resp, "listData", "totalPage", "totalItem"); err != nil {
 		return nil, err
 	}
 	return core.NewPagedList(resp.ListData, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
@@ -100,32 +104,10 @@ type GetVolumeOutput struct {
 	Volume Volume
 }
 
-// GetVolume reads volume.
+// GetVolume reads the requested UUID and rejects missing or mismatched detail.
 func (c *Client) GetVolume(ctx context.Context, in *GetVolumeInput) (*GetVolumeOutput, error) {
-	const op = "volume.GetVolume"
-	if err := core.CheckRequired(op, in); err != nil {
-		return nil, err
-	}
-	if err := core.CheckPathID(op, "VolumeID", in.VolumeID); err != nil {
-		return nil, err
-	}
-	projectID, err := c.c.RequireProjectID(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	var resp struct {
-		Data Volume `json:"data"`
-	}
-	if err := c.c.DoJSON(ctx, transport.Request{
-		Operation: op,
-		Method:    "GET",
-		URL:       c.volumeURL("v2", []string{projectID, "volumes", in.VolumeID}, nil),
-		OK:        []int{200},
-	}, &resp); err != nil {
-		return nil, err
-	}
-	return &GetVolumeOutput{Volume: resp.Data}, nil
+	out, _, err := c.readVolume(ctx, in)
+	return out, err
 }
 
 // GetUnderlyingVolumeInput requires VolumeID.
@@ -141,7 +123,11 @@ type GetUnderlyingVolumeOutput struct {
 
 // GetUnderlyingVolume reads underlying volume.
 func (c *Client) GetUnderlyingVolume(ctx context.Context, in *GetUnderlyingVolumeInput) (*GetUnderlyingVolumeOutput, error) {
-	if err := core.CheckRequired("volume.GetUnderlyingVolume", in); err != nil {
+	const op = "volume.GetUnderlyingVolume"
+	if err := core.CheckRequired(op, in); err != nil {
+		return nil, err
+	}
+	if err := core.CheckPathID(op, "VolumeID", in.VolumeID); err != nil {
 		return nil, err
 	}
 	projectID, err := c.c.RequireProjectID(ctx)
@@ -210,7 +196,11 @@ type GetVolumeTypeOutput struct {
 
 // GetVolumeType reads volume type.
 func (c *Client) GetVolumeType(ctx context.Context, in *GetVolumeTypeInput) (*GetVolumeTypeOutput, error) {
-	if err := core.CheckRequired("volume.GetVolumeType", in); err != nil {
+	const op = "volume.GetVolumeType"
+	if err := core.CheckRequired(op, in); err != nil {
+		return nil, err
+	}
+	if err := core.CheckPathID(op, "VolumeTypeID", in.VolumeTypeID); err != nil {
 		return nil, err
 	}
 	projectID, err := c.c.RequireProjectID(ctx)
@@ -336,13 +326,17 @@ func (c *Client) ListSnapshots(ctx context.Context, in *ListSnapshotsInput) (*Li
 	if err != nil {
 		return nil, err
 	}
-	var resp listSnapshotsResponse
+	var raw json.RawMessage
 	if err := c.c.DoJSON(ctx, transport.Request{
 		Operation: op,
 		Method:    "GET",
 		URL:       c.volumeURL("v2", []string{projectID, "volumes", in.VolumeID, "snapshots"}, core.PageQuery(in.Page, in.Size)),
 		OK:        []int{200},
-	}, &resp); err != nil {
+	}, &raw); err != nil {
+		return nil, err
+	}
+	var resp listSnapshotsResponse
+	if err := decodeInventoryPage(op, raw, &resp, "items", "totalPages", "totalItems"); err != nil {
 		return nil, err
 	}
 	return core.NewPagedList(resp.Items, resp.Page, resp.PageSize, resp.TotalPages, resp.TotalItems), nil
@@ -356,19 +350,7 @@ type ListAllSnapshotsOutput = core.List[Snapshot]
 
 // ListAllSnapshots reads all snapshots.
 func (c *Client) ListAllSnapshots(ctx context.Context, _ *ListAllSnapshotsInput) (*ListAllSnapshotsOutput, error) {
-	volumes, err := c.ListVolumes(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	items := make([]Snapshot, 0)
-	for _, vol := range volumes.Items {
-		snapshots, err := c.ListSnapshots(ctx, &ListSnapshotsInput{VolumeID: vol.UUID})
-		if err != nil {
-			return nil, err
-		}
-		items = append(items, snapshots.Items...)
-	}
-	return &ListAllSnapshotsOutput{Items: items}, nil
+	return c.allSnapshots(ctx)
 }
 
 func (c *Client) volumeURL(version string, parts []string, q url.Values) string {

@@ -8,30 +8,18 @@ import (
 	"time"
 )
 
-// isVolumeError reports whether status is the volume ERROR status, from the
-// design's status table.
 func isVolumeError(status string) bool {
 	return strings.EqualFold(status, "ERROR")
 }
 
-// isVolumeDeleted reports whether status is the volume DELETED status: a
-// delete wait settles on either this or a 404 from GetVolume.
 func isVolumeDeleted(status string) bool {
 	return strings.EqualFold(status, "DELETED")
 }
 
-// sleepFunc waits for d or ctx's end, whichever comes first, returning
-// ctx.Err() when ctx ends first. Tests inject a fake one so the waits below
-// never really elapse.
 type sleepFunc func(ctx context.Context, d time.Duration) error
 
-// clockFunc reads the current time. poll uses it, alongside a sleepFunc, to
-// bound a wait by elapsed wall time rather than by counting poll intervals,
-// so a slow read itself counts against the bound. Tests inject a fake
-// clock; production uses time.Now.
 type clockFunc func() time.Time
 
-// contextSleep is the real sleepFunc.
 func contextSleep(ctx context.Context, d time.Duration) error {
 	if d <= 0 {
 		return nil
@@ -46,39 +34,57 @@ func contextSleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// poll runs step at once, then again every volumePollInterval, until step
-// reports stop true or volumeWaitBound has elapsed, by now, since poll's
-// first call to step. Every volume wait in the design's wait table uses
-// this same 2-second interval and 5-minute bound, so neither is a
-// parameter here, unlike vDNS's, network's, and compute's own unexported
-// poll, whose shape this otherwise copies.
 func poll(ctx context.Context, now clockFunc, sleep sleepFunc, step func(ctx context.Context) (stop bool, err error), onTimeout func() error) error {
 	deadline := now().Add(volumeWaitBound)
 	for {
-		stop, err := step(ctx)
-		if stop {
+		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if !now().Before(deadline) {
+		remaining := deadline.Sub(now())
+		if remaining <= 0 {
 			return onTimeout()
 		}
-		if err := sleep(ctx, volumePollInterval); err != nil {
+		waitCtx, cancel := context.WithTimeout(ctx, remaining)
+		stop, err := step(waitCtx)
+		if ctx.Err() != nil {
+			cancel()
+			if err != nil {
+				return err
+			}
+			return ctx.Err()
+		}
+		if !now().Before(deadline) || waitCtx.Err() != nil {
+			timeoutErr := errors.Join(onTimeout(), waitCtx.Err())
+			cancel()
+			return timeoutErr
+		}
+		if stop || err != nil {
+			cancel()
+			return err
+		}
+		err = sleep(waitCtx, min(volumePollInterval, deadline.Sub(now())))
+		waitErr := waitCtx.Err()
+		cancel()
+		if ctx.Err() != nil {
+			if err != nil {
+				return err
+			}
+			return ctx.Err()
+		}
+		if !now().Before(deadline) || waitErr != nil {
+			return errors.Join(onTimeout(), waitErr)
+		}
+		if err != nil {
 			return err
 		}
 	}
 }
 
-// Poll timing per the design's wait table.
 const (
 	volumePollInterval = 2 * time.Second
 	volumeWaitBound    = 5 * time.Minute
 )
 
-// waitVolumeAttached is AttachVolume's post-attach wait unless NoWait is
-// set: it reads volumeID with GetVolume until its Status is IN-USE with
-// serverID among its attached servers (settled) or ERROR (failed); any
-// other outcome, including IN-USE without serverID yet listed, keeps it
-// polling.
 func (c *Client) waitVolumeAttached(ctx context.Context, op, volumeID, serverID string) (*Volume, error) {
 	var vol *Volume
 	err := poll(ctx, c.now, c.sleep,
@@ -108,9 +114,6 @@ func (c *Client) waitVolumeAttached(ctx context.Context, op, volumeID, serverID 
 	return vol, err
 }
 
-// waitVolumeDetached is DetachVolume's post-detach wait unless NoWait is
-// set: it reads volumeID with GetVolume until its Status reaches AVAILABLE
-// or ERROR; any other status keeps it polling.
 func (c *Client) waitVolumeDetached(ctx context.Context, op, volumeID string) (*Volume, error) {
 	var vol *Volume
 	err := poll(ctx, c.now, c.sleep,

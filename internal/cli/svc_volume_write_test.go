@@ -318,7 +318,7 @@ func TestVolumeDeleteVolumeWithYesSendsDelete(t *testing.T) {
 			switch r.Method {
 			case http.MethodGet:
 				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(`{"data":{"uuid":"volume-1","name":"data","status":"AVAILABLE"}}`))
+				_, _ = w.Write([]byte(`{"data":{"uuid":"volume-1","name":"data","status":"AVAILABLE","serverId":"","serverIdList":[]}}`))
 			case http.MethodDelete:
 				w.WriteHeader(http.StatusAccepted)
 			default:

@@ -16,6 +16,7 @@ import (
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/discovery"
+	"danny.vn/vngcloud/internal/jsonresponse"
 	"danny.vn/vngcloud/internal/pricecatalog"
 	"danny.vn/vngcloud/internal/routes"
 	"danny.vn/vngcloud/internal/transport"
@@ -27,8 +28,9 @@ type Client struct {
 
 	// regionMu guards regionIDs, the vStorage region name to UUID map the
 	// first ListRegions call fills. It is filled once per Client and kept.
-	regionMu  sync.Mutex
-	regionIDs map[string]string
+	regionMu   sync.Mutex
+	regionIDs  map[string]string
+	regionGate chan struct{}
 
 	// sleep and now drive the delete wait; tests replace them with fakes so
 	// the wait never really elapses.
@@ -39,7 +41,7 @@ type Client struct {
 // New builds a Client from cfg. A Client built from the same Config as
 // another service client shares its login and token cache.
 func New(cfg vngcloud.Config) *Client {
-	return &Client{c: core.ClientOf(cfg), sleep: contextSleep, now: core.StorageClock(cfg)}
+	return &Client{c: core.ClientOf(cfg), sleep: contextSleep, now: core.StorageClock(cfg), regionGate: make(chan struct{}, 1)}
 }
 
 // route builds a URL under the Storage endpoint's console API prefix.
@@ -102,6 +104,10 @@ func (c *Client) exchange(ctx context.Context, k call) (*envelope, error) {
 		if status > 0 && (errors.As(err, &syn) || (k.sensitive && withheldDecode(status, err))) {
 			return nil, emptyResponse(k, status)
 		}
+		var api *core.APIError
+		if keyResponseOperation(k.op) && errors.As(err, &api) {
+			return nil, safeKeyHTTPError(api)
+		}
 		return nil, err
 	}
 	if status == http.StatusNoContent {
@@ -115,8 +121,13 @@ func (c *Client) exchange(ctx context.Context, k call) (*envelope, error) {
 			return nil, err
 		}
 	}
+	if keyResponseOperation(k.op) {
+		if err := validateKeyResponse(k.op, status, raw, credentials); err != nil {
+			return nil, err
+		}
+	}
 	var env envelope
-	if err := json.Unmarshal(raw, &env); err != nil {
+	if jsonresponse.ValidateStrict(raw, &env) != nil || json.Unmarshal(raw, &env) != nil {
 		return nil, emptyResponse(k, status)
 	}
 	if env.Success == nil {
@@ -157,6 +168,9 @@ func decodeList[T any](op string, status int, env *envelope) ([]T, error) {
 		return nil, nil
 	}
 	var items []T
+	if jsonresponse.ValidateStrict(raw, &items) != nil {
+		return nil, &core.APIError{Operation: op, StatusCode: status, Code: "InvalidResponse", Message: "invalid list response; body withheld"}
+	}
 	if err := json.Unmarshal(raw, &items); err != nil {
 		return nil, &core.APIError{Operation: op, StatusCode: status, Err: fmt.Errorf("decode list: %w", transport.SanitizeDecodeError(err))}
 	}

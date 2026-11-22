@@ -116,9 +116,9 @@ func TestDeleteBucketWaitBoundReturnsNotSettled(t *testing.T) {
 	if deletes.Load() != 1 {
 		t.Fatalf("DELETE sent %d times, want 1", deletes.Load())
 	}
-	// One pre-delete read, then a read at 0 s through 30 s.
-	if gets.Load() != 32 || sleeps.Load() != 30 {
-		t.Fatalf("reads = %d, sleeps = %d, want 32 and 30", gets.Load(), sleeps.Load())
+
+	if gets.Load() != 31 || sleeps.Load() != 30 {
+		t.Fatalf("reads = %d, sleeps = %d, want 31 and 30", gets.Load(), sleeps.Load())
 	}
 }
 

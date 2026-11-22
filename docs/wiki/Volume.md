@@ -129,6 +129,13 @@ with its error and no rows.
 `IOPS` keeps only types whose `IOPS` equals it, in every mode. 0 means no
 filter, and a negative value fails with `vngcloud.ErrInvalidInput`.
 
+## Snapshot inventory
+
+`ListAllSnapshots` walks all volume and snapshot pages, checking page identity, stable totals, counts, unique IDs, and parent
+volumes. Missing or null lists, duplicate fields, or incomplete inventories
+return an error with no aggregate output. Each list is limited to 50 pages;
+cancellation stops the walk.
+
 ## Creating and deleting volumes
 
 Prices are VND totals that include VAT, with no API VAT breakdown; see
@@ -212,17 +219,19 @@ last volume a read returned, falling back to one with only the new UUID and
 `Input.Name` when no read ever succeeded. `NoWait` skips that wait and
 returns at once with only the UUID and Name filled in.
 
-`DeleteVolume` destroys the volume's data; there is no undo. It reads the
-volume first and, when that read shows it `IN-USE` or naming a server,
-sends nothing and returns `volume.ErrVolumeInUse`: detach it first. The
-server's own in-use refusal is the final guard for a race this pre-check
-misses. `DELETE` is idempotent and keeps the transport's normal retries; a
-retry that finds the volume already gone comes back as
-`vngcloud.IsNotFound(err) == true`. Unless `NoWait` is set, `DeleteVolume`
-then waits up to 5 minutes, polling every 2 seconds, for a 404 or a read
-showing `Status` `DELETED`; `ERROR` wraps `volume.ErrFailed`, and the bound
-running out, or a read or a sleep failing, wraps `volume.ErrNotSettled`. A
-rerun after either is always safe, since `DeleteVolume` reads first.
+`DeleteVolume` destroys data; there is no undo. It reads the volume first
+and refuses `IN-USE` or any listed server with `volume.ErrVolumeInUse`:
+detach it first. The UUID must match, status must be `AVAILABLE` or `ERROR`,
+and `serverId` and `serverIdList` must be explicitly empty. Missing, null,
+conflicting, or unknown state sends no DELETE. The server's in-use refusal
+remains the final guard against a race. DELETE keeps normal retries; an
+already deleted volume returns `vngcloud.ErrNotFound`.
+
+Unless `NoWait` is set, deletion polls every two seconds for up to five
+minutes until 404 or `DELETED`. `ERROR` wraps `volume.ErrFailed`; timeout,
+read failure, or sleep failure wraps `volume.ErrNotSettled`. A rerun reads
+and validates the volume first. Polling requests and sleeps use the earlier
+caller or operation deadline; late success cannot settle a write.
 
 ## Encrypted volumes
 

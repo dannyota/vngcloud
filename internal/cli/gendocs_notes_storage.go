@@ -63,7 +63,9 @@ const storageCreateBucketNote = storageProjectIDNote + storageRegionNote + " Sen
 const storageDeleteBucketNote = storageProjectIDNote + storageRegionNote + " Needs `--yes`: a deleted " +
 	"bucket cannot be restored. It reads the bucket first and refuses one that holds objects with error code " +
 	"`BucketNotEmpty` (exit 1), sending nothing; empty the bucket with an S3 client, then run it again. " +
-	"A null object count is refused the same way. There is no force option. The server deletes " +
+	"A null object count is refused the same way. Stop all writers first: the server deletes contents too. " +
+	"There is no force option. DELETE sends once without retries, auth resends, or redirects. " +
+	"An ambiguous result is NotSettled: read with get-bucket, never resend DELETE. The server deletes " +
 	"asynchronously, so the command then reads the bucket every second for up to 30 seconds and returns when " +
 	"it is gone; `--no-wait` skips the wait and returns once the server accepts the delete. If the bucket is " +
 	"still readable when the wait ends, the error code is `NotSettled` (exit 1): the delete was accepted, so " +
@@ -91,7 +93,8 @@ const storageCreateS3KeyNote = storageProjectIDNote + storageRegionNote + " Need
 	"file fails, or the response holds no secret, the command deletes the new key and exits 1 with error " +
 	"code `SecretFileFailed`; if that delete also fails, the message names the key by its ID so it can be " +
 	"deleted with delete-s3-key. If the create fails in a way that may have reached the server, the message " +
-	"says a key may exist: list the keys and delete any `UserKeyID` you do not know. " +
+	"says a key may exist: compare a pre-create key baseline and establish creation ownership before " +
+	"cleanup. An unfamiliar `UserKeyID` alone never authorizes deletion. " +
 	"With `--service-account-id <id>` the command creates the key, attaches it to that service account, and only " +
 	"then writes the secret file, so a secret for an unrestricted key never reaches disk. " +
 	storageServiceAccountIDNote + " It is checked before any request and needs no `--yes`, since the key is " +

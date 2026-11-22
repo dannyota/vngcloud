@@ -47,12 +47,16 @@ func (c *Client) DeleteVolume(ctx context.Context, in *DeleteVolumeInput) (*Dele
 		return nil, err
 	}
 
-	current, err := c.GetVolume(ctx, &GetVolumeInput{VolumeID: in.VolumeID})
+	current, raw, err := c.readVolume(ctx, &GetVolumeInput{VolumeID: in.VolumeID})
 	if err != nil {
 		return nil, err
 	}
 	if current.Volume.IsInUse() || current.Volume.ServerID != "" || len(current.Volume.ServerIDList) > 0 {
 		return nil, fmt.Errorf("%w: %s: volume %s is attached to a server; detach it first", ErrVolumeInUse, op, in.VolumeID)
+	}
+
+	if !knownDetachedVolume(raw) || (!current.Volume.IsAvailable() && !isVolumeError(current.Volume.Status)) {
+		return nil, invalidVolumeResponse(op)
 	}
 
 	projectID, err := c.c.RequireProjectID(ctx)

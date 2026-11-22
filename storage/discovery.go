@@ -107,12 +107,19 @@ func (c *Client) exchangeDiscovery(k call) (*envelope, error) {
 func (c *Client) discoveryRegion(s *discovery.Session, name string) (string, string, error) {
 	const op = "storage.ListStoragePrices"
 	name = pricecatalog.StorageRegionName(c.c.Region(), name)
-	c.regionMu.Lock()
-	defer c.regionMu.Unlock()
+	select {
+	case <-s.Context().Done():
+		return "", "", s.Context().Err()
+	case c.regionGate <- struct{}{}:
+	}
+	defer func() { <-c.regionGate }()
 	if err := s.Context().Err(); err != nil {
 		return "", "", err
 	}
-	if id := c.regionIDs[name]; id != "" {
+	c.regionMu.Lock()
+	id := c.regionIDs[name]
+	c.regionMu.Unlock()
+	if id != "" {
 		return id, name, nil
 	}
 	env, err := c.exchange(s.Context(), call{session: s, op: "storage.ListRegions", method: http.MethodGet, url: c.route([]string{"regions"}, nil), ok: []int{200}})
@@ -137,7 +144,9 @@ func (c *Client) discoveryRegion(s *discovery.Session, name string) (string, str
 	if ids[name] == "" {
 		return "", "", fmt.Errorf("%w: unknown storage region", core.ErrInvalidInput)
 	}
+	c.regionMu.Lock()
 	c.regionIDs = ids
+	c.regionMu.Unlock()
 	return ids[name], name, nil
 }
 

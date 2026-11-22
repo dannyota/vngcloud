@@ -2,20 +2,14 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
-// sleepFunc waits for d or ctx's end, whichever comes first, returning
-// ctx.Err() when ctx ends first. Tests inject a fake one so the delete wait
-// never really elapses.
 type sleepFunc func(ctx context.Context, d time.Duration) error
 
-// clockFunc reads the current time. poll uses it to bound a wait by elapsed
-// wall time, so a slow read counts against the bound. Tests inject a fake
-// clock; production uses time.Now.
 type clockFunc func() time.Time
 
-// contextSleep is the real sleepFunc.
 func contextSleep(ctx context.Context, d time.Duration) error {
 	if d <= 0 {
 		return nil
@@ -30,22 +24,47 @@ func contextSleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// poll runs step at once, then again every interval, until step reports stop
-// true or bound has elapsed, by now, since poll began. step reports stop true
-// for a settled outcome (err nil) or a final failure (err returned
-// unchanged). onTimeout is called, and its result returned, only when the
-// bound elapses first.
 func poll(ctx context.Context, now clockFunc, sleep sleepFunc, interval, bound time.Duration, step func(ctx context.Context) (stop bool, err error), onTimeout func() error) error {
 	deadline := now().Add(bound)
 	for {
-		stop, err := step(ctx)
-		if stop {
+		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if !now().Before(deadline) {
+		remaining := deadline.Sub(now())
+		if remaining <= 0 {
 			return onTimeout()
 		}
-		if err := sleep(ctx, interval); err != nil {
+		waitCtx, cancel := context.WithTimeout(ctx, remaining)
+		stop, err := step(waitCtx)
+		if ctx.Err() != nil {
+			cancel()
+			if err != nil {
+				return err
+			}
+			return ctx.Err()
+		}
+		if !now().Before(deadline) || waitCtx.Err() != nil {
+			timeoutErr := errors.Join(onTimeout(), waitCtx.Err())
+			cancel()
+			return timeoutErr
+		}
+		if stop || err != nil {
+			cancel()
+			return err
+		}
+		err = sleep(waitCtx, min(interval, deadline.Sub(now())))
+		waitErr := waitCtx.Err()
+		cancel()
+		if ctx.Err() != nil {
+			if err != nil {
+				return err
+			}
+			return ctx.Err()
+		}
+		if !now().Before(deadline) || waitErr != nil {
+			return errors.Join(onTimeout(), waitErr)
+		}
+		if err != nil {
 			return err
 		}
 	}

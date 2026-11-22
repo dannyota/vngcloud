@@ -13,6 +13,12 @@
   malformed data and inexact amounts, and retain observed error statuses.
   Budget writes cap replies at 8 MiB and send once; budgets and quotes refuse
   redirects. Reconcile unconfirmed budget changes before retrying.
+- Send bucket deletes once and require stopped writers. Reject ambiguous
+  project-bucket lists, reflected S3 secrets, and missing or mismatched volume
+  state. Complete snapshot pagination, enforce wait deadlines, and allow
+  discovery waiters to cancel independently. Key recovery requires proven
+  ownership. Reject explicit null pagination and retain definite bucket
+  refusals, including NotFound exit 4. SDK fields and CLI flags stay compatible.
 
 ## v0.97.0 - Pre-1.0 hardening
 

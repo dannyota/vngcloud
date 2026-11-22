@@ -264,8 +264,8 @@ func TestS3KeyEmptyResponse(t *testing.T) {
 			if !errors.As(err, &apiErr) || apiErr.Code != "EmptyResponse" {
 				t.Fatalf("%s body %q: err = %v, want EmptyResponse", name, body, err)
 			}
-			if name == "CreateS3Key" && !strings.Contains(apiErr.Message, "delete any UserKeyID") {
-				t.Fatalf("%s body %q: message %q lacks the list-and-delete advice", name, body, apiErr.Message)
+			if name == "CreateS3Key" && !strings.Contains(apiErr.Message, "establish creation ownership") {
+				t.Fatalf("%s body %q: message %q lacks the ownership reconciliation advice", name, body, apiErr.Message)
 			}
 		}
 	}
@@ -363,12 +363,12 @@ func TestCreateS3KeyIsSentOnce(t *testing.T) {
 			if got := s.calls.Load(); got != 1 {
 				t.Fatalf("%d requests sent, want 1", got)
 			}
-			if has := strings.Contains(apiErr.Message, "delete any UserKeyID"); has != tt.wantHint {
+			if has := strings.Contains(apiErr.Message, "establish creation ownership"); has != tt.wantHint {
 				t.Fatalf("message %q: advice = %v, want %v", apiErr.Message, has, tt.wantHint)
 			}
 			if tt.wantHint {
 				rendered := err.Error()
-				for _, want := range []string{"storage.CreateS3Key:", fmt.Sprintf("(status %d)", tt.status), "delete any UserKeyID"} {
+				for _, want := range []string{"storage.CreateS3Key:", fmt.Sprintf("(status %d)", tt.status), "establish creation ownership"} {
 					if n := strings.Count(rendered, want); n != 1 {
 						t.Fatalf("rendered error %q has %q %d times, want 1", rendered, want, n)
 					}
@@ -392,7 +392,7 @@ func TestCreateS3KeyOtherSuccessStatus(t *testing.T) {
 		if out != nil || !errors.As(err, &apiErr) || apiErr.StatusCode != status {
 			t.Fatalf("status %d: out = %+v, err = %v", status, out, err)
 		}
-		if n := strings.Count(err.Error(), "delete any UserKeyID"); n != 1 {
+		if n := strings.Count(err.Error(), "establish creation ownership"); n != 1 {
 			t.Fatalf("status %d: rendered error %q has the advice %d times, want 1", status, err, n)
 		}
 		if errors.Is(err, ErrNoSecret) {
@@ -418,10 +418,10 @@ func TestCreateS3KeyNetworkErrorIsSentOnce(t *testing.T) {
 	c := New(testutil.NewRetryConfig(t, h))
 	_, err := c.CreateS3Key(context.Background(), &CreateS3KeyInput{ProjectID: "proj-1"})
 	var apiErr *vngcloud.APIError
-	if !errors.As(err, &apiErr) || !strings.Contains(apiErr.Message, "delete any UserKeyID") {
-		t.Fatalf("err = %v, want the list-and-delete advice", err)
+	if !errors.As(err, &apiErr) || !strings.Contains(apiErr.Message, "establish creation ownership") {
+		t.Fatalf("err = %v, want the ownership reconciliation advice", err)
 	}
-	if n := strings.Count(err.Error(), "delete any UserKeyID"); n != 1 {
+	if n := strings.Count(err.Error(), "establish creation ownership"); n != 1 {
 		t.Fatalf("rendered error %q has the advice %d times, want 1", err, n)
 	}
 	if posts.Load() != 1 {

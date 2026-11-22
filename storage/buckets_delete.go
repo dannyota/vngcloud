@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/jsonresponse"
 	"danny.vn/vngcloud/internal/transport"
 )
 
@@ -56,7 +57,9 @@ type bucketUsage struct {
 	UsedCapacity *float64 `json:"usedCapacity"`
 }
 
-// DeleteBucket deletes an empty bucket. It reads the bucket first and
+// DeleteBucket requires all writers to stop before deleting an empty bucket.
+// It sends DELETE once; ambiguous outcomes require reconciliation by reads.
+// It reads the bucket first and
 // returns ErrBucketNotEmpty, sending no DELETE, when the count is above 0 or
 // not reported, or when the size or used capacity is above 0. There is no
 // force option.
@@ -86,7 +89,12 @@ func (c *Client) DeleteBucket(ctx context.Context, in *DeleteBucketInput) (*Dele
 		regionID: id,
 		ok:       []int{http.StatusOK, http.StatusNoContent},
 		write:    true,
+		once:     true,
 	}); err != nil {
+		var api *core.APIError
+		if !errors.As(err, &api) || (!api.Retryable && (api.StatusCode == 0 || api.StatusCode/100 != 4)) {
+			return nil, projectUnsettled(op, err, "The delete may have happened; read the bucket before any further action, do not send DELETE again.")
+		}
 		return nil, err
 	}
 	if in.NoWait {
@@ -109,10 +117,15 @@ func (c *Client) checkBucketEmpty(ctx context.Context, op, regionID string, in *
 	if len(env.Data) == 0 || string(env.Data) == "null" {
 		return &core.APIError{Operation: op, StatusCode: http.StatusOK, Message: "response had no bucket"}
 	}
+	if jsonresponse.ValidateStrict(env.Data, &u) != nil {
+		return &core.APIError{Operation: op, StatusCode: http.StatusOK, Code: "InvalidResponse", Message: "invalid bucket usage; body withheld"}
+	}
 	if err := json.Unmarshal(env.Data, &u); err != nil {
 		return &core.APIError{Operation: op, StatusCode: http.StatusOK, Err: fmt.Errorf("decode bucket: %w", transport.SanitizeDecodeError(err))}
 	}
 	switch {
+	case u.Count != nil && *u.Count < 0, u.Size != nil && *u.Size < 0, u.UsedCapacity != nil && *u.UsedCapacity < 0:
+		return fmt.Errorf("%w: %s: bucket usage is invalid; nothing was deleted", ErrBucketNotEmpty, op)
 	case u.Count == nil:
 		return fmt.Errorf("%w: %s: the bucket read did not report an object count; nothing was deleted", ErrBucketNotEmpty, op)
 	case *u.Count > 0:

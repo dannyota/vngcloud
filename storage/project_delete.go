@@ -9,6 +9,7 @@ import (
 	"net/url"
 
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/jsonresponse"
 	"danny.vn/vngcloud/internal/transport"
 )
 
@@ -62,6 +63,9 @@ func (c *Client) DeleteProject(ctx context.Context, in *DeleteProjectInput) (*De
 	if err != nil {
 		return nil, err
 	}
+	if len(env.Data) == 0 && len(env.Datas) == 0 {
+		return nil, projectResponseError(op, "bucket list is missing")
+	}
 	buckets, err := completeProjectList(op, env)
 	if err != nil {
 		return nil, err
@@ -88,7 +92,7 @@ func (c *Client) readProjectBuckets(ctx context.Context, op, regionID, projectID
 		return nil, err
 	}
 	var env envelope
-	if json.Unmarshal(raw, &env) != nil || env.Success == nil {
+	if jsonresponse.ValidateStrict(raw, &env) != nil || json.Unmarshal(raw, &env) != nil || env.Success == nil {
 		return nil, emptyResponse(call{op: op}, status)
 	}
 	if !*env.Success {

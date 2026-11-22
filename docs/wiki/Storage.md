@@ -160,8 +160,11 @@ and sends no delete when the object count is above 0, when the count is null
 or missing, or when the size or used capacity is above 0. There is no force
 option: empty the bucket with an S3 client. A missing bucket returns
 `vngcloud.ErrNotFound`. A failure of that first read is returned as it is,
-named as the read before the delete. The server's own refusal of a bucket
-that holds objects is unverified until a live check can put an object.
+named as the read before the delete. Stop every writer first: the service
+removes contents and does not enforce emptiness. The read proves emptiness
+only at that moment. DELETE sends once, without retries, authentication
+resends, or redirects. An ambiguous send returns `storage.ErrNotSettled`:
+read with `GetBucket` to reconcile it, and do not send DELETE again.
 
 The server answers a delete before the bucket is gone. For about a second
 after the `DELETE`, `GetBucket` and `ListBuckets` can still show the bucket,
@@ -224,7 +227,10 @@ list never holds a secret.
 gives `"[redacted]"`, and `Reveal()` is the only way to read the value. See
 [Compute](Compute.md#the-private-key-is-a-secret) for the full contract. The
 create and list responses never reach a response-capture hook, and a decode
-failure never quotes the response.
+failure never quotes the response. A secret reflected into ordinary key
+fields, including identity or access-key fields, rejects the response without
+returning those fields. Dependent CLI attach and cleanup calls withhold the
+issued secret from captures and errors.
 
 If a create response holds a key but no secret, `CreateS3Key` returns the key
 and an error wrapping `storage.ErrNoSecret`. The key exists but cannot be

@@ -297,7 +297,7 @@ func TestDeleteProjectGuardsAndConfirmation(t *testing.T) {
 		{"empty", projectList(newProjectJSON), `{"success":true,"datas":[]}`, nil, 1},
 		{"any bucket", projectList(newProjectJSON), `{"success":true,"datas":[{"name":"empty","count":0}]}`, ErrProjectNotEmpty, 0},
 		{"more buckets", projectList(newProjectJSON), `{"success":true,"datas":[],"isNext":true}`, nil, 0},
-		{"absent bucket data", projectList(newProjectJSON), `{"success":true}`, nil, 1},
+		{"absent bucket data", projectList(newProjectJSON), `{"success":true}`, nil, 0},
 		{"null buckets", projectList(newProjectJSON), `{"success":true,"datas":null}`, nil, 0},
 		{"malformed buckets", projectList(newProjectJSON), `{"success":true,"datas":{}}`, nil, 0},
 		{"missing project", `{"success":true,"datas":[]}`, "", vngcloud.ErrNotFound, 0},

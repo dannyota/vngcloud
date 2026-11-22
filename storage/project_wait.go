@@ -48,7 +48,7 @@ func (c *Client) completeProjects(ctx context.Context, op, id string) ([]project
 	for _, item := range raw {
 		var p Project
 		var fields map[string]json.RawMessage
-		if json.Unmarshal(item, &p) != nil || json.Unmarshal(item, &fields) != nil || core.CheckPathID(op, "ProjectID", p.ID) != nil || p.Name == "" || p.RegionID != id || seen[p.ID] {
+		if jsonresponse.ValidateStrict(item, &p) != nil || json.Unmarshal(item, &p) != nil || json.Unmarshal(item, &fields) != nil || core.CheckPathID(op, "ProjectID", p.ID) != nil || p.Name == "" || p.RegionID != id || seen[p.ID] {
 			return nil, projectResponseError(op, "project list has invalid or duplicate identity")
 		}
 		seen[p.ID] = true
@@ -63,6 +63,9 @@ func completeProjectList(op string, env *envelope) ([]json.RawMessage, error) {
 	}
 	if env.IsNext {
 		return nil, projectResponseError(op, "list is incomplete (isNext)")
+	}
+	if len(env.Data) > 0 && len(env.Datas) > 0 {
+		return nil, projectResponseError(op, "list has conflicting envelopes")
 	}
 	// Empty regions omit both list keys. Present fields must still be arrays.
 	items := []json.RawMessage{}
@@ -206,34 +209,6 @@ func (c *Client) waitProjectGone(ctx context.Context, op, id, projectID string) 
 	return nil
 }
 
-// Use the injected clock for the bound and a remaining-time context for each
-// read. Reject late results even when a transport ignores context cancellation.
 func (c *Client) pollProject(ctx context.Context, bound time.Duration, step func(context.Context) (bool, error), timeout func() error) error {
-	deadline := c.now().Add(bound)
-	for {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		remaining := deadline.Sub(c.now())
-		if remaining <= 0 {
-			return timeout()
-		}
-		readCtx, cancel := context.WithTimeout(ctx, remaining)
-		done, err := step(readCtx)
-		readErr := readCtx.Err()
-		cancel()
-		if !c.now().Before(deadline) {
-			return timeout()
-		}
-		if readErr != nil {
-			return readErr
-		}
-		if err != nil || done {
-			return err
-		}
-		delay := min(projectPollInterval, deadline.Sub(c.now()))
-		if err := c.sleep(ctx, delay); err != nil {
-			return err
-		}
-	}
+	return poll(ctx, c.now, c.sleep, projectPollInterval, bound, step, timeout)
 }

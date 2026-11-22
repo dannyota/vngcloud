@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/internal/transport"
 	"danny.vn/vngcloud/storage"
 )
 
@@ -65,10 +66,12 @@ func callCreateS3Key(cmd *cobra.Command, client *storage.Client, ctx context.Con
 	if err != nil {
 		return nil, err
 	}
+	secret := out.SecretKey.Reveal()
+	ctx = transport.WithCredentialObserver(ctx, func(string) ([]string, error) { return []string{secret}, nil })
 	serviceAccountID, _ := cmd.Flags().GetString(serviceAccountIDFlagName)
 	if serviceAccountID != "" {
 		if attachErr := attachNewS3Key(client, ctx, createIn, out.UserKeyID, serviceAccountID); attachErr != nil {
-			return nil, attachErr
+			return nil, safeS3KeyFollowupError(attachErr, secret)
 		}
 	}
 	path, _ := cmd.Flags().GetString(secretFileFlagName)
@@ -78,7 +81,25 @@ func callCreateS3Key(cmd *cobra.Command, client *storage.Client, ctx context.Con
 		}
 		return nil, newSecretFileWriteFailed("s3 key", out.UserKeyID, writeErr)
 	}
-	return &createS3KeyOutput{CreateS3KeyOutput: *out, SecretFile: path, ServiceAccountID: serviceAccountID}, nil
+	return &createS3KeyOutput{CreateS3KeyOutput: *out, SecretFile: transport.RedactErrorText(path, secret), ServiceAccountID: transport.RedactErrorText(serviceAccountID, secret)}, nil
+}
+
+func safeS3KeyFollowupError(err error, secret string) error {
+	message := transport.RedactErrorText(err.Error(), secret)
+	var api *vngcloud.APIError
+	if errors.As(err, &api) {
+		safe := *api
+		safe.Message = transport.RedactErrorText(safe.Message, secret)
+		safe.Code = transport.RedactErrorText(safe.Code, secret)
+		safe.Err = nil
+		if errors.Is(err, context.Canceled) {
+			safe.Err = context.Canceled
+		} else if errors.Is(err, context.DeadlineExceeded) {
+			safe.Err = context.DeadlineExceeded
+		}
+		return attachFailedError{msg: message, err: &safe}
+	}
+	return attachFailedError{msg: message}
 }
 
 // deleteUnusableS3Key deletes a key nobody can use. It runs on a context

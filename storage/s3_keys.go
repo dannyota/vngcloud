@@ -115,9 +115,9 @@ type createdS3Key struct {
 // failure never quotes it. It is sent once, with no retry, no resend after a
 // 401, and no redirect, so a key is never made twice by the SDK. After a
 // 5xx, a 2xx other than 200 or 201, a network error, or a response that fails
-// to decode, a key may exist whose secret is lost: list the keys and delete any UserKeyID you do not
-// know. The SDK lists nothing itself, since a key another client made at the
-// same time would look the same. A 4xx, an envelope refusal, a 429, or a
+// to decode, a key may exist whose secret is lost. Reconcile the key list with
+// a pre-create baseline and creation ownership before cleanup. An unfamiliar
+// key alone never proves ownership. A 4xx, an envelope refusal, a 429, or a
 // failed dial made no key and passes through unchanged.
 func (c *Client) CreateS3Key(ctx context.Context, in *CreateS3KeyInput) (*CreateS3KeyOutput, error) {
 	const op = "storage.CreateS3Key"
@@ -209,7 +209,7 @@ func (c *Client) checkKeyPaths(ctx context.Context, op, region, project string) 
 	return c.regionID(ctx, op, region)
 }
 
-const keyMayExistHint = "; a key may exist: list the keys and delete any UserKeyID you do not know, since its secret is lost"
+const keyMayExistHint = "; a key may exist: compare the key list with a pre-create baseline and establish creation ownership before cleanup; unfamiliar keys alone never authorize deletion"
 
 // keyMayExist adds the list-and-delete advice to an error that leaves the
 // create unknown: a 5xx, a 2xx the create does not accept, a network failure,

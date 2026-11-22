@@ -73,7 +73,7 @@ func TestProjectEmptyFixtureReads(t *testing.T) {
 	s = &projectWriteServer{before: projectList(newProjectJSON), buckets: empty, after: empty}
 	c = newTestClient(t, s.handler(t))
 	_, err = c.DeleteProject(context.Background(), &DeleteProjectInput{ProjectID: "new-1"})
-	if err != nil || s.deletes != 1 {
+	if err == nil || s.deletes != 0 {
 		t.Fatalf("delete error %v deletes %d", err, s.deletes)
 	}
 	s = &projectWriteServer{before: empty, after: empty}

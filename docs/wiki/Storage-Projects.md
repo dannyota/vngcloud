@@ -142,6 +142,9 @@ remaining deadline; late reads cannot confirm success.
 `DeleteProject` takes `Region`, `ProjectID`, and `NoWait`. It requires the ID
 in a complete list, or returns `vngcloud.ErrNotFound`. Any bucket returns
 `storage.ErrProjectNotEmpty`; missing or incomplete lists also stop deletion.
+The bucket list must contain an explicit array. Null, duplicate, case-variant,
+or conflicting list fields cannot authorize deletion. The observed omitted
+list in an empty regional project response remains supported only there.
 Stop bucket writers first: the API has no concurrent-write precondition.
 Delete sends `{}` once, requires an HTTP 200 success envelope, and polls
 complete lists every two seconds for 60 seconds unless `NoWait` is set.
