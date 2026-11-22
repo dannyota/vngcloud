@@ -3,10 +3,12 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 
 	"danny.vn/vngcloud"
 )
@@ -112,11 +114,35 @@ var operationOutputPaths = map[string]string{
 	"monitor.ListChecks":                         "monitor/check",
 	"monitor.GetCheck":                           "monitor/check_detail",
 	"monitor.ListLocations":                      "monitor/location",
+	"monitor.ListChannelTypes":                   "monitor/channel_type",
+	"monitor.ListChannels":                       "monitor/channel",
 	"storage.ListRegions":                        "storage/region",
 	"storage.ListProjects":                       "storage/project",
 	"storage.ListBuckets":                        "storage/bucket",
 	"storage.GetBucket":                          "storage/bucket_detail",
 	"storage.GetBucketEncryption":                "storage/bucket_encryption",
+}
+
+func uncapturedOutputReason(resource string) string {
+	switch resource {
+	case "vks/cluster", "vks/cluster_version", "vks/quota",
+		"backup/backends", "backup/policies", "billing/resources",
+		"iam/user", "iam/user_detail", "iam/user_filtered", "network/vpn_connection",
+		"monitor/synthetic_catalog", "monitor/quota_status", "monitor/quota_usage",
+		"monitor/notification_packages_email", "monitor/notification_packages_sms",
+		"monitor/email_quota", "monitor/email_quota_usage", "monitor/email_quota_quote",
+		"monitor/synthetic_quota", "monitor/synthetic_quota_usage",
+		"monitor/check_alarm", "monitor/check_alarm_history":
+		return "SDK suppresses response capture"
+	case "server/flavor_prices", "server/public_ip", "network/prices", "volume/discovery",
+		"storage/discovery", "storage/project_types", "storage/project_auto_renew", "monitor/channel_detail", "portal/quota_detail":
+		return "SDK result combines or projects other reads"
+	default:
+		if name, ok := strings.CutPrefix(resource, "storage/project_quote_"); ok && name != "" {
+			return "SDK result combines catalog and price reads"
+		}
+		return ""
+	}
 }
 
 type rawCaptureStore struct {
@@ -165,6 +191,19 @@ func (s *rawCaptureStore) add(config, region string, captured vngcloud.ResponseC
 	path, ok := operationOutputPaths[captured.Operation]
 	if !ok {
 		return
+	}
+	if captured.Operation == "volume.ListSnapshotPolicies" {
+		parsed, err := url.Parse(captured.URL)
+		if err != nil {
+			return
+		}
+		backend := parsed.Query().Get("backendId")
+		if backend == "" || strings.IndexFunc(backend, func(r rune) bool {
+			return (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '-'
+		}) >= 0 {
+			return
+		}
+		path += "/" + backend
 	}
 	resource := s.resources[path]
 	if resource == nil {

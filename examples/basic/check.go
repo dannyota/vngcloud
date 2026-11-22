@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -37,16 +38,17 @@ type sdkEntry struct {
 }
 
 type resourceReport struct {
-	resource      string
-	rawSuccess    int
-	rawRows       int
-	sdkRows       int
-	sdkErrors     int
-	missingKeys   []string
-	rawWithoutSDK int
-	sdkWithoutRaw bool
-	unreadable    string
-	noComparable  bool
+	resource          string
+	rawSuccess        int
+	rawRows           int
+	sdkRows           int
+	sdkErrors         int
+	missingKeys       []string
+	rawWithoutSDK     int
+	sdkWithoutRaw     bool
+	unreadable        string
+	noComparable      bool
+	comparisonSkipped string
 }
 
 type captureScope struct {
@@ -60,23 +62,23 @@ type payloadCoverage struct {
 }
 
 var envelopeKeys = map[string]bool{
-	"data": true, "datas": true, "items": true, "listData": true, "content": true, "results": true,
+	"data": true, "datas": true, "items": true, "listData": true, "lstData": true, "content": true, "results": true,
 	"projects": true, "regions": true, "images": true, "volumeTypes": true, "encryptionTypes": true,
 	"page": true, "pageSize": true, "size": true,
 	"total": true, "totalItem": true, "totalItems": true, "totalPage": true, "totalPages": true,
 	"success": true, "status": true, "code": true, "message": true, "errorCode": true, "errorMsg": true, "extra": true,
 }
 
-var payloadKeys = []string{"listData", "data", "datas", "items", "Items", "content", "results", "projects", "regions", "images", "volumeTypes", "encryptionTypes"}
+var payloadKeys = []string{"listData", "lstData", "data", "datas", "items", "Items", "content", "results", "projects", "regions", "images", "volumeTypes", "encryptionTypes"}
 
 func checkSmokeOutput(root string) ([]resourceReport, error) {
 	rawRoot := filepath.Join(root, "raw")
 	sdkRoot := filepath.Join(root, "sdk")
-	rawPaths, err := filepath.Glob(filepath.Join(rawRoot, "**", "*.json"))
+	rawPaths, err := smokeArtifactPaths(rawRoot)
 	if err != nil {
 		return nil, err
 	}
-	sdkPaths, err := filepath.Glob(filepath.Join(sdkRoot, "**", "*.json"))
+	sdkPaths, err := smokeArtifactPaths(sdkRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -110,22 +112,78 @@ func checkSmokeOutput(root string) ([]resourceReport, error) {
 			return nil, err
 		}
 		if !matched[rel] {
-			reports = append(reports, resourceReport{
+			report := resourceReport{
 				resource:      strings.TrimSuffix(filepath.ToSlash(rel), ".json"),
 				sdkWithoutRaw: true,
-			})
+			}
+			if reason := uncapturedOutputReason(report.resource); reason != "" {
+				report.comparisonSkipped = reason
+				if err := inspectUncapturedSDK(sdkPath, &report); err != nil {
+					report.unreadable = err.Error()
+				}
+			}
+			reports = append(reports, report)
 		}
 	}
 	sort.Slice(reports, func(i, j int) bool { return reports[i].resource < reports[j].resource })
 	return reports, nil
 }
 
+func smokeArtifactPaths(root string) ([]string, error) {
+	var paths []string
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if path == root && errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if entry.Type().IsRegular() && filepath.Ext(path) == ".json" {
+			paths = append(paths, path)
+		}
+		return nil
+	})
+	return paths, err
+}
+
+func inspectUncapturedSDK(path string, report *resourceReport) error {
+	var sdk sdkFile
+	if err := readJSON(path, &sdk); err != nil {
+		return err
+	}
+	report.noComparable = len(sdk.Regions) == 0
+	for _, entry := range sdk.Regions {
+		if entry.Error != "" {
+			report.sdkErrors++
+			continue
+		}
+		var items any
+		if len(entry.Items) > 0 {
+			if err := json.Unmarshal(entry.Items, &items); err != nil {
+				return errors.New("invalid SDK items")
+			}
+		}
+		count := countItems(items)
+		if count != entry.Count {
+			return errors.New("SDK count does not match its items")
+		}
+		report.sdkRows += count
+	}
+	return nil
+}
+
 func printSmokeCheck(reports []resourceReport) bool {
 	failed := false
+	skipped := 0
 	for _, report := range reports {
 		if report.unreadable != "" {
 			failed = true
 			fmt.Printf("%s: unreadable: %s\n", report.resource, report.unreadable)
+			continue
+		}
+		if report.comparisonSkipped != "" && report.sdkErrors == 0 && !report.noComparable {
+			skipped++
+			fmt.Printf("%s: sdk_without_raw=true comparison=skipped (%s)\n", report.resource, report.comparisonSkipped)
 			continue
 		}
 		if report.sdkErrors > 0 || report.noComparable || report.rawRows != report.sdkRows ||
@@ -138,7 +196,7 @@ func printSmokeCheck(reports []resourceReport) bool {
 	if failed {
 		return false
 	}
-	fmt.Printf("smokecheck: ok (%d resources)\n", len(reports))
+	fmt.Printf("smokecheck: ok (%d compared, %d SDK-only)\n", len(reports)-skipped, skipped)
 	return true
 }
 
@@ -224,7 +282,7 @@ func sdkPayloadCoverage(sdk sdkFile, report *resourceReport) (map[captureScope]*
 			report.sdkErrors++
 			continue
 		}
-		payloads, count, err := payloadsFromRaw(entry.Items)
+		payloads, count, err := payloadsFromRaw(entry.Items, report.resource)
 		if err != nil {
 			return nil, err
 		}
@@ -282,7 +340,7 @@ func payloadsFromBody(body json.RawMessage) ([]any, error) {
 	return payloads, nil
 }
 
-func payloadsFromRaw(raw json.RawMessage) ([]any, int, error) {
+func payloadsFromRaw(raw json.RawMessage, resource string) ([]any, int, error) {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil, 0, nil
 	}
@@ -292,11 +350,50 @@ func payloadsFromRaw(raw json.RawMessage) ([]any, int, error) {
 	if err := decoder.Decode(&value); err != nil {
 		return nil, 0, errors.New("invalid SDK items")
 	}
-	payloads := payloadsFromValue(value)
+	payloads, err := sdkPayloadsFromValue(resource, value)
+	if err != nil {
+		return nil, 0, err
+	}
 	if payloads == nil {
 		return nil, 0, errors.New("SDK items have no comparable payload")
 	}
 	return payloads, countItems(value), nil
+}
+
+func sdkPayloadsFromValue(resource string, value any) ([]any, error) {
+	var field string
+	switch resource {
+	case "monitor/check_detail":
+		field = "Check"
+	case "monitor/channel_detail":
+		field = "Channel"
+	case "billing/current_period_cost":
+		field = "PeriodCost"
+	case "glb/usage_history":
+		field = "Items"
+	default:
+		return payloadsFromValue(value), nil
+	}
+	if values, ok := value.([]any); ok {
+		payloads := []any{}
+		for _, item := range values {
+			children, err := sdkPayloadsFromValue(resource, item)
+			if err != nil {
+				return nil, err
+			}
+			payloads = append(payloads, children...)
+		}
+		return payloads, nil
+	}
+	object, ok := value.(map[string]any)
+	if !ok {
+		return nil, errors.New("invalid SDK output wrapper")
+	}
+	child, ok := object[field]
+	if !ok || child == nil {
+		return nil, errors.New("missing SDK output payload")
+	}
+	return payloadsFromValue(child), nil
 }
 
 func payloadsFromValue(value any) []any {

@@ -1,10 +1,18 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/billing"
+	"danny.vn/vngcloud/globalloadbalancer"
+	"danny.vn/vngcloud/monitor"
 )
 
 func TestSmokeCheckRejectsSDKErrors(t *testing.T) {
@@ -257,6 +265,227 @@ func TestSmokeCheckRejectsTrailingJSON(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSmokeCheckAcceptsSuppressedVKSArtifacts(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body string
+		switch r.URL.Path {
+		case "/v1/clusters":
+			body = `{"items":[],"total":0,"page":0,"pageSize":10}`
+		case "/v1/cluster-versions":
+			body = `[{"version":"synthetic","enable":false,"stage":"test","deprecatedAt":null}]`
+		case "/v1/quota":
+			body = `{"maxClusters":0,"numClusters":0,"maxNodeGroupsPerCluster":0,"maxNodesPerNodeGroup":0}`
+		default:
+			t.Errorf("unexpected request: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write([]byte(body))
+	}))
+	defer server.Close()
+	captures := 0
+	cfg, err := vngcloud.NewConfig(
+		vngcloud.WithRegion("han-1"), vngcloud.WithStaticToken("synthetic-token"),
+		vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{VKS: server.URL}),
+		vngcloud.WithResponseCapture(func(vngcloud.ResponseCapture) { captures++ }),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sdk := newSDKOutputStore()
+	showVKS(t.Context(), cfg, sdk)
+	if captures != 0 {
+		t.Fatal("VKS capture suppression was weakened")
+	}
+	root := writeSmokeStores(t, newRawCaptureStore(), sdk)
+	reports, err := checkSmokeOutput(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reports) != 3 || !printSmokeCheck(reports) {
+		t.Fatalf("successful capture-suppressed VKS reads failed: %+v", reports)
+	}
+	for _, report := range reports {
+		if !report.sdkWithoutRaw || report.comparisonSkipped == "" {
+			t.Fatal("capture-suppressed output lost its SDK-only indication")
+		}
+	}
+}
+
+func TestSmokeCheckAccountsForUncapturedArtifacts(t *testing.T) {
+	resources := []string{
+		"backup/backends", "backup/policies", "billing/resources",
+		"iam/user", "iam/user_detail", "iam/user_filtered", "network/vpn_connection",
+		"monitor/synthetic_catalog", "monitor/quota_status", "monitor/quota_usage",
+		"monitor/notification_packages_email", "monitor/notification_packages_sms",
+		"monitor/email_quota", "monitor/email_quota_usage", "monitor/email_quota_quote",
+		"monitor/synthetic_quota", "monitor/synthetic_quota_usage",
+		"monitor/check_alarm", "monitor/check_alarm_history",
+		"server/flavor_prices", "server/public_ip", "network/prices", "volume/discovery",
+		"storage/discovery", "storage/project_types", "storage/project_quote_Gold",
+		"storage/project_auto_renew", "monitor/channel_detail", "portal/quota_detail",
+	}
+	for _, resource := range resources {
+		t.Run(resource, func(t *testing.T) {
+			for _, failed := range []bool{false, true} {
+				sdk := newSDKOutputStore()
+				var sdkErr error
+				if failed {
+					sdkErr = errors.New("synthetic decode error")
+				}
+				sdk.addAccount(resource, []any{}, sdkErr)
+				root := writeSmokeStores(t, newRawCaptureStore(), sdk)
+				reports, err := checkSmokeOutput(root)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if printSmokeCheck(reports) == failed {
+					t.Fatalf("uncaptured result outcome does not reflect SDK success: failed=%t", failed)
+				}
+			}
+		})
+	}
+}
+
+func TestSmokeCheckPairsAdditionalCapturedArtifacts(t *testing.T) {
+	for _, tc := range []struct {
+		operation string
+		resource  string
+		url       string
+		body      string
+	}{
+		{"monitor.ListChannelTypes", "monitor/channel_type", "https://synthetic.invalid/types", `{"lstData":[{"id":"item-1"}]}`},
+		{"monitor.ListChannels", "monitor/channel", "https://synthetic.invalid/channels", `{"lstData":[{"id":"item-1"}]}`},
+		{"volume.ListSnapshotPolicies", "volume/snapshot_policy/backend-1", "https://synthetic.invalid/snapshot-policies?backendId=backend-1", `{"items":[{"id":"item-1"}]}`},
+	} {
+		t.Run(tc.operation, func(t *testing.T) {
+			raw := newRawCaptureStore()
+			raw.add("synthetic", "han-1", vngcloud.ResponseCapture{Operation: tc.operation, Method: "GET", URL: tc.url, StatusCode: 200, Body: []byte(tc.body)})
+			sdk := newSDKOutputStore()
+			sdk.setConfig("synthetic")
+			sdk.addPricing(tc.resource, "han-1", []map[string]string{{"id": "item-1"}}, nil)
+			root := writeSmokeStores(t, raw, sdk)
+			reports, err := checkSmokeOutput(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(reports) != 1 || reports[0].resource != tc.resource || reports[0].sdkWithoutRaw || !printSmokeCheck(reports) {
+				t.Fatalf("captured operation did not pair with its SDK artifact: %+v", reports)
+			}
+		})
+	}
+}
+
+func TestSmokeCheckNormalizesMonitorDetailOutput(t *testing.T) {
+	for _, dropped := range []bool{false, true} {
+		t.Run(fmt.Sprintf("dropped=%t", dropped), func(t *testing.T) {
+			body := `{"id":"check-1"}`
+			if dropped {
+				body = `{"id":"check-1","unmodeled":true}`
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet || r.URL.Path != "/vmonitor-uptime-manager/v1/uptimes/check-1" {
+					t.Error("unexpected Monitor detail request")
+					w.WriteHeader(http.StatusNotFound)
+					return
+				}
+				_, _ = w.Write([]byte(body))
+			}))
+			defer server.Close()
+			raw := newRawCaptureStore()
+			cfg, err := vngcloud.NewConfig(
+				vngcloud.WithRegion("han-1"), vngcloud.WithStaticToken("synthetic-token"),
+				vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{Monitor: server.URL}),
+				vngcloud.WithResponseCapture(func(c vngcloud.ResponseCapture) { raw.add("synthetic", "han-1", c) }),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			detail, err := monitor.New(cfg).GetCheck(t.Context(), &monitor.GetCheckInput{CheckID: "check-1"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			sdk := newSDKOutputStore()
+			sdk.setConfig("synthetic")
+			sdk.addAccount("monitor/check_detail", detail, nil)
+			root := writeSmokeStores(t, raw, sdk)
+			reports, err := checkSmokeOutput(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if printSmokeCheck(reports) == dropped {
+				t.Fatalf("detail wrapper changed key coverage outcome: %+v", reports)
+			}
+		})
+	}
+}
+
+func TestSmokeCheckNormalizesKnownOutputWrappers(t *testing.T) {
+	for _, tc := range []struct {
+		resource string
+		raw      string
+		sdk      any
+	}{
+		{"billing/current_period_cost", `{"periodKey":"synthetic","actualCost":1}`, &billing.GetCurrentPeriodCostOutput{PeriodCost: billing.PeriodCost{PeriodKey: "synthetic", ActualCost: 1}}},
+		{"monitor/channel_detail", `{"id":"channel-1"}`, &monitor.GetChannelOutput{Channel: monitor.Channel{ID: "channel-1"}}},
+		{"glb/usage_history", `[{"timestamp":"synthetic","value":1,"type":"cpu"},{"timestamp":"synthetic","value":2,"type":"cpu"}]`, []*globalloadbalancer.ListUsageHistoriesOutput{
+			{Items: []globalloadbalancer.UsageHistory{{Timestamp: "synthetic", Value: 1, Type: "cpu"}, {Timestamp: "synthetic", Value: 2, Type: "cpu"}}},
+		}},
+	} {
+		t.Run(tc.resource, func(t *testing.T) {
+			raw := newRawCaptureStore()
+			raw.resources[tc.resource] = &rawResourceOutput{Regions: []rawRegionOutput{{StatusCode: 200, Body: []byte(tc.raw)}}}
+			sdk := newSDKOutputStore()
+			sdk.addAccount(tc.resource, tc.sdk, nil)
+			root := writeSmokeStores(t, raw, sdk)
+			reports, err := checkSmokeOutput(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !printSmokeCheck(reports) {
+				t.Fatalf("known SDK output wrapper was not normalized: %+v", reports)
+			}
+		})
+	}
+}
+
+func TestSmokeCheckRejectsInvalidUncapturedArtifacts(t *testing.T) {
+	for _, tc := range []struct {
+		resource string
+		data     string
+	}{
+		{"vks/cluster", `{"regions":[]}`},
+		{"vks/cluster", `{"regions":[{"count":1,"items":[]}]}`},
+		{"vks/cluster", `{"regions":[{"count":0,"items":[]}]}
+{}`},
+		{"vks/unknown", `{"regions":[{"count":0,"items":[]}]}`},
+	} {
+		t.Run(tc.resource+tc.data, func(t *testing.T) {
+			root := t.TempDir()
+			writeSmokeArtifact(t, root, "sdk", tc.resource, tc.data)
+			reports, err := checkSmokeOutput(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if printSmokeCheck(reports) {
+				t.Fatal("invalid or unrecognized SDK-only artifact passed")
+			}
+		})
+	}
+}
+
+func writeSmokeStores(t *testing.T, raw *rawCaptureStore, sdk *sdkOutputStore) string {
+	t.Helper()
+	root := t.TempDir()
+	if err := writeResources(filepath.Join(root, "raw"), raw.resources); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeResources(filepath.Join(root, "sdk"), sdk.resources); err != nil {
+		t.Fatal(err)
+	}
+	return root
 }
 
 func writeSmokeArtifact(t *testing.T, root, kind, resource, data string) {
