@@ -177,6 +177,10 @@ func billingDataValid(op string, data json.RawMessage) bool {
 		if json.Unmarshal(data, &fields) != nil || !billingRequired(data, false, "items", "pagination", "summary") {
 			return false
 		}
+		if !billingRequired(fields["pagination"], false, "page", "size", "total", "totalPages") ||
+			!billingRequired(fields["summary"], false, "totalAll", "activeCount", "avgPerResource") {
+			return false
+		}
 		var items []json.RawMessage
 		if json.Unmarshal(fields["items"], &items) != nil || items == nil {
 			return false

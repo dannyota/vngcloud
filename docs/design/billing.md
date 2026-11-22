@@ -265,11 +265,10 @@ as `json.RawMessage`: adding it later breaks no caller.
   reaches the caller as an `*APIError`.
 - The server allows one `ACTUAL` and one `FORECASTED` budget per account
   and rejects a second with HTTP 400. The SDK does not check it first.
-- `POST` creates are not idempotent. The transport does not retry them after
-  a 5xx or a network error that may have reached the server (see
-  [ADR 0002](../adr/0002-write-api-conventions.md)). `PUT` and `DELETE` are
-  retried as reads are. A `DELETE` retry that finds the budget gone returns
-  `NotFound`; the SDK does not hide it.
+- Every budget write (`POST`, `PUT`, and `DELETE`) is sent once, with no
+  retry, token-refresh resend, or redirect (see
+  [ADR 0002](../adr/0002-write-api-conventions.md)). An ambiguous send
+  returns an uncertain-outcome error; a read reconciles, never a resend.
 - Deleting a budget deletes its thresholds on the server. The SDK does not
   delete thresholds first.
 

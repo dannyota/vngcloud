@@ -184,7 +184,7 @@ func TestBillingRequiresFinancialValues(t *testing.T) {
 	}{
 		{"overview summary", `{"summary":{}}`, billingTestMethod((*Client).GetCostOverview, &GetCostOverviewInput{StartDate: "2026-11-01", EndDate: "2026-11-09"})},
 		{"overview null cost", `{"summary":{"currentCost":null}}`, billingTestMethod((*Client).GetCostOverview, &GetCostOverviewInput{StartDate: "2026-11-01", EndDate: "2026-11-09"})},
-		{"resource cost", `{"items":[{"resourceId":"server-1"}],"pagination":{"page":0,"size":200,"total":1,"totalPages":1},"summary":{"totalAll":0}}`, billingTestMethod((*Client).ListCostResources, &ListCostResourcesInput{StartDate: "2026-11-01", EndDate: "2026-11-09"})},
+		{"resource cost", `{"items":[{"resourceId":"server-1"}],"pagination":{"page":0,"size":200,"total":1,"totalPages":1},"summary":{"totalAll":0,"activeCount":1,"avgPerResource":0}}`, billingTestMethod((*Client).ListCostResources, &ListCostResourcesInput{StartDate: "2026-11-01", EndDate: "2026-11-09"})},
 		{"null series row", `{"summary":{"currentCost":0},"series":[null]}`, billingTestMethod((*Client).GetCostOverview, &GetCostOverviewInput{StartDate: "2026-11-01", EndDate: "2026-11-09"})},
 		{"grouped point cost", `{"summary":{"currentCost":0},"series":[{"key":"vserver","points":[{"x":"bucket"}]}]}`, billingTestMethod((*Client).GetCostOverview, &GetCostOverviewInput{StartDate: "2026-11-01", EndDate: "2026-11-09"})},
 	} {
