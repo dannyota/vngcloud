@@ -20,19 +20,23 @@ probe's read-back before landing.
    exception that this decision extends from the bare GLB to its listener and
    pool. No quote route exists and the child requests carry no price, SKU or
    payment field. The owner accepts credit-paid creates whose usage charges
-   follow the GLB pricing page; `--yes` records consent. The live probe
-   records cash and available balance before and after each child write and
-   delete. Help and wiki state any observed child debit or hold, and that
+   follow the GLB pricing page; `--yes` records consent. Before either child
+   POST, the scoped GLB detail must show the prepaid credit payment flow that
+   the shipped bare create uses, with the field confirmed by the probe;
+   otherwise nothing is sent. The probe keeps balance records private. Help
+   and wiki name only a debit or hold attributable to a child resource, say
+   "undetermined" when none can be attributed, never "free", and state that
    deletion promises no refund.
 5. Ownership follows the shipped bare GLB delete: SDK-owned IAM-user login,
    default auth, GLB and vServer endpoints, and an exact scoped GLB detail
-   read under that token. The backend project must equal the client's
-   resolved project (`RequireProjectID`), whose discovery runs only on the
-   default vServer endpoint. No `userId` or account-ID join is required; the
-   unverified joins in [Scope guards](#scope-guards) are dropped.
+   read under that token. `BackendProjectID` must equal the client's resolved
+   project (`RequireProjectID`), whose discovery runs only on the default
+   vServer endpoint. That equality checks configuration consistency only;
+   access is proven by the exact server, VPC and subnet GETs under that
+   project with the same IAM client. No `userId` or account-ID join is used.
 6. The listener's CIDR set is verified by exact read-back. Enforcement is the
-   provider's contract; the live probe checks that one allowed `/32` source
-   connects, and no denied-source check gates landing.
+   provider's contract. The live probe must show that one allowed `/32`
+   source connects; a denied-source check is optional and gates nothing.
 7. The live probe is approved under the standing create-then-delete
    authorization: `hcm-3`, the default profile, one disposable bare GLB on the
    smallest package, one smallest private vServer with a disposable TCP
@@ -206,7 +210,9 @@ On both creates prove backend placement under the explicit project ID:
    subnet CIDR. Never select `floatingIp` or an external interface. Require
    evidenced eligible server/network state. Missing, ambiguous, or changed
    scope authorizes no POST.
-4. `CreatePool` requires empty listener and pool inventories. For
+4. `CreatePool` requires empty listener and pool inventories, and its
+   confirmation requires the complete pool list to hold exactly one pool,
+   whose ID equals the accepted ID; otherwise `ErrNotSettled` with that ID. For
    `CreateListener`, read the sole pool and sole group by ID, take their
    VPC/subnet and port from exact scoped read-back, and recheck the server
    project and fixed address. Require a settled TCP `ROUND_ROBIN` pool, the
@@ -237,7 +243,10 @@ Generalize `sanitizeCreateError` to reuse status-derived codes and value
 redaction for all new paths without changing the shipped calls. Withhold
 peer messages on guard and mutation paths, including non-JSON replies. Do
 not expose request values, raw captures, response bodies or wrapped peer
-errors. Reject reflected credentials in projected output, including strings
+errors. Reject any accepted or read value that contains a submitted
+credential, decoded and as a substring, before it is used in a path, body or
+output, partial output included; no further request follows. Reject
+reflected credentials in projected output, including strings
 that pass path-ID validation. Retain only validated IDs and confirmed fields.
 Preflight 404 is `NotFound` with no write, a refused guard is
 `ErrInvalidInput` or `ErrInvalidConfig`, malformed preflight is
@@ -256,7 +265,8 @@ exact group detail. Never infer IDs from order, name, or a response URL.
 Poll immediately and every 5 seconds for asynchronous states, bounded by 15
 minutes after create and 10 after delete, with shorter context deadlines
 winning. Use only child-specific success, transitional and terminal failure
-states established in the probe. Do not copy parent status values or treat
+states, absence signals and post-DELETE error mappings recorded per operation
+by the probe; the waiter is written after that record exists. Do not copy parent status values or treat
 backend health and provisioning status as interchangeable. Retry only known
 transitions, including post-acceptance not-yet-visible 404 only if evidenced
 and the parent is still exact. Malformed data, unexpected state or relation,
@@ -303,7 +313,9 @@ Never send after a preflight 404, ambiguous inventory or scope mismatch.
 Set `Deleted` only after the evidenced authoritative exact-ID absence
 response and corroborating collection absence under the same still-present
 parent; confirm intended survivors. A 403, parent disappearance, identity
-change, malformed read, transient 404 or 2xx alone is not absence. If the API
+change, malformed read, transient 404 or 2xx alone is not absence. After an
+accepted DELETE, an unproven absence or a missing survivor returns
+`ErrNotSettled` with the ID and `Deleted=false`. If the API
 cannot remove the last group independently, stop and review an explicit
 cascade contract before implementing or landing. Do not change parent delete.
 
@@ -318,8 +330,8 @@ additional charges, regional components or credit holds, or that deleting a
 child earns a refund. Treat separate child billing and funding as unknown.
 A package catalog price, missing payment field, or flat account balance is
 not proof. Owner decision 4 records the exception: child creates ship with
-`--yes` consent and no quote, and the probe's balance records are published
-in help and wiki.
+`--yes` consent and no quote; balance records stay private, and help and
+wiki name only attributable child charges.
 
 Manager-only live plan under the [live-data rules][live]:
 
@@ -352,9 +364,9 @@ and wrong IDs, impossible state, bounded waits, ambiguous outcomes, no resend,
 redirect/capture/credential canaries, and preflight/confirmation 404 versus 403
 and parent loss. Test deletion order, survivors and no cascade; CLI help,
 flag/JSON precedence, read-only, `--yes`, query, partial output and exit codes.
-Run regression checks for shipped bare GLB and reads. Close the evidence
-and owner gates, obtain independent design review, then land SDK, CLI and
-updated generated wiki together after `make check` and adversarial review.
+Run regression checks for shipped bare GLB and reads. Land SDK, CLI and
+updated generated wiki together after the probe record, `make check` and
+adversarial review.
 
 [parent]: glb-create.md#owner-decisions
 [writes]: ../adr/0002-write-api-conventions.md
