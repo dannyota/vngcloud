@@ -85,7 +85,7 @@ type UpdateCheckOutput struct {
 // whose current Type or Subtype is not API/HTTP, since checkWriteBody only
 // carries an HTTP request and resending it would silently rewrite the
 // check's type.
-func (c *Client) UpdateCheck(ctx context.Context, in *UpdateCheckInput) (*UpdateCheckOutput, error) {
+func (c *Client) UpdateCheck(ctx context.Context, in *UpdateCheckInput) (out *UpdateCheckOutput, err error) {
 	const op = "monitor.UpdateCheck"
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
@@ -106,11 +106,34 @@ func (c *Client) UpdateCheck(ctx context.Context, in *UpdateCheckInput) (*Update
 		return nil, fmt.Errorf("%w: %s Locations, if set, requires at least one entry", core.ErrInvalidInput, op)
 	}
 
-	c.toggleMu.Lock()
-	defer c.toggleMu.Unlock()
+	var inputRequest CheckRequest
+	if in.URL != nil {
+		inputRequest.URL = *in.URL
+	}
+	if in.Headers != nil {
+		inputRequest.Headers = *in.Headers
+	}
+	if in.Query != nil {
+		inputRequest.Query = *in.Query
+	}
+	if in.Body != nil {
+		inputRequest.Body = *in.Body
+	}
+	ctx, privacy := monitorPrivateContext(ctx, checkRequestSecrets(inputRequest)...)
+	defer func() { err = redactChannelSecrets(err, privacy.values) }()
+
+	release, err := c.acquireCheck(ctx, in.CheckID)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 
 	current, err := c.readCheck(ctx, op, in.CheckID)
 	if err != nil {
+		return nil, err
+	}
+	privacy.add(checkRequestSecrets(current.Config.Request)...)
+	if err := privacy.check(op, http.StatusOK, *current); err != nil {
 		return nil, err
 	}
 	// A 200 that decodes to no usable check (an empty body, "null", or a
@@ -238,7 +261,13 @@ func (c *Client) UpdateCheck(ctx context.Context, in *UpdateCheckInput) (*Update
 		if err != nil {
 			return nil, err
 		}
-		return &UpdateCheckOutput{Check: *reread}, nil
+		check = *reread
+	}
+	if err := privacy.check(op, http.StatusOK, check); err != nil {
+		return nil, err
+	}
+	if check.ID != in.CheckID {
+		return nil, &core.APIError{Operation: op, StatusCode: http.StatusOK, Code: "InvalidResponse", Message: "check confirmation did not match the requested identity"}
 	}
 	return &UpdateCheckOutput{Check: check}, nil
 }

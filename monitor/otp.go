@@ -57,15 +57,9 @@ type SendChannelOTPOutput struct {
 	ExpiresAt time.Time
 }
 
-// SendChannelOTP messages Address with a one-time code, for every channel
-// type but Webhook, which needs none; Type outside that set, Webhook
-// included, is refused before any request. It is a POST that messages the
-// address, so it is never retried after a failure that may have already
-// reached the server: a retry could send a second message, and a caller
-// that wants one anyway calls SendChannelOTP again itself. A server error
-// message that echoes Address or a header value comes back with that value
-// replaced by "<redacted>".
-func (c *Client) SendChannelOTP(ctx context.Context, in *SendChannelOTPInput) (*SendChannelOTPOutput, error) {
+// SendChannelOTP messages Address with a code and returns its reference and expiry.
+// Webhook needs no OTP and is refused before any request.
+func (c *Client) SendChannelOTP(ctx context.Context, in *SendChannelOTPInput) (out *SendChannelOTPOutput, err error) {
 	const op = "monitor.SendChannelOTP"
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
@@ -75,6 +69,8 @@ func (c *Client) SendChannelOTP(ctx context.Context, in *SendChannelOTPInput) (*
 	}
 
 	headerField := encodeChannelHeaders(in.Headers)
+	ctx, privacy := monitorPrivateContext(ctx, channelSecrets(in.Address, in.Headers, headerField, "", "")...)
+	defer func() { err = redactChannelSecrets(err, privacy.values) }()
 	var resp struct {
 		Ref string `json:"ref"`
 		// ExpiredAt is epoch milliseconds; a float64 target decodes both a
@@ -92,10 +88,13 @@ func (c *Client) SendChannelOTP(ctx context.Context, in *SendChannelOTPInput) (*
 	}
 	status, err := c.c.DoJSONStatus(ctx, req, &resp)
 	if err != nil {
-		return nil, redactOTPError(err, in.Address, in.Headers, headerField, "", "", "")
+		return nil, err
 	}
 	if resp.Ref == "" {
 		return nil, &core.APIError{Operation: op, StatusCode: status, Message: "send otp response had no ref"}
+	}
+	if err := privacy.validate(op, status, resp.Ref, resp.Ref); err != nil {
+		return nil, err
 	}
 	return &SendChannelOTPOutput{Ref: resp.Ref, ExpiresAt: time.UnixMilli(int64(resp.ExpiredAt))}, nil
 }
@@ -117,7 +116,7 @@ type validateOTPBody struct {
 // or monitor.UpdateChannel) in every error this produces, including a
 // redacted one. It is a POST that may spend the OTP, so it is never retried
 // after a failure that may have already reached the server.
-func (c *Client) validateChannelOTP(ctx context.Context, op, address string, headers []ChannelHeader, headerField, ref, otp string) (string, error) {
+func (c *Client) validateChannelOTP(ctx context.Context, op, address, headerField, ref, otp string) (string, error) {
 	var resp struct {
 		Code *string `json:"code"`
 	}
@@ -129,7 +128,7 @@ func (c *Client) validateChannelOTP(ctx context.Context, op, address string, hea
 		OK:        []int{200},
 	}
 	if err := c.c.DoJSON(ctx, req, &resp); err != nil {
-		return "", redactOTPError(err, address, headers, headerField, otp, ref, "")
+		return "", err
 	}
 	if resp.Code == nil {
 		return "", nil

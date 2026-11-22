@@ -27,12 +27,8 @@ type Client struct {
 	quotaMu       quotaWriteLock
 	quotaAttempts map[string]*quotaAttempt
 
-	// toggleMu serializes PauseCheck, ResumeCheck, and UpdateCheck within
-	// one Client, so two goroutines sharing it never race a read-then-write
-	// sequence, toggle or update, against each other. It does not, and
-	// cannot, prevent the same race across two processes or two Clients;
-	// the design leaves that to the caller.
-	toggleMu sync.Mutex
+	checkMu    sync.Mutex
+	checkGates map[string]*checkGate
 
 	// sleep waits for d or ctx's end, whichever comes first, between confirm
 	// reads and poll reads. Tests replace it with a fake so the confirm

@@ -224,23 +224,19 @@ const logProjectDeleteResponseUnverifiedNote = "Unverified live: the delete and 
 	"and status have never been captured, so this command discards the response body and treats either 200 " +
 	"or 204 as success."
 
-// monitorCreateLogProjectNote documents create-log-project's price guard
-// default, its MaxPrice and no-price-quote and same-name guards, the class
-// read the quote and order now share, the Basic class's order quota,
-// unretried order, post-order wait bound, and --no-wait's own Output shape:
-// the order response is confirmed live to carry only amount, orderId, and
-// paymentUrl, none of LogProject's own fields, so --no-wait can only ever
-// return OrderID.
 const monitorCreateLogProjectNote = "Orders nothing above --max-price, default 0: a bare " +
 	"create-log-project --name <name> only orders a free class and retention option. --max-price NaN, " +
 	"Inf, or negative exits 2 (InvalidUsage) before any request. The quote and the order build from one " +
 	"class-list read and the same order body, so the order always prices what was just quoted; a quote " +
-	"with no price, or a project already named --name, also refuses the order with InvalidUsage. The " +
-	"order itself is never retried after a failure that may have already reached the server; list log " +
+	"with a missing, null, negative, or nonfinite price refuses the order. The name search must finish " +
+	"every page with consistent counts and identities within 1000 pages; incomplete evidence refuses " +
+	"the order, and an exact duplicate exits 2 (InvalidUsage). The order is sent once, including on " +
+	"redirects, 401, 429, and 5xx; list log " +
 	"projects by name before ordering again rather than repeating this command. The Basic class allows " +
 	"3 orders or recoveries a month; the next one gets 409 Conflict. Without --no-wait, waits up to 120 " +
 	"seconds for the new project to reach ACTIVE, then prints it; a timeout, or any other failure during " +
-	"that wait, is NotSettled, and the write must not be repeated. --no-wait returns at once with only " +
+	"that wait, is NotSettled, and the write must not be repeated. The deadline bounds reads and sleeps, " +
+	"and a late read cannot confirm success. --no-wait returns at once with only " +
 	"OrderID set, from the order response's own orderId: that response carries no project fields, so " +
 	"LogProject stays at its zero value."
 
@@ -450,8 +446,8 @@ var docOpNotes = map[string]string{
 	"monitor list-channels":                   monitorChannelRedactionNote,
 	"monitor get-channel":                     monitorChannelRedactionNote,
 	"monitor send-channel-otp":                monitorSendChannelOTPNote,
-	"monitor create-channel":                  monitorCreateChannelAddressNote + "\n\n" + monitorChannelOTPFlowNote,
-	"monitor update-channel":                  monitorUpdateChannelAddressNote + "\n\n" + monitorChannelOTPFlowNote,
+	"monitor create-channel":                  monitorCreateChannelAddressNote + "\n\n" + monitorChannelOTPFlowNote + "\n\n" + monitorWritePrivacyNote,
+	"monitor update-channel":                  monitorUpdateChannelAddressNote + "\n\n" + monitorChannelOTPFlowNote + "\n\n" + monitorWritePrivacyNote,
 	"monitor quote-create-log-project":        monitorQuoteCreateLogProjectIgnoredFieldsNote + " " + vatInclusivePriceNote,
 	"monitor create-log-project":              monitorCreateLogProjectNote,
 	"monitor delete-log-project":              monitorDeleteLogProjectNote,
@@ -460,8 +456,10 @@ var docOpNotes = map[string]string{
 	"monitor create-log-alarm":                monitorCreateLogAlarmNote,
 	"monitor update-log-alarm":                monitorUpdateLogAlarmNote,
 	"monitor delete-log-alarm":                monitorDeleteLogAlarmNote,
-	"monitor create-check":                    monitorCheckNotificationsNote,
-	"monitor update-check":                    monitorCheckNotificationsNote,
+	"monitor create-check":                    monitorCheckNotificationsNote + "\n\n" + monitorWritePrivacyNote,
+	"monitor update-check":                    monitorCheckNotificationsNote + "\n\n" + monitorWritePrivacyNote + "\n\n" + monitorCheckGateNote,
+	"monitor pause-check":                     monitorCheckGateNote,
+	"monitor resume-check":                    monitorCheckGateNote,
 	"portal get-user-info":                    portalUserInfoNote,
 	"portal list-zones":                       portalListZonesNote,
 	"portal list-quota-used":                  portalMapRedactionNote,

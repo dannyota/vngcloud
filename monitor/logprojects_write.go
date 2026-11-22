@@ -64,51 +64,9 @@ func (r *logProjectOrderResponse) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// CreateLogProject orders a log project. Before any request, it rejects a
-// NaN, +Inf, -Inf, or negative Input.MaxPrice with core.ErrInvalidInput:
-// the price guard below (quote.OptimumPrice > in.MaxPrice) cannot compare
-// any of those safely (a NaN MaxPrice compares false to every quote, which
-// would disable the guard entirely), and a bad guard on a paid create must
-// fail closed rather than order anyway. It then lists projects by
-// Input.Name and refuses, also with core.ErrInvalidInput and before any
-// pricing or order request, when one already exists with that exact name:
-// the post-order wait below settles on the first project it finds by name,
-// so ordering a duplicate risks settling on the existing project instead of
-// the one this call is about to order.
-//
-// CreateLogProject reads the class list once and builds one order body
-// from Input with buildLogProjectOrderBody (ADR 0002 rule 8). That same
-// body is sent first to the quote endpoint, then, unless it prices above
-// Input.MaxPrice, to the order endpoint, so the quote and the order always
-// price and create the identical resource; QuoteCreateLogProject, called
-// separately, keeps its own independent behavior and rereads the class
-// list itself. CreateLogProject refuses with ErrPriceAboveMax, ordering
-// nothing, when the quote's OptimumPrice exceeds Input.MaxPrice (default
-// 0): CreateLogProjectInput{Name: "app"} therefore only ever orders a
-// project whose class and retention price at 0 VND. A quote response
-// missing optimumPrice, or sending it null, refuses with a *core.APIError
-// instead of pricing the order at a silent 0 (see QuoteCreateLogProject's
-// own doc comment).
-//
-// The order is a POST and is never retried after a failure that may have
-// already reached the server: after any error that is not a 4xx
-// *core.APIError or core.ErrInvalidInput, the project may have been
-// ordered, and the caller lists projects by Name before ordering again.
-//
-// The order response is confirmed live to carry only amount, orderId, and
-// paymentUrl: it names no project id, name, or status (see LogProject's
-// doc comment). A live free order returned orderId empty or null, so
-// Output.OrderID is not guaranteed non-empty either way. Without NoWait,
-// CreateLogProject therefore waits up to 120 seconds for a project named
-// Input.Name to appear, by ListLogProjects, at LogProjectStatusActive,
-// looking it up by the name the order itself just sent rather than by
-// anything the order response might carry. If the bound runs out, or a
-// read or a sleep in that wait fails, such as from a canceled ctx, the
-// returned error wraps dns.ErrNotSettled, reusing vDNS's own sentinel per
-// the design: the write must not be repeated. NoWait skips that wait and
-// returns at once, with Output.LogProject at its zero value and only
-// Output.OrderID set, from the order response's own orderId; it does not
-// skip the pre-order duplicate-name check above, which runs either way.
+// CreateLogProject checks name availability and the create quote, then orders once.
+// Unless NoWait is set, it waits for ACTIVE under a 120-second child deadline.
+// After an uncertain result, reconcile with reads before deciding on another order.
 func (c *Client) CreateLogProject(ctx context.Context, in *CreateLogProjectInput) (*CreateLogProjectOutput, error) {
 	const op = "monitor.CreateLogProject"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -145,6 +103,7 @@ func (c *Client) CreateLogProject(ctx context.Context, in *CreateLogProjectInput
 		URL:       c.logBillingRoute([]string{"log", "quotas"}),
 		Body:      body,
 		OK:        []int{200, 201},
+		Once:      true,
 	}
 	if err := c.c.DoJSON(ctx, req, &resp); err != nil {
 		return nil, wrapAmbiguousLogProjectOrderErr(op, err)
@@ -210,23 +169,12 @@ func (c *Client) refuseIfLogProjectNameExists(ctx context.Context, op, name stri
 	return nil
 }
 
-// findLogProjectByName returns the log project named exactly name from one
-// ListLogProjects read, or nil if none matches. It lists at
-// logProjectDefaultPageSize and scans every returned item for an exact
-// ProjectName match, rather than trusting the list's own query filter to
-// return only exact matches: that filter's matching behavior (exact vs.
-// substring) is unconfirmed.
 func (c *Client) findLogProjectByName(ctx context.Context, op, name string) (*LogProject, error) {
-	out, err := c.listLogProjects(ctx, op, &ListLogProjectsInput{Query: name, Size: logProjectDefaultPageSize})
-	if err != nil {
-		return nil, err
-	}
-	for i := range out.Items {
-		if out.Items[i].ProjectName == name {
-			return &out.Items[i], nil
-		}
-	}
-	return nil, nil
+	return findMonitorName(ctx, op, name, 0,
+		func(p LogProject) (string, string) { return p.ID, p.ProjectName },
+		func(page int) (*ListLogProjectsOutput, error) {
+			return c.listLogProjects(ctx, op, &ListLogProjectsInput{Query: name, Page: page, Size: logProjectDefaultPageSize})
+		})
 }
 
 // waitLogProjectActive is CreateLogProject's post-order wait unless NoWait

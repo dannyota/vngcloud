@@ -124,7 +124,7 @@ type CreateCheckOutput struct {
 // a 5xx, a network error, a 201 with no id, and a body the SDK could not
 // decode. The caller lists checks and looks for its name before trying
 // again.
-func (c *Client) CreateCheck(ctx context.Context, in *CreateCheckInput) (*CreateCheckOutput, error) {
+func (c *Client) CreateCheck(ctx context.Context, in *CreateCheckInput) (out *CreateCheckOutput, err error) {
 	const op = "monitor.CreateCheck"
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
@@ -194,6 +194,8 @@ func (c *Client) CreateCheck(ctx context.Context, in *CreateCheckInput) (*Create
 	}
 
 	var check Check
+	ctx, privacy := monitorPrivateContext(ctx, checkRequestSecrets(body.Config.Request)...)
+	defer func() { err = redactChannelSecrets(err, privacy.values) }()
 	req := transport.Request{
 		Operation: op,
 		Method:    http.MethodPost,
@@ -203,6 +205,9 @@ func (c *Client) CreateCheck(ctx context.Context, in *CreateCheckInput) (*Create
 	}
 	status, err := c.c.DoJSONStatus(ctx, req, &check)
 	if err != nil {
+		return nil, err
+	}
+	if err := privacy.check(op, status, check); err != nil {
 		return nil, err
 	}
 	if check.ID == "" {

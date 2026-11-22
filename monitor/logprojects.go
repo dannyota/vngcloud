@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -88,10 +89,10 @@ type ListLogProjectsOutput = core.PagedList[LogProject]
 
 type listLogProjectsResponse struct {
 	Content       []LogProject `json:"content"`
-	CurrentPage   int          `json:"currentPage"`
-	PageSize      int          `json:"pageSize"`
-	TotalElements int          `json:"totalElements"`
-	TotalPages    int          `json:"totalPages"`
+	CurrentPage   *int         `json:"currentPage"`
+	PageSize      *int         `json:"pageSize"`
+	TotalElements *int         `json:"totalElements"`
+	TotalPages    *int         `json:"totalPages"`
 }
 
 // ListLogProjects lists log projects on the account. A nil Input is valid
@@ -126,15 +127,19 @@ func (c *Client) listLogProjects(ctx context.Context, op string, in *ListLogProj
 
 	var resp listLogProjectsResponse
 	req := transport.Request{
-		Operation: op,
-		Method:    http.MethodGet,
-		URL:       c.logRoute([]string{"projects"}, q),
-		OK:        []int{200},
+		Operation:  op,
+		Method:     http.MethodGet,
+		URL:        c.logRoute([]string{"projects"}, q),
+		OK:         []int{200},
+		StrictJSON: true,
 	}
 	if err := c.c.DoJSON(ctx, req, &resp); err != nil {
 		return nil, err
 	}
-	return core.NewPagedList(resp.Content, resp.CurrentPage, resp.PageSize, resp.TotalPages, resp.TotalElements), nil
+	if resp.Content == nil || resp.CurrentPage == nil || resp.PageSize == nil || resp.TotalPages == nil || resp.TotalElements == nil {
+		return nil, nameSearchError(op)
+	}
+	return core.NewPagedList(resp.Content, *resp.CurrentPage, *resp.PageSize, *resp.TotalPages, *resp.TotalElements), nil
 }
 
 // logProjectDefaultPageSize is the size ListLogProjects sends when Size is
@@ -547,6 +552,9 @@ func (c *Client) sendLogProjectQuote(ctx context.Context, op string, body logPro
 	}
 	if resp.OptimumPrice == nil {
 		return nil, &core.APIError{Operation: op, StatusCode: status, Message: "quote response had no price"}
+	}
+	if math.IsNaN(*resp.OptimumPrice) || math.IsInf(*resp.OptimumPrice, 0) || *resp.OptimumPrice < 0 {
+		return nil, &core.APIError{Operation: op, StatusCode: status, Code: "InvalidResponse", Message: "quote response had an invalid create price"}
 	}
 
 	properties := make([]LogProjectPriceProperty, len(resp.PropertiesPrice))

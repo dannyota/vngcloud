@@ -86,9 +86,13 @@ account-internal fields the API also sends.
 A check's request headers and body may hold a credential for the monitored
 service, such as a bearer token in a header. The SDK returns them exactly
 as the API does, and `GetCheck` and `ListChecks` return them in full; they
-never appear in log output (`vngcloud.WithLogger` never logs a body) or in
-an error message. Avoid putting a long-lived secret in a check header if
-you can help it, since anyone who can read the check can read it back.
+never appear in log output (`vngcloud.WithLogger` never logs a body).
+Create and update retain known request secrets and every sent token through
+dependent reads. They suppress response captures, sanitize error codes,
+messages, and causes, and reject credential reflections outside request
+fields. Keep headers, query values, and bodies distinct from ordinary check
+fields: ambiguous overlaps fail closed. Avoid long-lived check credentials,
+since anyone who can read the check can read them back.
 
 ## Listing locations
 
@@ -176,11 +180,10 @@ stays `PauseCheck` and `ResumeCheck`'s job alone, and `UpdateCheck` accepts a
 check in any status, including `DISABLED`, without touching it. Its `PUT` is
 idempotent, since resending the same full replacement body is safe, so
 `UpdateCheck` keeps the transport's normal retries, unlike `CreateCheck`'s
-`POST`. `UpdateCheck` holds the same internal lock `PauseCheck` and
-`ResumeCheck` do, so the three never interleave their own read-then-write
-sequences against one `Client` within one process; across processes, or
-across two `Client` values, whichever of two concurrent updates lands last
-silently overwrites the other's change, since the API has no version field.
+`POST`. Pause, resume, and update share a context-aware gate per check ID
+within one `Client`. A canceled waiter sends nothing; unrelated IDs can
+progress independently. Across processes or separate clients, the last
+update still wins because the API has no version field.
 
 The `PUT` always sends `verified_ssl: true`, the same as `CreateCheck`,
 regardless of the check's current value: updating a check made in the
@@ -200,6 +203,8 @@ that does not decode to the requested check's own ID): merging into that
 would send a full-replace `PUT` that clears the check instead of updating
 it. It refuses the same way when the check's current `Type` or `Subtype`
 is not `API`/`HTTP`, since `Check`'s model only carries an HTTP request.
+Its response or confirmation read must also match the requested check ID.
+After a failed confirmation, read the check before deciding on another write.
 
 ## Pausing and resuming
 
@@ -292,8 +297,8 @@ Two callers that read the same status at the same moment and both toggle
 leave the check where it started; each one's confirm reads then fail to
 find their target, so each gets `ErrStatusUnconfirmed`. The API offers no
 conditional request to prevent this. Within one process, a `monitor.Client`
-runs its pause and resume calls one at a time, so this can only happen
-across two processes or two `Client` values.
+serializes pause, resume, and update for the same check ID, so this race
+requires separate clients or processes. Waiting for that gate honors `ctx`.
 
 ## Endpoint
 

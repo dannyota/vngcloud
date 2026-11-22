@@ -147,7 +147,7 @@ func TestCreateChannelAcceptsOTPTypes(t *testing.T) {
 				case "/notification-gateway/api/v1/notification":
 					createBody = decodeBody(t, r)
 					w.WriteHeader(http.StatusOK)
-					_, _ = w.Write([]byte(`{"id":"0123456789abcdef0123456789abcdef","name":"n","address":"a","createdDate":"2026-09-26T00:00:00"}`))
+					_, _ = w.Write([]byte(`{"id":"0123456789abcdef0123456789abcdef","name":"n","address":"synthetic@example.com","createdDate":"2026-09-26T00:00:00"}`))
 				default:
 					t.Fatalf("unexpected path %s", r.URL.Path)
 				}
@@ -156,7 +156,7 @@ func TestCreateChannelAcceptsOTPTypes(t *testing.T) {
 			_, err := client.CreateChannel(context.Background(), &CreateChannelInput{
 				Name:    "vngcloud-live-x",
 				Type:    typ,
-				Address: "a",
+				Address: "synthetic@example.com",
 				OTPRef:  "ref-1",
 				OTP:     "111111",
 			})
@@ -488,10 +488,6 @@ func TestCreateChannelNotRetriedAfter502(t *testing.T) {
 	}
 }
 
-// TestCreateChannelRedactsAddressAndHeaderInError checks a server error
-// message that echoes the sent Address or a header value comes back with
-// those values replaced by "<redacted>", so a caller that logs the error
-// never leaks either.
 func TestCreateChannelRedactsAddressAndHeaderInError(t *testing.T) {
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
@@ -508,7 +504,7 @@ func TestCreateChannelRedactsAddressAndHeaderInError(t *testing.T) {
 	if !errors.As(err, &apiErr) {
 		t.Fatalf("expected *core.APIError, got %v", err)
 	}
-	if got := apiErr.Message; got != "address <redacted> already used with header value <redacted>" {
+	if got := apiErr.Message; got != "address [redacted] already used with header value [redacted]" {
 		t.Fatalf("Message = %q", got)
 	}
 	// The full error string, which a caller may log directly, must not
@@ -519,10 +515,6 @@ func TestCreateChannelRedactsAddressAndHeaderInError(t *testing.T) {
 	}
 }
 
-// TestCreateChannelRedactsJSONEscapedHeaderValue checks a header value
-// containing a character JSON escapes, such as "&", is also redacted when
-// the server echoes back the escaped form (as it would if it echoed the
-// JSON request body) rather than the raw value.
 func TestCreateChannelRedactsJSONEscapedHeaderValue(t *testing.T) {
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
@@ -539,16 +531,11 @@ func TestCreateChannelRedactsJSONEscapedHeaderValue(t *testing.T) {
 	if !errors.As(err, &apiErr) {
 		t.Fatalf("expected *core.APIError, got %v", err)
 	}
-	if got := apiErr.Message; got != "rejected header value <redacted>" {
+	if got := apiErr.Message; got != "rejected header value [redacted]" {
 		t.Fatalf("Message = %q", got)
 	}
 }
 
-// TestCreateChannelWithholdsMessageForShortHeaderValue checks a header value
-// shorter than the redaction's replace-in-place threshold is never cut out
-// of the message with a plain ReplaceAll, since that risks also cutting
-// unrelated text sharing the same short substring; instead the whole
-// message is withheld when that value would otherwise appear in it.
 func TestCreateChannelWithholdsMessageForShortHeaderValue(t *testing.T) {
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
@@ -565,7 +552,7 @@ func TestCreateChannelWithholdsMessageForShortHeaderValue(t *testing.T) {
 	if !errors.As(err, &apiErr) {
 		t.Fatalf("expected *core.APIError, got %v", err)
 	}
-	if got := apiErr.Message; got != "server message withheld" {
+	if got := apiErr.Message; got != "[redacted]" {
 		t.Fatalf("Message = %q, want the whole message withheld", got)
 	}
 	full := err.Error()
@@ -1001,11 +988,6 @@ func TestUpdateChannelPropagatesNotFound(t *testing.T) {
 	}
 }
 
-// TestUpdateChannelRedactsAddressAndHeaderInError checks a server error
-// message that echoes the resent Address or a header value comes back
-// redacted, using the merged values UpdateChannel actually sent (not just
-// the ones the caller passed), since an unset field resends the channel's
-// current one and that can also be echoed back.
 func TestUpdateChannelRedactsAddressAndHeaderInError(t *testing.T) {
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -1030,7 +1012,7 @@ func TestUpdateChannelRedactsAddressAndHeaderInError(t *testing.T) {
 	if !errors.As(err, &apiErr) {
 		t.Fatalf("expected *core.APIError, got %v", err)
 	}
-	if got := apiErr.Message; got != "rejected <redacted> with header <redacted>" {
+	if got := apiErr.Message; got != "rejected [redacted] with header [redacted]" {
 		t.Fatalf("Message = %q", got)
 	}
 }

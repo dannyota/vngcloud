@@ -80,13 +80,17 @@ func (c *Client) listAlarms(ctx context.Context, op string, in *ListAlarmsInput)
 
 	var resp listAlarmsResponse
 	req := transport.Request{
-		Operation: op,
-		Method:    http.MethodGet,
-		URL:       c.alarmRoute([]string{"alarms", "list"}, q),
-		OK:        []int{200},
+		Operation:  op,
+		Method:     http.MethodGet,
+		URL:        c.alarmRoute([]string{"alarms", "list"}, q),
+		OK:         []int{200},
+		StrictJSON: true,
 	}
 	if err := c.c.DoJSON(ctx, req, &resp); err != nil {
 		return nil, err
+	}
+	if resp.LstData == nil || resp.Page == nil || resp.PageSize == nil || resp.TotalPage == nil || resp.TotalItem == nil {
+		return nil, nameSearchError(op)
 	}
 	items := resp.LstData
 	for i := range items {
@@ -103,15 +107,15 @@ func (c *Client) listAlarms(ctx context.Context, op string, in *ListAlarmsInput)
 			items[i].Log = nil
 		}
 	}
-	return core.NewPagedList(items, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
+	return core.NewPagedList(items, *resp.Page, *resp.PageSize, *resp.TotalPage, *resp.TotalItem), nil
 }
 
 type listAlarmsResponse struct {
 	LstData   []Alarm `json:"lstData"`
-	Page      int     `json:"page"`
-	PageSize  int     `json:"pageSize"`
-	TotalPage int     `json:"totalPage"`
-	TotalItem int     `json:"totalItem"`
+	Page      *int    `json:"page"`
+	PageSize  *int    `json:"pageSize"`
+	TotalPage *int    `json:"totalPage"`
+	TotalItem *int    `json:"totalItem"`
 }
 
 // GetAlarmInput identifies the alarm to read.

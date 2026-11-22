@@ -22,6 +22,11 @@
   `--allow-partial` retains surviving results with an error and exit 1;
   deliberate unknown prices can complete successfully.
 
+- Harden Monitor order replay, create-price guards, credential withholding,
+  complete name searches, check concurrency, and wait deadlines. Unsafe
+  responses now fail; error redaction uses `[redacted]`. SDK fields and CLI
+  flags stay compatible.
+
 ## v0.95.0 - Floating IP on server create
 
 - `compute create-server --attach-floating-ip` (SDK `CreateServerInput.AttachFloatingIP`)

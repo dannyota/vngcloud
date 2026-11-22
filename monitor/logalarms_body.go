@@ -377,35 +377,12 @@ func resolveLogAlarmResend(r *LogAlarmResend) LogAlarmResend {
 	return *r
 }
 
-// maxLogAlarmListPages bounds findLogAlarmByName's page walk, the same way
-// maxGetChannelPages bounds GetChannel's: a server that never returns an
-// empty page and never reports a TotalItem the walk can reach would
-// otherwise turn a single call into an infinite loop.
-const maxLogAlarmListPages = 1000
-
-// findLogAlarmByName returns the log alarm named exactly name, scanning
-// every page of a Name-filtered ListAlarms read for an exact match, rather
-// than trusting that filter to return only exact matches: its matching
-// behavior (exact vs. substring) is unconfirmed, the same assumption
-// findLogProjectByName makes for log projects.
 func (c *Client) findLogAlarmByName(ctx context.Context, op, name string) (*Alarm, error) {
-	seen := 0
-	for page := core.DefaultPage; page <= maxLogAlarmListPages; page++ {
-		list, err := c.listAlarms(ctx, op, &ListAlarmsInput{Kind: AlarmKindLog, Name: name, Page: page, Size: core.DefaultPageSize})
-		if err != nil {
-			return nil, err
-		}
-		for i := range list.Items {
-			if list.Items[i].Name == name {
-				return &list.Items[i], nil
-			}
-		}
-		seen += len(list.Items)
-		if len(list.Items) == 0 || seen >= list.TotalItem {
-			break
-		}
-	}
-	return nil, nil
+	return findMonitorName(ctx, op, name, core.DefaultPage,
+		func(a Alarm) (string, string) { return a.ID, a.Name },
+		func(page int) (*ListAlarmsOutput, error) {
+			return c.listAlarms(ctx, op, &ListAlarmsInput{Kind: AlarmKindLog, Name: name, Page: page, Size: core.DefaultPageSize})
+		})
 }
 
 // refuseIfLogAlarmNameExists refuses to create a log alarm named name when

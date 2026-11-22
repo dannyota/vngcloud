@@ -79,14 +79,17 @@ with `core.CheckPathID` before any request, since a comma in one would
 otherwise land inside the joined wire string as an extra, unintended
 channel ID.
 
-Before any request, `CreateLogAlarm` lists log alarms by `Name` and
+Before sending the create, `CreateLogAlarm` lists log alarms by `Name` and
 refuses with `vngcloud.ErrInvalidInput`, creating nothing, when one already
 has that exact name: the wait below can only settle by name when the
 create response carries no id, so a duplicate name risks settling on the
 existing alarm instead of the one this call creates. It then reads the log
 project with `GetLogProject` for its `Name`, which becomes the body's
 `projectName`; a 404 there returns `vngcloud.IsNotFound(err) == true` and
-creates nothing.
+creates nothing. Name searches require complete, consistent pages within
+1000 pages. Missing/null lists, duplicate keys or IDs, repeated pages,
+changing totals, and exhausted budgets refuse the create. The server's
+exact name-filter behavior remains unverified.
 
 The create is a `POST` and, like `CreateLogProject`'s order, is never
 retried after a failure that may have already reached the server: after
@@ -96,7 +99,8 @@ the returned error says to list log alarms by `Name` before creating again.
 Unless `NoWait` is set, `CreateLogAlarm` waits up to 120 seconds for the
 alarm's `Status` to read `ACTIVE`, which takes about 30 seconds (the empty
 status right after create and `CREATING` keep it polling; `ERROR` or
-`FAILED` returns an error wrapping `dns.ErrFailed`): by `AlarmID` when the create response carried one,
+`FAILED` returns an error wrapping `dns.ErrFailed`): by `AlarmID` when the
+create response carried one,
 else by listing log alarms for an exact `Name` match, the same way
 `CreateLogProject`'s own wait works before an id is known. The wait
 running out, or a read inside it failing, returns an error wrapping
@@ -105,7 +109,8 @@ Alerts](Monitor-Alerts.md#ordering-deleting-and-purging-a-log-project)
 covers for log projects: the write was accepted and must not be sent
 again. `NoWait` returns at once instead: `Output.AlarmID` is empty only
 when the create response itself carried no id, and `Output.Alarm` stays
-at its zero value.
+at its zero value. The earlier caller or operation deadline bounds polling
+requests and sleeps. A late read cannot turn an expired wait into success.
 
 ## Updating a log alarm
 

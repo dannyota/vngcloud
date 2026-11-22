@@ -10,6 +10,8 @@ Refuses a literal --address, or an inline --cli-input-json value that sets Addre
 
 Email, Slack, SMS, and Telegram need an OTP to create or to change Address: run send-channel-otp first, then pass its Ref as --otp-ref and the code read from the address as --otp. A wrong or expired OTP exits with error code OTPRejected and sends no create or update; the validate step, like the create or update itself, is never retried after an ambiguous failure. Webhook needs neither flag.
 
+Suppresses response captures during channel and check writes, including prerequisite and confirmation reads. Known credentials are withheld from error codes, messages, and retained causes. Reflections outside documented secret fields make a response invalid. After a write whose response was withheld, confirm the result with reads before deciding on another write.
+
 | Flag | Type | Required |
 |-|-|-|
 | `--name` | `string` | yes |
@@ -28,6 +30,8 @@ vngcloud monitor create-channel --name <name> --type Webhook --cli-input-json fi
 Kind: Write.
 
 Notifications' three lists, In-alarm, Up, and Undetermined, name by ID which channels a check alerts on each alarm transition; setting Notifications through --cli-input-json replaces all three at once, so a partial value, such as only In-alarm, clears the other two. Each key is the API's own wire spelling, not the Go field name (In-alarm, never InAlarm); an unrecognized key is refused with exit code 2 before any request.
+
+Suppresses response captures during channel and check writes, including prerequisite and confirmation reads. Known credentials are withheld from error codes, messages, and retained causes. Reflections outside documented secret fields make a response invalid. After a write whose response was withheld, confirm the result with reads before deciding on another write.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -53,7 +57,7 @@ vngcloud monitor create-check --name <name> --url <url> --cli-input-json '{"Loca
 
 Kind: Write.
 
-Unverified live: the create response's own shape has never been captured, since the console ignores it; the create trusts an id at data.id or a top-level id, printed as AlarmID, or otherwise finds the alarm by its exact --name once it settles. Refuses a NaN or infinite --threshold-value, with InvalidUsage, before any request. It then refuses a --name a log alarm already has, with InvalidUsage, creating nothing. --query-string and an inline or file Filter (set only through --cli-input-json) must both be given or both left out; leaving both out sends a match-all query. The create POST is never retried after a failure that may have already reached the server: list-alarms by --name before creating again, rather than repeating this command. Without --no-wait, waits up to 120 seconds, polling every 2 seconds, until the alarm reads ACTIVE; ERROR or FAILED is WriteFailed. A timeout, or any other failure during that wait, is NotSettled, and the write must not be repeated. --no-wait returns at once with only AlarmID set.
+Unverified live: the create response's own shape has never been captured, since the console ignores it; the create trusts an id at data.id or a top-level id, printed as AlarmID, or otherwise finds the alarm by its exact --name once it settles. Refuses a NaN or infinite --threshold-value, with InvalidUsage, before any request. It then refuses a --name a log alarm already has, with InvalidUsage, creating nothing. Name searches must complete every page with consistent counts and identities within 1000 pages; missing, repeated, or incomplete evidence refuses the create. --query-string and an inline or file Filter (set only through --cli-input-json) must both be given or both left out; leaving both out sends a match-all query. The create POST is never retried after a failure that may have already reached the server: list-alarms by --name before creating again, rather than repeating this command. Without --no-wait, waits up to 120 seconds, polling every 2 seconds, until the alarm reads ACTIVE; ERROR or FAILED is WriteFailed. A timeout, or any other failure during that wait, is NotSettled, and the write must not be repeated. The deadline bounds reads and sleeps, and a late read cannot confirm success. --no-wait returns at once with only AlarmID set.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -83,7 +87,7 @@ vngcloud monitor create-log-alarm --name <name> --log-project-id <log-project-id
 
 Kind: Write.
 
-Orders nothing above --max-price, default 0: a bare create-log-project --name <name> only orders a free class and retention option. --max-price NaN, Inf, or negative exits 2 (InvalidUsage) before any request. The quote and the order build from one class-list read and the same order body, so the order always prices what was just quoted; a quote with no price, or a project already named --name, also refuses the order with InvalidUsage. The order itself is never retried after a failure that may have already reached the server; list log projects by name before ordering again rather than repeating this command. The Basic class allows 3 orders or recoveries a month; the next one gets 409 Conflict. Without --no-wait, waits up to 120 seconds for the new project to reach ACTIVE, then prints it; a timeout, or any other failure during that wait, is NotSettled, and the write must not be repeated. --no-wait returns at once with only OrderID set, from the order response's own orderId: that response carries no project fields, so LogProject stays at its zero value.
+Orders nothing above --max-price, default 0: a bare create-log-project --name <name> only orders a free class and retention option. --max-price NaN, Inf, or negative exits 2 (InvalidUsage) before any request. The quote and the order build from one class-list read and the same order body, so the order always prices what was just quoted; a quote with a missing, null, negative, or nonfinite price refuses the order. The name search must finish every page with consistent counts and identities within 1000 pages; incomplete evidence refuses the order, and an exact duplicate exits 2 (InvalidUsage). The order is sent once, including on redirects, 401, 429, and 5xx; list log projects by name before ordering again rather than repeating this command. The Basic class allows 3 orders or recoveries a month; the next one gets 409 Conflict. Without --no-wait, waits up to 120 seconds for the new project to reach ACTIVE, then prints it; a timeout, or any other failure during that wait, is NotSettled, and the write must not be repeated. The deadline bounds reads and sleeps, and a late read cannot confirm success. --no-wait returns at once with only OrderID set, from the order response's own orderId: that response carries no project fields, so LogProject stays at its zero value.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -507,6 +511,8 @@ vngcloud monitor list-synthetic-packages
 
 Kind: Write.
 
+Within one SDK client, pause, resume, and update serialize calls for the same check ID. Canceled waiters send nothing; unrelated check IDs can progress independently.
+
 | Flag | Type | Required |
 |-|-|-|
 | `--check-id` | `string` | yes |
@@ -638,6 +644,8 @@ vngcloud monitor get-synthetic-quota
 
 Kind: Write.
 
+Within one SDK client, pause, resume, and update serialize calls for the same check ID. Canceled waiters send nothing; unrelated check IDs can progress independently.
+
 | Flag | Type | Required |
 |-|-|-|
 | `--check-id` | `string` | yes |
@@ -650,7 +658,7 @@ vngcloud monitor resume-check --check-id <check-id>
 
 Kind: Write.
 
-Refuses Type Webhook before any request; Webhook needs no OTP. Refuses a literal --address, or an inline --cli-input-json value that sets Address, for Type Slack, since a Slack address is a webhook URL that can carry a secret; refuses an inline --cli-input-json value that sets Headers for every Type. Prints Ref and ExpiresAt: give Ref to create-channel or update-channel as --otp-ref, with the code read from the address as --otp, before the OTP expires. Never retried after an ambiguous failure, since a retry could message the address a second time. Email and SMS allowances depend on the account and package; an available zero-price package advertises 20 messages but does not grant them automatically. OTP quota accounting is unverified. See Monitor Quotas.
+Refuses Type Webhook before any request; Webhook needs no OTP. Refuses a literal --address, or an inline --cli-input-json value that sets Address, for Type Slack, since a Slack address is a webhook URL that can carry a secret; refuses an inline --cli-input-json value that sets Headers for every Type. Prints Ref and ExpiresAt: give Ref to create-channel or update-channel as --otp-ref, with the code read from the address as --otp, before the OTP expires. Never retried after an ambiguous failure, since a retry could message the address a second time. Email and SMS allowances depend on the account and package; an available zero-price package advertises 20 messages but does not grant them automatically. OTP quota accounting is unverified. See Monitor Quotas. Suppresses response captures during channel and check writes, including prerequisite and confirmation reads. Known credentials are withheld from error codes, messages, and retained causes. Reflections outside documented secret fields make a response invalid. After a write whose response was withheld, confirm the result with reads before deciding on another write.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -703,6 +711,8 @@ Refuses every literal --address, or an inline --cli-input-json value that sets A
 
 Email, Slack, SMS, and Telegram need an OTP to create or to change Address: run send-channel-otp first, then pass its Ref as --otp-ref and the code read from the address as --otp. A wrong or expired OTP exits with error code OTPRejected and sends no create or update; the validate step, like the create or update itself, is never retried after an ambiguous failure. Webhook needs neither flag.
 
+Suppresses response captures during channel and check writes, including prerequisite and confirmation reads. Known credentials are withheld from error codes, messages, and retained causes. Reflections outside documented secret fields make a response invalid. After a write whose response was withheld, confirm the result with reads before deciding on another write.
+
 | Flag | Type | Required |
 |-|-|-|
 | `--channel-id` | `string` | yes |
@@ -721,6 +731,10 @@ vngcloud monitor update-channel --channel-id <channel-id> --cli-input-json file:
 Kind: Write.
 
 Notifications' three lists, In-alarm, Up, and Undetermined, name by ID which channels a check alerts on each alarm transition; setting Notifications through --cli-input-json replaces all three at once, so a partial value, such as only In-alarm, clears the other two. Each key is the API's own wire spelling, not the Go field name (In-alarm, never InAlarm); an unrecognized key is refused with exit code 2 before any request.
+
+Suppresses response captures during channel and check writes, including prerequisite and confirmation reads. Known credentials are withheld from error codes, messages, and retained causes. Reflections outside documented secret fields make a response invalid. After a write whose response was withheld, confirm the result with reads before deciding on another write.
+
+Within one SDK client, pause, resume, and update serialize calls for the same check ID. Canceled waiters send nothing; unrelated check IDs can progress independently.
 
 | Flag | Type | Required |
 |-|-|-|

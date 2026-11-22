@@ -103,8 +103,8 @@ return `monitor.ErrOTPRejected` and send no create or update. Leaving
 needs and every other type is refused for.
 
 `Address`, `OTPRef`, and the OTP itself are secrets, the same as a header
-value: none ever appears in an error message, and a server message that
-echoes one back comes back with `<redacted>` in its place instead.
+value: error codes, messages, and retained causes withhold them. Redaction
+uses `[redacted]` and can withhold the entire field when needed.
 Email and SMS allowances depend on the account and package. The observed
 Basic synthetic quota grants zero Email and SMS messages. An available
 zero-price notification package advertises 20 messages, but listing it
@@ -197,15 +197,12 @@ number, or webhook URL the channel notifies, and `Channel.Headers` is the
 key/value pairs a `Webhook` channel sends with every notification; both can
 hold a secret, such as a token in a header value. The SDK returns them
 exactly as the API does, so a caller that will recreate or update a channel
-can read them back; they never appear in log output (`vngcloud.WithLogger`
-never logs a body). `CreateChannel` and `UpdateChannel` also strip both out
-of a server error message before building the `*vngcloud.APIError`, in
-either its raw form or the form the request's own JSON encoding produced
-(a header value's literal `&` sent as `\u0026`, say): if GreenNode's own
-response happens to echo the sent address or a header value back, that
-call's error carries `<redacted>` in its place instead, unless the value is
-too short to cut out safely, in which case the whole message is withheld
-rather than returned with unrelated text also cut out around it. The
+can read them back; debug logging never logs a body. Channel writes and OTP
+calls suppress response captures and retain request secrets, issued codes,
+and sent tokens through dependent reads. Errors sanitize codes, messages,
+and causes. Credentials reflected outside their documented secret fields
+invalidate the response; sent IAM tokens are never valid returned data.
+After a withheld write response, confirm with reads before another write. The
 [CLI](CLI-Monitor.md) shows `Address` in full only for `Email`, `SMS`, and
 `Telegram`, whose address is personal data rather than a secret; every
 other type, known or not, has its `Address` redacted, keeping only the
@@ -288,7 +285,8 @@ list fresh on every call, since the class list and its prices can change
 between one request and the next; it does not share that read with
 `CreateLogProject`, which instead reads the class list once and sends that
 exact order body to both its own quote and its order (see below). A quote
-response missing `optimumPrice`, or sending it `null`, fails with a
+response missing `optimumPrice`, or sending it `null`, negative, or
+nonfinite, fails with a
 `*vngcloud.APIError` rather than pricing the order at a silent 0. The
 quote ignores `MaxPrice` and `NoWait`: those fields govern only
 `CreateLogProject`'s price ceiling and wait.
@@ -322,8 +320,11 @@ compare any of those safely, and a `NaN` `MaxPrice` in particular compares
 false against every quote, which would silently disable the guard on a
 paid create. It also lists projects by `Name` first and refuses, also with
 `vngcloud.ErrInvalidInput`, when one already exists with that exact name,
-since the post-order wait below would otherwise risk settling on that
-existing project instead of the one this call orders.
+since the wait must not settle on an existing project. Both project and
+alarm name searches require every page, consistent counts and identities,
+and explicit list data within 1000 pages. Missing/null lists, duplicate keys
+or IDs, repeated pages, changing totals, or incomplete scans refuse the
+create. The server's exact name-filter behavior remains unverified.
 
 `CreateLogProject` then reads the class list once, builds one order body
 from `Input`, and sends that exact body first to price the order and then,
@@ -334,13 +335,10 @@ order always price and create the identical resource. It refuses with
 `CreateLogProjectInput{Name: "app"}` therefore only ever orders a project
 whose class and retention price at 0 VND. Raise `MaxPrice` to allow a paid
 order; the Basic class itself allows only 3 orders or recoveries a month,
-and an order past that quota returns the server's own 409 "Exceeded quota"
-rather than a distinct SDK error. The order is a `POST` and is never
-retried after a failure that may have already reached the server, the
-same as `CreateHostedZone`: after any error that is not a 4xx
-`*vngcloud.APIError` or `vngcloud.ErrInvalidInput`, the project may have
-been ordered, and the caller lists projects by `Name` before ordering
-again.
+and an order past that quota returns 409 "Exceeded quota". The paid order
+is sent once, including after redirects, 401, 429, and 5xx. After an
+uncertain result, reconcile with project reads and billing before deciding
+on another order; a failed read does not prove that nothing was ordered.
 
 The order response is confirmed live to carry only `amount`, `orderId`, and
 `paymentUrl`, none of `LogProject`'s own fields: it names no project id,
@@ -360,7 +358,9 @@ adding a new one, so the same [DNS](DNS.md#errors) handling applies, and
 the write must not be repeated. `NoWait` returns at once instead:
 `Output.LogProject` stays at its zero value and only `Output.OrderID` is
 set, from the order response's own `orderId`; `DeleteLogProject` skips its
-pre-delete baseline read too.
+pre-delete baseline read too. The earlier caller or operation deadline
+bounds every polling request and sleep; a late response cannot confirm
+success.
 
 `DeleteLogProject` moves a project to trash, stopping its billing; its logs
 are lost. `Purge` also deletes it from trash, as a second request in the

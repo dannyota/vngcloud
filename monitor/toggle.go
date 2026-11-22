@@ -116,18 +116,12 @@ func (c *Client) ResumeCheck(ctx context.Context, in *ResumeCheckInput) (*Resume
 	return &ResumeCheckOutput{Check: *check, Changed: changed}, nil
 }
 
-// toggle is PauseCheck and ResumeCheck's shared implementation, driving
-// checkID to target. op names the caller, used as every request's
-// Operation and in the ErrStatusUnconfirmed message. Callers have already
-// checked checkID with core.CheckRequired and core.CheckPathID.
-//
-// toggleMu serializes this against every other toggle call on c: the design
-// runs a Client's pause and resume calls one at a time, so two goroutines
-// sharing one Client never race the read-then-toggle sequence against each
-// other (see the design's discussion of the read-toggle race).
 func (c *Client) toggle(ctx context.Context, op, checkID, target string) (*Check, bool, error) {
-	c.toggleMu.Lock()
-	defer c.toggleMu.Unlock()
+	release, err := c.acquireCheck(ctx, checkID)
+	if err != nil {
+		return nil, false, err
+	}
+	defer release()
 
 	check, err := c.readCheck(ctx, op, checkID)
 	if err != nil {
@@ -201,12 +195,18 @@ func serverDidNotAct(err error) bool {
 // attempted read succeeded but did not show target).
 func (c *Client) confirmStatus(ctx context.Context, op, checkID, target string) (confirmed *Check, lastStatus string, lastErr error) {
 	for _, wait := range confirmWaits {
+		if err := ctx.Err(); err != nil {
+			return nil, lastStatus, err
+		}
 		if wait > 0 {
 			if err := c.sleep(ctx, wait); err != nil {
 				return nil, lastStatus, err
 			}
 		}
 		check, err := c.readCheck(ctx, op, checkID)
+		if cause := ctx.Err(); cause != nil {
+			return nil, lastStatus, cause
+		}
 		if err != nil {
 			lastErr = err
 			continue

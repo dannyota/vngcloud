@@ -31,8 +31,8 @@ const currentCheckJSON = `{
 		"request": {
 			"url": "https://example.com/old",
 			"method": "POST",
-			"headers": {"X-Old": "1"},
-			"query": {"q": "old"},
+			"headers": {"X-Old": "old-header-canary"},
+			"query": {"q": "old-query-canary"},
 			"body": "old-body",
 			"timeout": 30.0,
 			"verified_ssl": true
@@ -87,11 +87,11 @@ func TestUpdateCheckReadsMergesAndSendsFullBody(t *testing.T) {
 					}
 				}
 				headers, _ := request["headers"].(map[string]any)
-				if len(headers) != 1 || headers["X-Old"] != "1" {
+				if len(headers) != 1 || headers["X-Old"] != "old-header-canary" {
 					t.Fatalf("headers = %+v, want unchanged", headers)
 				}
 				query, _ := request["query"].(map[string]any)
-				if len(query) != 1 || query["q"] != "old" {
+				if len(query) != 1 || query["q"] != "old-query-canary" {
 					t.Fatalf("query = %+v, want unchanged", query)
 				}
 				assertions := config["assertions"].([]any)
@@ -166,11 +166,11 @@ func TestUpdateCheckReadsMergesAndSendsFullBody(t *testing.T) {
 					t.Fatalf("timeout = %v, want 15", request["timeout"])
 				}
 				headers, _ := request["headers"].(map[string]any)
-				if len(headers) != 1 || headers["X-New"] != "1" {
+				if len(headers) != 1 || headers["X-New"] != "new-header-canary" {
 					t.Fatalf("headers = %+v", headers)
 				}
 				query, _ := request["query"].(map[string]any)
-				if len(query) != 1 || query["q"] != "new" {
+				if len(query) != 1 || query["q"] != "new-query-canary" {
 					t.Fatalf("query = %+v", query)
 				}
 				assertions := config["assertions"].([]any)
@@ -209,8 +209,8 @@ func TestUpdateCheckReadsMergesAndSendsFullBody(t *testing.T) {
 
 		newName, newURL, newMethod, newBody := "new-name", "https://example.com/new", "GET", "new-body"
 		newTimeout, newFreq, newTests, newFailed := 15, 5, 3, 2
-		newHeaders := map[string]string{"X-New": "1"}
-		newQuery := map[string]string{"q": "new"}
+		newHeaders := map[string]string{"X-New": "new-header-canary"}
+		newQuery := map[string]string{"q": "new-query-canary"}
 		newLocations := []string{"loc-3"}
 		newAssertions := []Assertion{{Type: "status_code", Operator: "does_not_match_regex", Target: "[2-3][0-9][0-9]"}}
 		newNotifications := CheckNotifications{InAlarm: []string{"chan-9"}}
