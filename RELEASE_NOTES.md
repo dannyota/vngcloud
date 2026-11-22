@@ -1,6 +1,6 @@
 # Release Notes
 
-## Unreleased
+## v0.97.0 - Pre-1.0 hardening
 
 - Load balancer member writes remerge fresh state after busy refusals and
   never replay ambiguous replacements. Waits enforce deadlines; `NoWait`
@@ -26,6 +26,8 @@
   DNS operation timeouts retain `ErrZoneBusy`.
 - Harden developer helpers with private browser capabilities, operation gates
   for live writes, and offline safety checks in CI.
+- `pricing.Client.Estimate` returns the caller's context error when its
+  deadline ends during a shared lookup, instead of a late result.
 
 ## v0.96.0 - Setup cost estimate
 
