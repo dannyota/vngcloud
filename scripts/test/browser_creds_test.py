@@ -1,14 +1,17 @@
-"""Credential loading tests use only temporary fake values."""
-
+import concurrent.futures
 import contextlib
+import http.client
 import importlib.util
 import io
+import json
 import os
 import subprocess
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import unittest
+from unittest import mock
 
 sys.dont_write_bytecode = True
 
@@ -160,6 +163,76 @@ class LoadingTest(unittest.TestCase):
             "VNGCLOUD_USERNAME": "fake-user",
             "VNGCLOUD_PASSWORD": "100%fake",
         })
+
+
+class CapabilityTest(unittest.TestCase):
+    def test_authentication_precedes_one_shot_consumption(self):
+        self.run_session("synthetic-first-capability", "synthetic-old-capability")
+        self.run_session("synthetic-capability", "synthetic-first-capability")
+
+    def run_session(self, capability, stale):
+        ready = threading.Event()
+        servers = []
+        server_type = creds.http.server.HTTPServer
+        output = io.StringIO()
+        fake = {"VNGCLOUD_ROOT_EMAIL": "fake@example.invalid",
+                "VNGCLOUD_USERNAME": "fake-user",
+                "VNGCLOUD_PASSWORD": "synthetic-password",
+                "VNGCLOUD_TOTP_SECRET": "JBSWY3DPEHPK3PXP"}
+
+        def server(address, handler):
+            instance = server_type(("127.0.0.1", 0), handler)
+            creds.HOSTS.add(f"127.0.0.1:{instance.server_port}")
+            servers.append(instance)
+            ready.set()
+            return instance
+
+        def request(path, capability=None, host=None):
+            port = servers[0].server_port
+            headers = {"Host": host or f"127.0.0.1:{port}"}
+            if capability is not None:
+                headers["Authorization"] = "Bearer " + capability
+            connection = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
+            try:
+                connection.request("GET", path, headers=headers)
+                response = connection.getresponse()
+                return response.status, response.read()
+            finally:
+                connection.close()
+
+        with mock.patch.object(creds, "load_env", return_value=fake), \
+                mock.patch.object(creds, "HOSTS", set()), \
+                mock.patch.object(creds.http.server, "HTTPServer", side_effect=server), \
+                mock.patch.object(creds, "TIMEOUT_SECONDS", 2), \
+                mock.patch("secrets.token_urlsafe", return_value=capability), \
+                contextlib.redirect_stdout(output), \
+                concurrent.futures.ThreadPoolExecutor() as pool:
+            future = pool.submit(creds.main, ["synthetic-input"])
+            self.assertTrue(ready.wait(2))
+            try:
+                for path in ("/creds", "/totp"):
+                    for token in (None, "wrong-capability", stale):
+                        with self.subTest(path=path, token=token):
+                            status, body = request(path, token)
+                            self.assertEqual(status, 403)
+                            self.assertNotIn(b"synthetic-password", body)
+                script = Path(output.getvalue().split("browser script: ", 1)[1].splitlines()[0])
+                self.assertEqual(script.stat().st_mode & 0o777, 0o600)
+                self.assertEqual(script.parent.stat().st_mode & 0o777, 0o700)
+                self.assertIn(json.dumps(capability), script.read_text())
+                self.assertEqual(request("/creds", capability, "foreign.invalid")[0], 403)
+                status, body = request("/creds", capability)
+                self.assertEqual(status, 200)
+                self.assertEqual(json.loads(body)["password"], "synthetic-password")
+                self.assertEqual(request("/creds", capability)[0], 404)
+                self.assertEqual(request("/totp", "wrong-capability")[0], 403)
+                self.assertEqual(request("/totp", capability)[0], 200)
+            finally:
+                future.result(timeout=4)
+                servers[0].server_close()
+        self.assertFalse(script.exists())
+        self.assertNotIn(capability, output.getvalue())
+        self.assertNotIn("synthetic-password", output.getvalue())
 
 
 if __name__ == "__main__":

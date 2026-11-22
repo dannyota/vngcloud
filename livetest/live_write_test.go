@@ -69,6 +69,9 @@ func TestLiveWrite(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live budget write test")
 	}
+	if os.Getenv("VNGCLOUD_LIVE_BILLING") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_BILLING=1 after run authorization")
+	}
 	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
 	}
@@ -522,6 +525,9 @@ func TestLiveWriteMonitor(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live monitor write test")
 	}
+	if os.Getenv("VNGCLOUD_LIVE_MONITOR") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_MONITOR=1 after run authorization")
+	}
 	targetURL := os.Getenv("VNGCLOUD_LIVE_MONITOR_URL")
 	if targetURL == "" {
 		t.Skip("set VNGCLOUD_LIVE_MONITOR_URL to the approved probe URL to run the live monitor write test")
@@ -752,6 +758,9 @@ func TestLiveWriteMonitor(t *testing.T) {
 func TestLiveWriteDNS(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live DNS write test")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_DNS") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_DNS=1 after run authorization")
 	}
 	vpcID := os.Getenv("VNGCLOUD_LIVE_DNS_VPC_ID")
 	if vpcID == "" {
@@ -1169,6 +1178,9 @@ func TestLiveWriteMonitorChannel(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live monitor channel write test")
 	}
+	if os.Getenv("VNGCLOUD_LIVE_MONITOR_CHANNEL") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_MONITOR_CHANNEL=1 after run authorization")
+	}
 	webhookURL := os.Getenv("VNGCLOUD_LIVE_MONITOR_WEBHOOK_URL")
 	if webhookURL == "" {
 		t.Skip("set VNGCLOUD_LIVE_MONITOR_WEBHOOK_URL to the approved webhook URL to run the live monitor channel write test")
@@ -1402,6 +1414,9 @@ func isLiveCheckName(name string) bool {
 func TestLiveWriteMonitorCheckNotifications(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live monitor check notifications write test")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_MONITOR_CHECK_NOTIFICATIONS") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_MONITOR_CHECK_NOTIFICATIONS=1 after run authorization")
 	}
 	webhookURL := os.Getenv("VNGCLOUD_LIVE_MONITOR_WEBHOOK_URL")
 	if webhookURL == "" {
@@ -1787,6 +1802,9 @@ func readLiveOTPFile(t *testing.T, path string) string {
 func TestLiveWriteMonitorChannelOTP(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live monitor channel OTP write test")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_MONITOR_CHANNEL_OTP") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_MONITOR_CHANNEL_OTP=1 after run authorization")
 	}
 	email := os.Getenv("VNGCLOUD_LIVE_MONITOR_EMAIL")
 	if email == "" {
@@ -6715,8 +6733,8 @@ func TestLiveWriteContainerRegistryRepository(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live vCR write test")
 	}
-	if os.Getenv("VNGCLOUD_LIVE_VCR") != "1" {
-		t.Skip("set VNGCLOUD_LIVE_VCR=1 to run the live vCR write test")
+	if os.Getenv("VNGCLOUD_LIVE_VCR_REPOSITORY") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_VCR_REPOSITORY=1 to run the live vCR write test")
 	}
 	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
@@ -6930,8 +6948,8 @@ func TestLiveWriteContainerRegistryUser(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live vCR write test")
 	}
-	if os.Getenv("VNGCLOUD_LIVE_VCR") != "1" {
-		t.Skip("set VNGCLOUD_LIVE_VCR=1 to run the live vCR write test")
+	if os.Getenv("VNGCLOUD_LIVE_VCR_USER") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_VCR_USER=1 to run the live vCR write test")
 	}
 	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatalf("load .env: %v", err)
@@ -11059,6 +11077,9 @@ func TestLiveWriteStorageBucket(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live storage bucket write test")
 	}
+	if os.Getenv("VNGCLOUD_LIVE_STORAGE_BUCKET") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_STORAGE_BUCKET=1 after run authorization")
+	}
 	projectID := os.Getenv("VNGCLOUD_LIVE_STORAGE_PROJECT_ID")
 	if projectID == "" {
 		t.Skip("set VNGCLOUD_LIVE_STORAGE_PROJECT_ID to the vStorage project's id to run the live storage bucket write test")
@@ -11266,6 +11287,9 @@ func TestLiveWriteStorageS3Key(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live storage S3 key write test")
 	}
+	if os.Getenv("VNGCLOUD_LIVE_STORAGE_S3_KEY") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_STORAGE_S3_KEY=1 after run authorization")
+	}
 	projectID := os.Getenv("VNGCLOUD_LIVE_STORAGE_PROJECT_ID")
 	if projectID == "" {
 		t.Skip("set VNGCLOUD_LIVE_STORAGE_PROJECT_ID to the vStorage project's id to run the live storage S3 key write test")
@@ -11450,6 +11474,9 @@ func liveStorageRefusal(t *testing.T, step string, err error, want string) {
 func TestLiveWriteStorageServiceAccountKey(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live storage service account key write test")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_STORAGE_SERVICE_ACCOUNT_KEY") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_STORAGE_SERVICE_ACCOUNT_KEY=1 after run authorization")
 	}
 	projectID := os.Getenv("VNGCLOUD_LIVE_STORAGE_PROJECT_ID")
 	if projectID == "" {
@@ -11769,6 +11796,9 @@ func liveStoragePolicy(t *testing.T, principalARN, bucket string) string {
 func TestLiveWriteStorageBucketPolicy(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live storage bucket policy write test")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_STORAGE_BUCKET_POLICY") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_STORAGE_BUCKET_POLICY=1 after run authorization")
 	}
 	projectID := os.Getenv("VNGCLOUD_LIVE_STORAGE_PROJECT_ID")
 	if projectID == "" {
@@ -12148,6 +12178,9 @@ func TestLiveWriteStorageBucketPolicy(t *testing.T) {
 func TestLiveWriteStorageBucketSettings(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 to run the live storage bucket settings write test")
+	}
+	if os.Getenv("VNGCLOUD_LIVE_STORAGE_BUCKET_SETTINGS") != "1" {
+		t.Skip("set VNGCLOUD_LIVE_STORAGE_BUCKET_SETTINGS=1 after run authorization")
 	}
 	projectID := os.Getenv("VNGCLOUD_LIVE_STORAGE_PROJECT_ID")
 	if projectID == "" {

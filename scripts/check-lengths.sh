@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Fails when a tracked Markdown file passes MD_MAX lines or a non-test Go file
-# passes CODE_MAX lines. Split an oversize file by topic: a sibling file in the
-# same Go package, or a focused doc page.
 set -Eeuo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
@@ -11,9 +8,12 @@ CODE_MAX=700
 
 violations=0
 check() {
-  local max=$1 file lines
+  local max=$1 kind=$2 file lines
   while IFS= read -r file; do
     [[ -f "$file" ]] || continue
+    if [[ "$kind" == go && ( "$file" == *_test.go || "/$file" == */testdata/* ) ]]; then
+      continue
+    fi
     head -n 5 "$file" | grep -E 'Code generated .* DO NOT EDIT' >/dev/null && continue
     lines=$(( $(wc -l <"$file") ))
     if ((lines > max)); then
@@ -23,11 +23,16 @@ check() {
   done
 }
 
-check "$MD_MAX" < <(git ls-files --cached --others --exclude-standard -- '*.md')
-check "$CODE_MAX" < <(
-  git ls-files --cached --others --exclude-standard -- '*.go' |
-    grep -Ev '_test\.go$|(^|/)testdata/' || true
-)
+if ! markdown_files=$(git ls-files --cached --others --exclude-standard -- '*.md'); then
+  echo 'check-lengths: Markdown inventory failed' >&2
+  exit 1
+fi
+if ! go_files=$(git ls-files --cached --others --exclude-standard -- '*.go'); then
+  echo 'check-lengths: Go inventory failed' >&2
+  exit 1
+fi
+check "$MD_MAX" md <<< "$markdown_files"
+check "$CODE_MAX" go <<< "$go_files"
 
 if ((violations > 0)); then
   echo "check-lengths: $violations file(s) over the limit" >&2

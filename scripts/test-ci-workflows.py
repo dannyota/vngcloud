@@ -38,6 +38,7 @@ GO_COMMANDS = {
     "GOOS=windows go vet ./... && GOOS=darwin go vet ./...",
     'go run ./cmd/vngcloud gen-docs docs/wiki\ntest -z "$(git status --porcelain -- docs/wiki)" || { git status --porcelain -- docs/wiki; exit 1; }',
     "bash scripts/wiki-sync.sh --dry-run",
+    "make scripts-test",
 }
 
 PARSER = '''import json, sys, yaml
@@ -55,12 +56,11 @@ json.dump(yaml.load(sys.stdin, Loader=Loader), sys.stdout)
 
 
 def parser_python():
-    for executable in dict.fromkeys((sys.executable, "/usr/bin/python3")):
-        result = subprocess.run([executable, "-I", "-c", "import yaml"],
-                                capture_output=True)
-        if result.returncode == 0:
-            return executable
-    raise RuntimeError("PyYAML is unavailable; use a manager-provided parser")
+    result = subprocess.run([sys.executable, "-I", "-c", "import tomllib, yaml"],
+                            capture_output=True)
+    if result.returncode != 0:
+        raise RuntimeError("Workflow checks require Python 3.11+ with tomllib and PyYAML")
+    return sys.executable
 
 
 def parse(text):
@@ -338,6 +338,7 @@ class WorkflowTests(unittest.TestCase):
         ci = self.workflows["ci"]
         ci_gates(ci)
         mutants = [self.texts["ci"].replace("run: go test -race ./...", "run: true # go test -race ./..."),
+                   self.texts["ci"].replace("run: make scripts-test", "run: true # make scripts-test"),
                    self.texts["ci"].replace("group: ci-${{ github.run_id }}-${{ github.run_attempt }}", "group: ci-${{ github.ref }}"),
                    self.texts["ci"].replace("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", "actions/checkout@v7"),
                    self.texts["ci"].replace('test "$actual" = "$EXPECTED_SHA"', 'test "$actual" = "$EXPECTED_SHA" || true')]
@@ -354,6 +355,10 @@ class WorkflowTests(unittest.TestCase):
         self.assertRegex(make, r"(?m)^check: .*ci-workflows-check")
         self.assertIn("python3 scripts/test-ci-workflows.py", make)
         self.assertIn("python3 scripts/test-wiki-publication.py", make)
+
+    def test_ci_uses_preinstalled_python(self):
+        commands = "\n".join(step["run"] for step in runs(self.workflows["ci"]["jobs"]["go"]))
+        self.assertNotRegex(commands, r"\bpip3?\s+install\b")
 
     def test_aggregate_controls_and_mutations(self):
         ci = self.workflows["ci"]

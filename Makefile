@@ -15,10 +15,17 @@ ci-workflows-check: ## Check workflow triggers, source identity, and validation 
 	@python3 scripts/test-ci-workflows.py
 	@python3 scripts/test-wiki-publication.py
 
-scripts-test: ## Test the Codex launcher and browser credential loading
+scripts-test: ## Test developer scripts and offline live-write guards
+	@python3 -I -c 'import tomllib'
 	@bash scripts/test/codex-agent-test.sh
 	@bash scripts/test/check-lengths-test.sh
 	@python3 -I scripts/test/browser_creds_test.py
+	@python3 -I scripts/test/length_inventory_test.py
+	@python3 -I scripts/test/live_selection_test.py
+	@python3 -I scripts/test/live_offline_test.py
+	@python3 -I scripts/test/python_setup_test.py
+	@python3 scripts/test-tools-outdated.py
+	@python3 -I scripts/test-live-offline.py
 
 test: ## Run tests
 	@go test -race ./...
@@ -51,13 +58,13 @@ tools-outdated: ## Fail when Go, a pinned tool, or a GitHub Action has a newer r
 live: ## Run live smoke tests against the real API (reads .env)
 	@go test -tags live -count=1 -v -run TestLive ./livetest/
 
-live-write: ## Run the gated live billing write test; needs owner approval per run and VNGCLOUD_LIVE_WRITE=1
-	@go test -tags livewrite -count=1 -timeout 60m -v -run TestLiveWrite ./livetest/
+live-write: ## Run only billing writes; needs owner approval and VNGCLOUD_LIVE_WRITE=1 VNGCLOUD_LIVE_BILLING=1
+	@go test -tags livewrite -count=1 -timeout 60m -v -run '^TestLiveWrite$$' ./livetest/
 
 gen-docs: ## Regenerate the CLI reference pages in docs/wiki/ from the operation tables
 	@go run ./cmd/vngcloud gen-docs docs/wiki
 
-browser-creds: ## Serve .env or PROFILE IAM User values once to scripts/browser-login.js for Playwright MCP
+browser-creds: ## Serve IAM values once; run the private browser script path printed by the helper
 	@python3 scripts/browser-creds.py $${PROFILE:+--profile "$$PROFILE"}
 
 .DEFAULT_GOAL := help

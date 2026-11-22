@@ -1,13 +1,4 @@
 #!/usr/bin/env python3
-"""Serve IAM User credentials from .env or a CLI profile to scripts/browser-login.js.
-
-Playwright MCP code cannot read files, so this helper hands the values to the
-browser session over 127.0.0.1 without them appearing in agent output. It
-answers GET /creds once and GET /totp once, then exits, or exits after the
-timeout. It rejects any Host header other than its own address, so a web page
-cannot read it through DNS rebinding. It never prints a credential.
-"""
-
 import argparse
 import base64
 import hashlib
@@ -16,9 +7,11 @@ import http.server
 import json
 import os
 import re
+import secrets
 import stat
 import struct
 import sys
+import tempfile
 import time
 
 PORT = 18765
@@ -52,7 +45,6 @@ class IniParseError(ValueError):
 
 
 def read_cli_ini(source):
-    # Match internal/ini: no inherited defaults, continuations, or ':' delimiter.
     sections = {}
     section = None
     for number, line in enumerate(source):
@@ -99,7 +91,7 @@ def load_profile(path, profile):
 
 def main(argv=None):
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description="Serve private IAM browser login values once")
     parser.add_argument("path", nargs="?", default=os.path.join(root, ".env"))
     parser.add_argument("--profile")
     parser.add_argument("--credentials", default="~/.vngcloud/credentials")
@@ -112,11 +104,17 @@ def main(argv=None):
             return 2
     else:
         env = load_env(args.path)
+    capability = secrets.token_urlsafe(32)
     served = {path: 0 for path in MAX_SERVED}
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
-            if self.headers.get("Host") not in HOSTS:
+            authorization = self.headers.get_all("Authorization", [])
+            if (len(self.headers.get_all("Host", [])) != 1
+                    or self.headers.get("Host") not in HOSTS
+                    or len(authorization) != 1
+                    or not hmac.compare_digest(authorization[0].encode(),
+                                               ("Bearer " + capability).encode())):
                 self.send_response(403)
                 self.end_headers()
                 return
@@ -144,15 +142,24 @@ def main(argv=None):
         def log_message(self, *args):
             pass
 
-    server = http.server.HTTPServer(("127.0.0.1", PORT), Handler)
-    server.timeout = 1
-    deadline = time.time() + TIMEOUT_SECONDS
-    print(f"serving on 127.0.0.1:{PORT} for up to {TIMEOUT_SECONDS}s", flush=True)
-    needs_totp = bool(env.get("VNGCLOUD_TOTP_SECRET"))
-    while time.time() < deadline:
-        if served["/creds"] and (served["/totp"] or not needs_totp):
-            break
-        server.handle_request()
+    with tempfile.TemporaryDirectory(prefix="vngcloud-browser-") as directory:
+        os.chmod(directory, 0o700)
+        script = os.path.join(directory, "browser-login.js")
+        with open(os.path.join(root, "scripts/browser-login.js"), encoding="utf-8") as source:
+            consumer = source.read().replace('"__VNGCLOUD_BROWSER_CAPABILITY__"',
+                                             json.dumps(capability))
+        descriptor = os.open(script, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+            output.write(consumer)
+        with http.server.HTTPServer(("127.0.0.1", PORT), Handler) as server:
+            server.timeout = 1
+            deadline = time.monotonic() + TIMEOUT_SECONDS
+            print(f"browser script: {script}", flush=True)
+            needs_totp = bool(env.get("VNGCLOUD_TOTP_SECRET"))
+            while time.monotonic() < deadline:
+                if served["/creds"] and (served["/totp"] or not needs_totp):
+                    break
+                server.handle_request()
     print("done", flush=True)
 
 

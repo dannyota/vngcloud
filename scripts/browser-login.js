@@ -1,29 +1,31 @@
-// Signs the Playwright MCP browser in to the GreenNode console as the IAM User
-// in .env. Start `make browser-creds` first, then run this file with the
-// browser_run_code_unsafe tool (filename: scripts/browser-login.js). It
-// returns only the final origin. The form fields are cleared before it
-// returns or throws, so a page snapshot does not show the filled values.
 async (page) => {
   const helper = 'http://127.0.0.1:18765';
+  const capability = "__VNGCLOUD_BROWSER_CAPABILITY__";
+  if (capability.startsWith('__VNGCLOUD_')) {
+    throw new Error('run the private browser script printed by make browser-creds');
+  }
   const fetchJSON = async (path) => {
-    const resp = await page.request.get(helper + path);
-    if (!resp.ok()) {
-      throw new Error(`browser-creds ${path} returned ${resp.status()}; restart make browser-creds`);
+    try {
+      const resp = await page.request.get(helper + path, {
+        headers: { Authorization: 'Bearer ' + capability },
+        maxRedirects: 0,
+      });
+      if (resp.ok()) {
+        return await resp.json();
+      }
+    } catch {
     }
-    return resp.json();
+    throw new Error('browser credential helper unavailable; restart make browser-creds');
   };
   const fields = [
     page.getByRole('textbox', { name: 'Root email' }),
     page.getByRole('textbox', { name: 'Username' }),
     page.getByRole('textbox', { name: 'Password' }),
   ];
-  // The Playwright sandbox has no URL global.
   const urlParts = () => {
     const m = page.url().match(/^(https?:\/\/[^/?#]+)([^?#]*)/);
     return { origin: m ? m[1] : '', pathname: m ? m[2] : '' };
   };
-  // Never type a credential into a page that is not the GreenNode sign-in
-  // host; a redirect elsewhere would receive it.
   const assertSigninHost = () => {
     if (urlParts().origin !== 'https://signin.greennode.ai') {
       throw new Error('unexpected sign-in host ' + urlParts().origin + '; refusing to fill credentials');

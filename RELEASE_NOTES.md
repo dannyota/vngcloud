@@ -39,6 +39,8 @@
 - The CLI accepts a strict JSON setup and supports read-only profiles.
   `--allow-partial` retains surviving results with an error and exit 1;
   deliberate unknown prices can complete successfully.
+- Harden developer helpers with private browser capabilities, operation gates
+  for live writes, and offline safety checks in CI.
 
 ## v0.95.0 - Floating IP on server create
 

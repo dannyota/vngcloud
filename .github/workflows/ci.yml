@@ -51,6 +51,9 @@ jobs:
         run: python3 scripts/test-ci-workflows.py
       - name: Wiki publication regressions
         run: python3 scripts/test-wiki-publication.py
+      - if: ${{ !cancelled() }}
+        name: Developer scripts and offline live-write guards
+        run: make scripts-test
       - run: go test -race ./...
       - if: ${{ !cancelled() }}
         run: go vet ./... && go vet -tags live ./... && go vet -tags livewrite ./...
