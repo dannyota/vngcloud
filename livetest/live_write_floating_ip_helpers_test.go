@@ -975,7 +975,7 @@ func (p *floatingIPHarnessPeer) serve(t *testing.T, w http.ResponseWriter, req *
 		if p.deleted["volume"] {
 			missing()
 		} else {
-			write(map[string]any{"data": map[string]any{"uuid": "volume-1", "status": "AVAILABLE", "bootable": true}})
+			write(map[string]any{"data": map[string]any{"uuid": "volume-1", "status": "AVAILABLE", "bootable": true, "serverId": "", "serverIdList": []string{}}})
 		}
 	case "/v2/project-1/secgroups/group-1":
 		if p.deleted["group"] {
