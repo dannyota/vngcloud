@@ -59,11 +59,15 @@ func checkSmokeOutput(root string) ([]resourceReport, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(rawPaths) == 0 {
+	sdkPaths, err := filepath.Glob(filepath.Join(sdkRoot, "**", "*.json"))
+	if err != nil {
+		return nil, err
+	}
+	if len(rawPaths) == 0 && len(sdkPaths) == 0 {
 		return nil, fmt.Errorf("no raw output found under %s", rawRoot)
 	}
 
-	reports := make([]resourceReport, 0, len(rawPaths))
+	reports := make([]resourceReport, 0, len(rawPaths)+len(sdkPaths))
 	for _, rawPath := range rawPaths {
 		rel, err := filepath.Rel(rawRoot, rawPath)
 		if err != nil {
@@ -81,6 +85,18 @@ func checkSmokeOutput(root string) ([]resourceReport, error) {
 		}
 		reports = append(reports, report)
 	}
+	for _, sdkPath := range sdkPaths {
+		rel, err := filepath.Rel(sdkRoot, sdkPath)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := os.Stat(filepath.Join(rawRoot, rel)); os.IsNotExist(err) {
+			reports = append(reports, resourceReport{
+				resource:      strings.TrimSuffix(filepath.ToSlash(rel), ".json"),
+				sdkWithoutRaw: true,
+			})
+		}
+	}
 	sort.Slice(reports, func(i, j int) bool { return reports[i].resource < reports[j].resource })
 	return reports, nil
 }
@@ -93,7 +109,7 @@ func printSmokeCheck(reports []resourceReport) bool {
 			fmt.Printf("%s: unreadable: %s\n", report.resource, report.unreadable)
 			continue
 		}
-		if len(report.missingKeys) > 0 || report.rawWithoutSDK > 0 || report.sdkWithoutRaw {
+		if report.sdkErrors > 0 || len(report.missingKeys) > 0 || report.rawWithoutSDK > 0 || report.sdkWithoutRaw {
 			failed = true
 			fmt.Printf("%s: raw_ok=%d raw_rows=%d sdk_rows=%d sdk_errors=%d missing_keys=%v raw_without_sdk=%d sdk_without_raw=%t\n",
 				report.resource, report.rawSuccess, report.rawRows, report.sdkRows, report.sdkErrors, report.missingKeys, report.rawWithoutSDK, report.sdkWithoutRaw)
@@ -132,7 +148,6 @@ func compareResource(rawPath, sdkPath string, report *resourceReport) error {
 	return nil
 }
 
-// rawPayloadKeys collects every field name in the successful raw responses.
 func rawPayloadKeys(raw rawFile, report *resourceReport) map[string]bool {
 	keys := map[string]bool{}
 	for _, entry := range raw.Regions {
@@ -149,7 +164,6 @@ func rawPayloadKeys(raw rawFile, report *resourceReport) map[string]bool {
 	return keys
 }
 
-// sdkPayloadKeys collects every field name in the decoded SDK output.
 func sdkPayloadKeys(sdk sdkFile, report *resourceReport) map[string]bool {
 	keys := map[string]bool{}
 	for _, entry := range sdk.Regions {
@@ -169,6 +183,9 @@ func readJSON(path string, out any) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
+	}
+	if !json.Valid(data) {
+		return fmt.Errorf("invalid JSON in %s", path)
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()

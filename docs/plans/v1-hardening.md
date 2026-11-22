@@ -172,11 +172,11 @@ For each code slice, run its focused commands below while working and `make chec
 
 - [ ] Risk: medium false verification; tooling only.
 - Owned paths: `examples/basic/check.go`; new `examples/basic/check_test.go`.
-- Closes: empty-key/decode-error false success at `examples/basic/check.go:96` and `examples/basic/check.go:122`, and the SDK-only artifact flag that is never populated.
-- Change: compare matching synthetic captures, reject SDK errors and missing artifacts, compare row/key coverage, and make the SDK-only artifact indication meaningful. Do not read existing example output or run the basic example.
+- Closes: decode-error false success at `examples/basic/check.go:96` and the SDK-only artifact flag that is never populated.
+- Change: fail a resource when its SDK artifact records any error, when either artifact is missing or is not valid JSON, and when an SDK artifact has no raw counterpart. Leave key and row comparison as it is; a broader comparison produced endless false failures. Do not read existing example output or run the basic example.
 - Breaking: no public SDK/CLI break; false-positive smoke checks become failures.
-- Manager decision: none; use synthetic temporary artifacts only.
-- Failing tests first: successful raw capture plus SDK decode error fails; either missing artifact fails; empty-vs-populated row/key sets fail; established explicit-empty responses pass only with matched successful artifacts; SDK-only detection is exercised.
+- Manager decision: narrowed scope; use synthetic temporary artifacts only.
+- Failing tests first: successful raw capture plus SDK decode error fails; missing raw or SDK artifact fails; malformed JSON in either artifact fails; SDK-only artifact fails; matched successful artifacts with explicit empty lists still pass.
 - Checks: `go test -count=1 ./examples/basic`; `go vet ./examples/basic`; `make check` in the future authorized implementation workspace, without running the example or inspecting `examples/basic/output/`.
 
 ## Documentation and evidence
