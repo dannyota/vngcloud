@@ -3,7 +3,7 @@
   "code": 200,
   "message": "Get CDN data successful.",
   "data": {
-    "cdnId": "<cdn-id>",
+    "cdnId": "cdn-1",
     "userUuid": "<user-id>",
     "type": "webacc",
     "cdnDomain": "<cdn-domain>",

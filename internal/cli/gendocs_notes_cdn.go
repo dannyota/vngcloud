@@ -27,9 +27,9 @@ const cdnListWebAcceleratorsNote = "Lists portal-created Web Accelerators. `CDND
 
 const cdnAnalyticsNote = "Uses generated CDN domains, not customer domains. Analytics calls use POST but remain reads, so read-only allows them."
 
-const cdnUpdateWebAcceleratorNote = "Merges changes into a fresh CDN read. Use --cli-input-json for every list. --no-wait makes one follow-up read and skips the settle wait."
+const cdnUpdateWebAcceleratorNote = "Requires detail with explicit status and matching CDN ID before writing. Merges changes into a fresh CDN read. Use --cli-input-json for every list. --no-wait makes one follow-up read and skips the settle wait."
 
-const cdnToggleWebAcceleratorNote = "Returns WebAccelerator and Changed. It confirms with reads at 0, 2, 4, and 8 seconds. --no-wait skips only the settle wait. A CDN that does not settle prints its last read on stdout and exits 1."
+const cdnToggleWebAcceleratorNote = "Requires detail with explicit status and matching CDN ID before toggling. Returns WebAccelerator and Changed. It confirms with reads at 0, 2, 4, and 8 seconds. --no-wait skips only the settle wait. A CDN that does not settle prints its last read on stdout and exits 1."
 
 const cdnPurgePathsNote = "Purges exact cached paths. Supply Paths through --cli-input-json. Wait at least 30 seconds before another purge of the same CDN. Each purge consumes the package's daily purge limit; the Basic package permits five per day."
 
@@ -47,7 +47,7 @@ var docOpNotesCDN = map[string]string{
 	"cdn update-web-accelerator":  cdnUpdateWebAcceleratorNote,
 	"cdn enable-web-accelerator":  cdnToggleWebAcceleratorNote,
 	"cdn disable-web-accelerator": cdnToggleWebAcceleratorNote,
-	"cdn delete-web-accelerator":  "Deletes the CDN and its generated CNAME target. Pass --yes to confirm.",
+	"cdn delete-web-accelerator":  "Requires detail with explicit status and matching CDN ID before deleting. Deletes the CDN and its generated CNAME target. Pass --yes to confirm.",
 	"cdn purge-paths":             cdnPurgePathsNote,
 }
 

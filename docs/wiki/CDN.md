@@ -293,8 +293,9 @@ out, err := client.GetTraffic(ctx, &cdn.GetTrafficInput{
 ## Writes
 
 `UpdateWebAccelerator`, `DeleteWebAccelerator`, `EnableWebAccelerator`, and
-`DisableWebAccelerator` change a CDN. Each reads the CDN first and checks its
-status, so a call the server would refuse sends nothing:
+`DisableWebAccelerator` change a CDN. Each detail read requires an explicit,
+non-null status and a `cdnId` matching the requested CDN. Missing or mismatched
+state fails before a write. The status guard sends nothing when it refuses:
 
 | Status | Update | Delete | Enable | Disable |
 |-|-|-|-|-|

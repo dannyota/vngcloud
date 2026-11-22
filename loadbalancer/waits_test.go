@@ -115,11 +115,8 @@ func TestPollBoundReachedCallsOnTimeout(t *testing.T) {
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("err = %v, want %v", err, wantErr)
 	}
-	// 25s bound, 10s interval: reads at 0s, 10s, 20s, and 30s all run (each
-	// read happens before the deadline check that follows it), and the
-	// clock is past the 25s deadline only once it reaches 30s.
-	if len(r.sleeps) != 3 {
-		t.Fatalf("sleeps = %v, want 3 (10s gaps between four reads at 0s, 10s, 20s, 30s)", r.sleeps)
+	if len(r.sleeps) != 3 || r.sleeps[0] != 10*time.Second || r.sleeps[1] != 10*time.Second || r.sleeps[2] != 5*time.Second {
+		t.Fatalf("sleeps = %v, want 10s, 10s, 5s", r.sleeps)
 	}
 }
 

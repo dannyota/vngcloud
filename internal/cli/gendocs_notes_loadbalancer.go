@@ -107,7 +107,7 @@ const loadbalancerCreatePoolNote = "Empty --algorithm sends ROUND_ROBIN; 0 --hea
 	"--health-check-domain-name, and --health-check-success-code are only valid when --health-check-protocol " +
 	"is HTTP or HTTPS; giving one with any other check protocol exits 2 (InvalidUsage) before any request. No " +
 	"domain name is invented for HTTP/1.1: an HTTP check with none reaches the server empty, which then " +
-	"refuses it."
+	"refuses it. --no-wait returns submitted pool settings and the health monitor without confirming them."
 
 // loadbalancerUpdatePoolNote documents update-pool's read-merge and its
 // shared HTTP-fields guard: the flag table shows every field as
@@ -119,7 +119,7 @@ const loadbalancerUpdatePoolNote = "At least one field must be set, checked befo
 	"with the read values for the rest, so a call that sets only --algorithm still resends the health monitor " +
 	"exactly as read. The health check protocol cannot change after create, so there is no flag for it here; " +
 	"the HTTP fields are refused when the pool's own check protocol is not HTTP or HTTPS, the same guard " +
-	"create-pool runs."
+	"create-pool runs. --no-wait returns submitted booleans and health monitor fields without confirmation."
 
 // loadbalancerDeletePoolNote documents delete-pool's pre-delete guard: the
 // flag table shows only --pool-id, with no hint of the read this command
@@ -133,6 +133,8 @@ const loadbalancerDeletePoolNote = "Refuses, before any request, a pool a listen
 // member list, which the flag table cannot show at all.
 const loadbalancerPoolMemberNote = "The members write replaces the whole list: this command reads every " +
 	"member first and sends back what it read plus this one change, never a caller-supplied whole list. " +
+	"After an explicit busy refusal it rereads, validates, and merges again before one more attempt. " +
+	"An ambiguous result is NotSettled and never resends the replacement; read the members before another call. " +
 	"--address must be IPv4; --port and --monitor-port are 1 to 65535, with --monitor-port 0 meaning unset. " +
 	"--weight 0 sends 1. Without --no-wait, waits for the pool to settle, then confirms a fresh read names " +
 	"exactly the members just sent; a mismatch, a timeout, or the pool reaching ERROR is NotSettled or " +
@@ -175,7 +177,7 @@ const loadbalancerCreateListenerNote = "--allowed-cidrs is a comma-separated lis
 	"--timeout-connection sends the server's own default (50, 50, and 5 seconds). An HTTP listener on a " +
 	"load balancer reachable from outside the " +
 	"account's own network serves cleartext: nothing encrypts traffic between the client and the load " +
-	"balancer."
+	"balancer. --no-wait returns submitted timeouts, pools, certificates, CIDRs, and headers without confirmation."
 
 // loadbalancerUpdateListenerNote documents update-listener's read-merge,
 // its own --allowed-cidrs flag and private-range guard, and its
@@ -189,7 +191,8 @@ const loadbalancerUpdateListenerNote = "At least one field must be set, checked 
 	"empty --allowed-cidrs reaches the SDK as a non-nil, empty list, which it refuses (InvalidUsage) rather " +
 	"than send, since an empty list would open or close the listener to everyone depending on the server's " +
 	"own interpretation. The merged certificate fields are checked against the listener's own, unchangeable " +
-	"Protocol exactly as create-listener checks them; CertificateIDs comes only through --cli-input-json."
+	"Protocol exactly as create-listener checks them; CertificateIDs comes only through --cli-input-json. " +
+	"--no-wait returns submitted timeouts, pools, certificates, CIDRs, and headers without confirmation."
 
 // loadbalancerDeleteListenerNote documents delete-listener's pre-write
 // wait, which the flag table cannot show at all: it shows only
@@ -207,7 +210,8 @@ const loadbalancerCreatePolicyNote = "Rules comes only through --cli-input-json,
 	`'{"Rules":[{"Type":"PATH","CompareType":"STARTS_WITH","Value":"/api"}]}'` + ". --action REDIRECT_TO_POOL " +
 	"requires --redirect-pool-id and refuses --redirect-url, --redirect-http-code, and --keep-query-string; " +
 	"REDIRECT_TO_URL requires --redirect-url and refuses --redirect-pool-id. Each write sends only the redirect " +
-	"fields its action carries. Another --action value reaches the server as given."
+	"fields its action carries. Another --action value reaches the server as given. " +
+	"--no-wait returns submitted redirect fields and rules without confirmation."
 
 // loadbalancerUpdatePolicyNote documents update-policy's read-merge and its
 // own Rules-replace rule: the flag table shows every field as
@@ -219,7 +223,8 @@ const loadbalancerUpdatePolicyNote = "At least one field must be set, checked be
 	"sends only redirectUrl, redirectHttpCode, and keepQueryString. A --cli-input-json Rules replaces the whole " +
 	"rule list; leaving it unset resends the rules read, refusing the write instead if one of them reads back " +
 	"missing Type, CompareType, or Value. The merged --action and redirect fields are checked exactly as " +
-	"create-policy checks them, so --redirect-http-code on a pool policy is refused."
+	"create-policy checks them, so --redirect-http-code on a pool policy is refused. " +
+	"--no-wait returns submitted redirect fields and rules without confirmation."
 
 // loadbalancerDeletePolicyNote documents delete-policy's pre-write wait,
 // which the flag table cannot show at all: it shows only --policy-id.

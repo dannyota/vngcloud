@@ -381,27 +381,26 @@ balancer create or delete, the SDK waits, polling every 5 seconds for up to
 busy, and returns `loadbalancer.ErrBusy` past that bound, sending nothing.
 
 A busy refusal of a free write (a pool, member, listener, or policy write)
-means the server did not act: the SDK goes back to that same wait and sends
-again, once, within the same bound. Only a refusal matching one of the
-server's busy messages triggers this resend; any other error, or a second
-busy refusal, is returned as is. A resize's busy refusal instead returns
-`loadbalancer.ErrBusy` immediately, since it is paid and sent only once.
+means the server did not act: the SDK waits and attempts once more within
+the same bound. Member writes reread and validate the current members,
+then merge the caller's change again. Other errors never trigger this
+resend. A paid resize returns `loadbalancer.ErrBusy` immediately.
 
-In one process, writes to the same load balancer queue rather than racing
-into these refusals; across processes, or across two `Client` values, the
-server's own refusal and this resend are what apply.
+Writes to one load balancer queue within a `Client`. Across clients, the
+server's refusal and this resend apply.
 
 A settled create, update, or members replace waits for the resource to
 reach `CREATED` while the load balancer is no longer busy; a settled delete
 waits for a 404 the same way. If the load balancer or the child reaches
 `ERROR`, the returned error wraps `loadbalancer.ErrFailed`. If the wait's
-bound runs out, or a read or a sleep fails, such as from a canceled `ctx`,
-it wraps `loadbalancer.ErrNotSettled`: a create or a resize must not be
-repeated, while every other write here always reads first and so may be
-rerun.
+bound runs out, or a read or sleep fails, it wraps `loadbalancer.ErrNotSettled`.
+Do not repeat a create or resize; reconcile it with reads first.
 
-`NoWait` skips a write's own post-write wait (but never the pre-write busy
-wait above) and returns the fields the write itself sent.
+Polling reads and sleeps use the earlier caller or operation deadline;
+a read that finishes at or after that deadline cannot confirm success.
+`NoWait` skips the post-write wait and returns submitted values, including
+members, rules, pool settings and health monitors, certificates, and headers.
+These values do not confirm server state.
 
 ## Identifiers and retries
 
@@ -416,8 +415,9 @@ already have reached the server: after any error that is not a 4xx
 `*vngcloud.APIError`, list the matching resource by `Name` and match it
 exactly before creating it again, rather than retrying blind. A create
 response with no id is the same kind of error. `ResizeLoadBalancer`'s `PUT`
-is sent at most once (`transport.Request.Once`). Every other update and
-delete keeps the transport's normal retries.
+and each member replacement are sent once. An ambiguous member result
+returns `ErrNotSettled`; read the members before another call. Other
+updates and deletes keep the transport's normal retries.
 
 ## Errors
 

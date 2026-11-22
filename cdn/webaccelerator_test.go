@@ -69,7 +69,7 @@ func TestGetWebAcceleratorDecodesFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	wa := out.WebAccelerator
-	if wa.CDNID != "<cdn-id>" || wa.Type != "webacc" || wa.DomainName != "<domain>" || wa.CDNDomain != "<cdn-domain>" ||
+	if wa.CDNID != cdnID || wa.Type != "webacc" || wa.DomainName != "<domain>" || wa.CDNDomain != "<cdn-domain>" ||
 		wa.Status != StatusActive || wa.StatusName != "ACTIVE" || wa.CertificateID != "default" || wa.LBType != "rr" ||
 		wa.OriginHostHeader != "" || wa.UseSSL || wa.UseSmallFile || wa.EnableGzip {
 		t.Fatalf("wa = %+v", wa)

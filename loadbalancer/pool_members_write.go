@@ -138,28 +138,25 @@ func checkPoolMemberMonitorPort(op string, monitorPort int) error {
 	return checkPoolMemberPort(op, "MonitorPort", monitorPort)
 }
 
-// sendPoolMembersAndConfirm sends entries as poolID's whole member list,
-// then, unless noWait, waits for the pool to settle (CREATED, load balancer
-// not busy) and confirms that a fresh ListPoolMembers names exactly entries.
-// A mismatch there wraps ErrNotSettled: the write already reached the
-// server, and another writer may have changed the pool since. The returned
-// Pool is nil when noWait is set or no confirming read ever completed; the
-// caller falls back to the pool it already read before sending.
 func (c *Client) sendPoolMembersAndConfirm(ctx context.Context, op, lbID, poolID string, entries []poolMemberEntry, noWait bool) (*Pool, error) {
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
 		return nil, err
 	}
+	notSent := false
 	req := transport.Request{
+		NotSent:   &notSent,
+		Once:      true,
 		Operation: op,
 		Method:    http.MethodPut,
 		URL:       c.lbURL([]string{projectID, "loadBalancers", lbID, "pools", poolID, "members"}, nil),
 		Body:      poolMembersReplaceBody{Members: entries},
 		OK:        httpStatusOKWrite,
 	}
-	if err := sendWithBusyResend(ctx, poolBusyWaiter(c, op, lbID, poolID), func() error {
-		return c.c.DoJSON(ctx, req, nil)
-	}); err != nil {
+	if err := c.c.DoJSON(ctx, req, nil); err != nil {
+		if !notSent && !is4xxAPIError(err) {
+			return nil, wrapNotSettled(op, "pool "+poolID, err)
+		}
 		return nil, err
 	}
 	if noWait {
@@ -332,8 +329,9 @@ type AddPoolMemberOutput struct {
 // failure at any of these points returns an error wrapping ErrFailed (the
 // pool or load balancer reached ERROR) or ErrNotSettled (the post-write
 // bound ran out, the confirm read did not match, or a read or sleep
-// failed). Once the PUT is sent, it is not resent on a rerun; AddPoolMember
-// simply reads the pool's members again from the start.
+// failed). An ambiguous send returns ErrNotSettled without a resend. Only
+// an explicit busy refusal permits a fresh read, validation, and merge
+// before one more attempt. NoWait returns the submitted member values.
 func (c *Client) AddPoolMember(ctx context.Context, in *AddPoolMemberInput) (*AddPoolMemberOutput, error) {
 	const op = "loadbalancer.AddPoolMember"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -361,40 +359,27 @@ func (c *Client) AddPoolMember(ctx context.Context, in *AddPoolMemberInput) (*Ad
 	}
 	defer unlock()
 
-	pool, err := c.poolPreWritePool(ctx, op, in.LoadBalancerID, in.PoolID)
-	if err != nil {
+	pool, changed, err := c.mutatePoolMembers(ctx, op, in.LoadBalancerID, in.PoolID, in.NoWait,
+		func(entries []poolMemberEntry) ([]poolMemberEntry, bool, error) {
+			weight := in.Weight
+			if weight == 0 {
+				weight = 1
+			}
+			wanted := poolMemberEntry{Address: in.Address, Port: in.Port, Backup: in.Backup, Weight: weight, Name: in.Name, MonitorPort: effectiveMonitorPort(in.Port, in.MonitorPort)}
+			key := poolMemberKeyOf(in.Address, in.Port)
+			if i := findPoolMemberEntry(entries, key); i >= 0 {
+				if poolMemberFieldsEqual(entries[i], wanted) {
+					return entries, false, nil
+				}
+				return nil, false, fmt.Errorf("%w: %s: pool %s already has a member at %s:%d; use update-pool-member to change it",
+					core.ErrInvalidInput, op, in.PoolID, in.Address, in.Port)
+			}
+			return append(entries, wanted), true, nil
+		})
+	if pool == nil {
 		return nil, err
 	}
-
-	membersOut, err := c.ListPoolMembers(ctx, &ListPoolMembersInput{LoadBalancerID: in.LoadBalancerID, PoolID: in.PoolID})
-	if err != nil {
-		return nil, err
-	}
-	if err := checkMemberReadsAgree(op, in.PoolID, pool, membersOut.Items); err != nil {
-		return nil, err
-	}
-	entries := poolMemberEntriesOf(membersOut.Items)
-
-	weight := in.Weight
-	if weight == 0 {
-		weight = 1
-	}
-	wanted := poolMemberEntry{Address: in.Address, Port: in.Port, Backup: in.Backup, Weight: weight, Name: in.Name, MonitorPort: effectiveMonitorPort(in.Port, in.MonitorPort)}
-	key := poolMemberKeyOf(in.Address, in.Port)
-	if i := findPoolMemberEntry(entries, key); i >= 0 {
-		if poolMemberFieldsEqual(entries[i], wanted) {
-			return &AddPoolMemberOutput{Pool: *pool, Changed: false}, nil
-		}
-		return nil, fmt.Errorf("%w: %s: pool %s already has a member at %s:%d; use update-pool-member to change it",
-			core.ErrInvalidInput, op, in.PoolID, in.Address, in.Port)
-	}
-	entries = append(entries, wanted)
-
-	settled, err := c.sendPoolMembersAndConfirm(ctx, op, in.LoadBalancerID, in.PoolID, entries, in.NoWait)
-	if settled == nil {
-		settled = pool
-	}
-	return &AddPoolMemberOutput{Pool: *settled, Changed: true}, err
+	return &AddPoolMemberOutput{Pool: *pool, Changed: changed}, err
 }
 
 // UpdatePoolMemberInput changes a member's Name, Weight, MonitorPort, or
@@ -474,52 +459,41 @@ func (c *Client) UpdatePoolMember(ctx context.Context, in *UpdatePoolMemberInput
 	}
 	defer unlock()
 
-	pool, err := c.poolPreWritePool(ctx, op, in.LoadBalancerID, in.PoolID)
-	if err != nil {
+	pool, changed, err := c.mutatePoolMembers(ctx, op, in.LoadBalancerID, in.PoolID, in.NoWait,
+		func(entries []poolMemberEntry) ([]poolMemberEntry, bool, error) {
+			key := poolMemberKeyOf(in.Address, in.Port)
+			i := findPoolMemberEntry(entries, key)
+			if i < 0 {
+				return nil, false, fmt.Errorf("%w: %s: pool %s has no member at %s:%d", core.ErrNotFound, op, in.PoolID, in.Address, in.Port)
+			}
+
+			updated := entries[i]
+			if in.Name != nil {
+				updated.Name = *in.Name
+			}
+			if in.Weight != nil {
+				w := *in.Weight
+				if w == 0 {
+					w = 1
+				}
+				updated.Weight = w
+			}
+			if in.MonitorPort != nil {
+				updated.MonitorPort = effectiveMonitorPort(updated.Port, *in.MonitorPort)
+			}
+			if in.Backup != nil {
+				updated.Backup = *in.Backup
+			}
+			if poolMemberFieldsEqual(entries[i], updated) {
+				return entries, false, nil
+			}
+			entries[i] = updated
+			return entries, true, nil
+		})
+	if pool == nil {
 		return nil, err
 	}
-
-	membersOut, err := c.ListPoolMembers(ctx, &ListPoolMembersInput{LoadBalancerID: in.LoadBalancerID, PoolID: in.PoolID})
-	if err != nil {
-		return nil, err
-	}
-	if err := checkMemberReadsAgree(op, in.PoolID, pool, membersOut.Items); err != nil {
-		return nil, err
-	}
-	entries := poolMemberEntriesOf(membersOut.Items)
-	key := poolMemberKeyOf(in.Address, in.Port)
-	i := findPoolMemberEntry(entries, key)
-	if i < 0 {
-		return nil, fmt.Errorf("%w: %s: pool %s has no member at %s:%d", core.ErrNotFound, op, in.PoolID, in.Address, in.Port)
-	}
-
-	updated := entries[i]
-	if in.Name != nil {
-		updated.Name = *in.Name
-	}
-	if in.Weight != nil {
-		w := *in.Weight
-		if w == 0 {
-			w = 1
-		}
-		updated.Weight = w
-	}
-	if in.MonitorPort != nil {
-		updated.MonitorPort = effectiveMonitorPort(updated.Port, *in.MonitorPort)
-	}
-	if in.Backup != nil {
-		updated.Backup = *in.Backup
-	}
-	if poolMemberFieldsEqual(entries[i], updated) {
-		return &UpdatePoolMemberOutput{Pool: *pool, Changed: false}, nil
-	}
-	entries[i] = updated
-
-	settled, err := c.sendPoolMembersAndConfirm(ctx, op, in.LoadBalancerID, in.PoolID, entries, in.NoWait)
-	if settled == nil {
-		settled = pool
-	}
-	return &UpdatePoolMemberOutput{Pool: *settled, Changed: true}, err
+	return &UpdatePoolMemberOutput{Pool: *pool, Changed: changed}, err
 }
 
 // RemovePoolMemberInput identifies the member to remove by Address and
@@ -574,29 +548,17 @@ func (c *Client) RemovePoolMember(ctx context.Context, in *RemovePoolMemberInput
 	}
 	defer unlock()
 
-	pool, err := c.poolPreWritePool(ctx, op, in.LoadBalancerID, in.PoolID)
-	if err != nil {
+	pool, changed, err := c.mutatePoolMembers(ctx, op, in.LoadBalancerID, in.PoolID, in.NoWait,
+		func(entries []poolMemberEntry) ([]poolMemberEntry, bool, error) {
+			key := poolMemberKeyOf(in.Address, in.Port)
+			i := findPoolMemberEntry(entries, key)
+			if i < 0 {
+				return nil, false, fmt.Errorf("%w: %s: pool %s has no member at %s:%d", core.ErrNotFound, op, in.PoolID, in.Address, in.Port)
+			}
+			return append(entries[:i], entries[i+1:]...), true, nil
+		})
+	if pool == nil {
 		return nil, err
 	}
-
-	membersOut, err := c.ListPoolMembers(ctx, &ListPoolMembersInput{LoadBalancerID: in.LoadBalancerID, PoolID: in.PoolID})
-	if err != nil {
-		return nil, err
-	}
-	if err := checkMemberReadsAgree(op, in.PoolID, pool, membersOut.Items); err != nil {
-		return nil, err
-	}
-	entries := poolMemberEntriesOf(membersOut.Items)
-	key := poolMemberKeyOf(in.Address, in.Port)
-	i := findPoolMemberEntry(entries, key)
-	if i < 0 {
-		return nil, fmt.Errorf("%w: %s: pool %s has no member at %s:%d", core.ErrNotFound, op, in.PoolID, in.Address, in.Port)
-	}
-	entries = append(entries[:i], entries[i+1:]...)
-
-	settled, err := c.sendPoolMembersAndConfirm(ctx, op, in.LoadBalancerID, in.PoolID, entries, in.NoWait)
-	if settled == nil {
-		settled = pool
-	}
-	return &RemovePoolMemberOutput{Pool: *settled, Changed: true}, err
+	return &RemovePoolMemberOutput{Pool: *pool, Changed: changed}, err
 }

@@ -6,7 +6,7 @@
 
 Kind: Write.
 
-The members write replaces the whole list: this command reads every member first and sends back what it read plus this one change, never a caller-supplied whole list. --address must be IPv4; --port and --monitor-port are 1 to 65535, with --monitor-port 0 meaning unset. --weight 0 sends 1. Without --no-wait, waits for the pool to settle, then confirms a fresh read names exactly the members just sent; a mismatch, a timeout, or the pool reaching ERROR is NotSettled or WriteFailed, and Changed still reports whether the member list actually changed. A member already present at --address and --port with the same fields makes this a no-op: Changed false, nothing sent. One present with any different field exits 2 (InvalidUsage) naming update-pool-member instead.
+The members write replaces the whole list: this command reads every member first and sends back what it read plus this one change, never a caller-supplied whole list. After an explicit busy refusal it rereads, validates, and merges again before one more attempt. An ambiguous result is NotSettled and never resends the replacement; read the members before another call. --address must be IPv4; --port and --monitor-port are 1 to 65535, with --monitor-port 0 meaning unset. --weight 0 sends 1. Without --no-wait, waits for the pool to settle, then confirms a fresh read names exactly the members just sent; a mismatch, a timeout, or the pool reaching ERROR is NotSettled or WriteFailed, and Changed still reports whether the member list actually changed. A member already present at --address and --port with the same fields makes this a no-op: Changed false, nothing sent. One present with any different field exits 2 (InvalidUsage) naming update-pool-member instead.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -28,7 +28,7 @@ vngcloud loadbalancer add-pool-member --load-balancer-id <load-balancer-id> --po
 
 Kind: Write.
 
---allowed-cidrs is a comma-separated list of IPv4 CIDR prefixes with no host bits set, such as 10.0.0.0/24,203.0.113.0/28; it is required, with no default, unlike VNG Cloud's own SDK, which sends 0.0.0.0/0. Any entry outside every private range (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10) needs --yes: it may open the ports this listener names to outside the account's own network, more so on a load balancer created with a Scheme other than Internal. --protocol HTTPS requires --default-certificate-id; any other protocol refuses --default-certificate-id, --client-certificate-id, and a --cli-input-json CertificateIDs alike, refusing the command the moment any single one of them is set. CertificateIDs comes only through --cli-input-json, per the design's nested fields, as does --cli-input-json's InsertHeaders. A 0 --timeout-client, --timeout-member, or --timeout-connection sends the server's own default (50, 50, and 5 seconds). An HTTP listener on a load balancer reachable from outside the account's own network serves cleartext: nothing encrypts traffic between the client and the load balancer.
+--allowed-cidrs is a comma-separated list of IPv4 CIDR prefixes with no host bits set, such as 10.0.0.0/24,203.0.113.0/28; it is required, with no default, unlike VNG Cloud's own SDK, which sends 0.0.0.0/0. Any entry outside every private range (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10) needs --yes: it may open the ports this listener names to outside the account's own network, more so on a load balancer created with a Scheme other than Internal. --protocol HTTPS requires --default-certificate-id; any other protocol refuses --default-certificate-id, --client-certificate-id, and a --cli-input-json CertificateIDs alike, refusing the command the moment any single one of them is set. CertificateIDs comes only through --cli-input-json, per the design's nested fields, as does --cli-input-json's InsertHeaders. A 0 --timeout-client, --timeout-member, or --timeout-connection sends the server's own default (50, 50, and 5 seconds). An HTTP listener on a load balancer reachable from outside the account's own network serves cleartext: nothing encrypts traffic between the client and the load balancer. --no-wait returns submitted timeouts, pools, certificates, CIDRs, and headers without confirmation.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -76,7 +76,7 @@ vngcloud loadbalancer create-load-balancer --name <name> --package-id <package-i
 
 Kind: Write.
 
-Rules comes only through --cli-input-json, a list of objects each with Type, CompareType, and Value all required, for example '{"Rules":[{"Type":"PATH","CompareType":"STARTS_WITH","Value":"/api"}]}'. --action REDIRECT_TO_POOL requires --redirect-pool-id and refuses --redirect-url, --redirect-http-code, and --keep-query-string; REDIRECT_TO_URL requires --redirect-url and refuses --redirect-pool-id. Each write sends only the redirect fields its action carries. Another --action value reaches the server as given.
+Rules comes only through --cli-input-json, a list of objects each with Type, CompareType, and Value all required, for example '{"Rules":[{"Type":"PATH","CompareType":"STARTS_WITH","Value":"/api"}]}'. --action REDIRECT_TO_POOL requires --redirect-pool-id and refuses --redirect-url, --redirect-http-code, and --keep-query-string; REDIRECT_TO_URL requires --redirect-url and refuses --redirect-pool-id. Each write sends only the redirect fields its action carries. Another --action value reaches the server as given. --no-wait returns submitted redirect fields and rules without confirmation.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -99,7 +99,7 @@ vngcloud loadbalancer create-policy --load-balancer-id <load-balancer-id> --list
 
 Kind: Write.
 
-Empty --algorithm sends ROUND_ROBIN; 0 --healthy-threshold, --unhealthy-threshold, --health-check-interval, or --health-check-timeout sends the server's own default (3, 3, 30, and 5). --stickiness and --tls-encryption are sent only when given, since a Layer 4 pool has no use for either. --health-check-path, --health-check-method, --health-check-http-version, --health-check-domain-name, and --health-check-success-code are only valid when --health-check-protocol is HTTP or HTTPS; giving one with any other check protocol exits 2 (InvalidUsage) before any request. No domain name is invented for HTTP/1.1: an HTTP check with none reaches the server empty, which then refuses it.
+Empty --algorithm sends ROUND_ROBIN; 0 --healthy-threshold, --unhealthy-threshold, --health-check-interval, or --health-check-timeout sends the server's own default (3, 3, 30, and 5). --stickiness and --tls-encryption are sent only when given, since a Layer 4 pool has no use for either. --health-check-path, --health-check-method, --health-check-http-version, --health-check-domain-name, and --health-check-success-code are only valid when --health-check-protocol is HTTP or HTTPS; giving one with any other check protocol exits 2 (InvalidUsage) before any request. No domain name is invented for HTTP/1.1: an HTTP check with none reaches the server empty, which then refuses it. --no-wait returns submitted pool settings and the health monitor without confirming them.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -467,7 +467,7 @@ vngcloud loadbalancer quote-resize-load-balancer --load-balancer-id <load-balanc
 
 Kind: Write.
 
-The members write replaces the whole list: this command reads every member first and sends back what it read plus this one change, never a caller-supplied whole list. --address must be IPv4; --port and --monitor-port are 1 to 65535, with --monitor-port 0 meaning unset. --weight 0 sends 1. Without --no-wait, waits for the pool to settle, then confirms a fresh read names exactly the members just sent; a mismatch, a timeout, or the pool reaching ERROR is NotSettled or WriteFailed, and Changed still reports whether the member list actually changed. No member at --address and --port is NotFound, nothing sent. Needs --yes on every call: removing a member stops it taking traffic immediately, though add-pool-member can restore it.
+The members write replaces the whole list: this command reads every member first and sends back what it read plus this one change, never a caller-supplied whole list. After an explicit busy refusal it rereads, validates, and merges again before one more attempt. An ambiguous result is NotSettled and never resends the replacement; read the members before another call. --address must be IPv4; --port and --monitor-port are 1 to 65535, with --monitor-port 0 meaning unset. --weight 0 sends 1. Without --no-wait, waits for the pool to settle, then confirms a fresh read names exactly the members just sent; a mismatch, a timeout, or the pool reaching ERROR is NotSettled or WriteFailed, and Changed still reports whether the member list actually changed. No member at --address and --port is NotFound, nothing sent. Needs --yes on every call: removing a member stops it taking traffic immediately, though add-pool-member can restore it.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -502,7 +502,7 @@ vngcloud loadbalancer resize-load-balancer --load-balancer-id <load-balancer-id>
 
 Kind: Write.
 
-At least one field must be set, checked before any request (InvalidUsage). Reads the listener, applies every set field, and sends the full body with the read values for the rest. --allowed-cidrs takes the same comma-separated value create-listener's does; leaving it unset keeps the listener's own value, and a set one needs --yes for an entry outside every private range (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10) the same way. An explicitly empty --allowed-cidrs reaches the SDK as a non-nil, empty list, which it refuses (InvalidUsage) rather than send, since an empty list would open or close the listener to everyone depending on the server's own interpretation. The merged certificate fields are checked against the listener's own, unchangeable Protocol exactly as create-listener checks them; CertificateIDs comes only through --cli-input-json.
+At least one field must be set, checked before any request (InvalidUsage). Reads the listener, applies every set field, and sends the full body with the read values for the rest. --allowed-cidrs takes the same comma-separated value create-listener's does; leaving it unset keeps the listener's own value, and a set one needs --yes for an entry outside every private range (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10) the same way. An explicitly empty --allowed-cidrs reaches the SDK as a non-nil, empty list, which it refuses (InvalidUsage) rather than send, since an empty list would open or close the listener to everyone depending on the server's own interpretation. The merged certificate fields are checked against the listener's own, unchangeable Protocol exactly as create-listener checks them; CertificateIDs comes only through --cli-input-json. --no-wait returns submitted timeouts, pools, certificates, CIDRs, and headers without confirmation.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -527,7 +527,7 @@ vngcloud loadbalancer update-listener --load-balancer-id <load-balancer-id> --li
 
 Kind: Write.
 
-At least one field must be set, checked before any request (InvalidUsage). Reads the policy, applies every set field, and sends the body for the merged action with the read values for the rest. A REDIRECT_TO_POOL action sends only redirectPoolId, and REDIRECT_TO_URL sends only redirectUrl, redirectHttpCode, and keepQueryString. A --cli-input-json Rules replaces the whole rule list; leaving it unset resends the rules read, refusing the write instead if one of them reads back missing Type, CompareType, or Value. The merged --action and redirect fields are checked exactly as create-policy checks them, so --redirect-http-code on a pool policy is refused.
+At least one field must be set, checked before any request (InvalidUsage). Reads the policy, applies every set field, and sends the body for the merged action with the read values for the rest. A REDIRECT_TO_POOL action sends only redirectPoolId, and REDIRECT_TO_URL sends only redirectUrl, redirectHttpCode, and keepQueryString. A --cli-input-json Rules replaces the whole rule list; leaving it unset resends the rules read, refusing the write instead if one of them reads back missing Type, CompareType, or Value. The merged --action and redirect fields are checked exactly as create-policy checks them, so --redirect-http-code on a pool policy is refused. --no-wait returns submitted redirect fields and rules without confirmation.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -550,7 +550,7 @@ vngcloud loadbalancer update-policy --load-balancer-id <load-balancer-id> --list
 
 Kind: Write.
 
-At least one field must be set, checked before any request (InvalidUsage). Reads the pool and its health monitor, applies every set field, and sends the full body with the read values for the rest, so a call that sets only --algorithm still resends the health monitor exactly as read. The health check protocol cannot change after create, so there is no flag for it here; the HTTP fields are refused when the pool's own check protocol is not HTTP or HTTPS, the same guard create-pool runs.
+At least one field must be set, checked before any request (InvalidUsage). Reads the pool and its health monitor, applies every set field, and sends the full body with the read values for the rest, so a call that sets only --algorithm still resends the health monitor exactly as read. The health check protocol cannot change after create, so there is no flag for it here; the HTTP fields are refused when the pool's own check protocol is not HTTP or HTTPS, the same guard create-pool runs. --no-wait returns submitted booleans and health monitor fields without confirmation.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -578,7 +578,7 @@ vngcloud loadbalancer update-pool --load-balancer-id <load-balancer-id> --pool-i
 
 Kind: Write.
 
-The members write replaces the whole list: this command reads every member first and sends back what it read plus this one change, never a caller-supplied whole list. --address must be IPv4; --port and --monitor-port are 1 to 65535, with --monitor-port 0 meaning unset. --weight 0 sends 1. Without --no-wait, waits for the pool to settle, then confirms a fresh read names exactly the members just sent; a mismatch, a timeout, or the pool reaching ERROR is NotSettled or WriteFailed, and Changed still reports whether the member list actually changed. At least one of --name, --weight, --monitor-port, or --backup must be set, checked before any request (InvalidUsage). No member at --address and --port is NotFound, nothing sent; a change that leaves every field equal to what was read is Changed false, nothing sent.
+The members write replaces the whole list: this command reads every member first and sends back what it read plus this one change, never a caller-supplied whole list. After an explicit busy refusal it rereads, validates, and merges again before one more attempt. An ambiguous result is NotSettled and never resends the replacement; read the members before another call. --address must be IPv4; --port and --monitor-port are 1 to 65535, with --monitor-port 0 meaning unset. --weight 0 sends 1. Without --no-wait, waits for the pool to settle, then confirms a fresh read names exactly the members just sent; a mismatch, a timeout, or the pool reaching ERROR is NotSettled or WriteFailed, and Changed still reports whether the member list actually changed. At least one of --name, --weight, --monitor-port, or --backup must be set, checked before any request (InvalidUsage). No member at --address and --port is NotFound, nothing sent; a change that leaves every field equal to what was read is Changed false, nothing sent.
 
 | Flag | Type | Required |
 |-|-|-|

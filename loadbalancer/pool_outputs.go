@@ -5,7 +5,7 @@ type CreatePoolOutput struct {
 	Pool Pool
 }
 
-// UpdatePoolOutput holds the last observed pool after an update.
+// UpdatePoolOutput holds the last observed pool, or submitted values with NoWait.
 type UpdatePoolOutput struct {
 	Pool Pool
 }

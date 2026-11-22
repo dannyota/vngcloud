@@ -10,7 +10,7 @@ Any key can read every key and certificate of the account, so keep its expiry sh
 
 Kind: Write, destructive.
 
-Deletes the CDN and its generated CNAME target. Pass --yes to confirm.
+Requires detail with explicit status and matching CDN ID before deleting. Deletes the CDN and its generated CNAME target. Pass --yes to confirm.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -24,7 +24,7 @@ vngcloud cdn delete-web-accelerator --cdn-id <cdn-id> --yes
 
 Kind: Write, destructive.
 
-Returns WebAccelerator and Changed. It confirms with reads at 0, 2, 4, and 8 seconds. --no-wait skips only the settle wait. A CDN that does not settle prints its last read on stdout and exits 1.
+Requires detail with explicit status and matching CDN ID before toggling. Returns WebAccelerator and Changed. It confirms with reads at 0, 2, 4, and 8 seconds. --no-wait skips only the settle wait. A CDN that does not settle prints its last read on stdout and exits 1.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -39,7 +39,7 @@ vngcloud cdn disable-web-accelerator --cdn-id <cdn-id> --yes
 
 Kind: Write.
 
-Returns WebAccelerator and Changed. It confirms with reads at 0, 2, 4, and 8 seconds. --no-wait skips only the settle wait. A CDN that does not settle prints its last read on stdout and exits 1.
+Requires detail with explicit status and matching CDN ID before toggling. Returns WebAccelerator and Changed. It confirms with reads at 0, 2, 4, and 8 seconds. --no-wait skips only the settle wait. A CDN that does not settle prints its last read on stdout and exits 1.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -225,7 +225,7 @@ vngcloud cdn purge-paths --cdn-domain <cdn-domain> --cli-input-json '{"Paths":["
 
 Kind: Write.
 
-Merges changes into a fresh CDN read. Use --cli-input-json for every list. --no-wait makes one follow-up read and skips the settle wait.
+Requires detail with explicit status and matching CDN ID before writing. Merges changes into a fresh CDN read. Use --cli-input-json for every list. --no-wait makes one follow-up read and skips the settle wait.
 
 | Flag | Type | Required |
 |-|-|-|

@@ -326,7 +326,7 @@ func (c *Client) CreatePool(ctx context.Context, in *CreatePoolInput) (*CreatePo
 		return nil, errCreateResponseNoID(op, status, "list-pools")
 	}
 
-	fallback := Pool{UUID: resp.UUID, Name: in.Name, Protocol: in.Protocol, LoadBalanceMethod: algorithm}
+	fallback := submittedPool(Pool{UUID: resp.UUID, Name: in.Name, Protocol: in.Protocol}, body, in.HealthCheckProtocol, nil)
 	if in.NoWait {
 		return &CreatePoolOutput{Pool: fallback}, nil
 	}
@@ -544,8 +544,7 @@ func (c *Client) UpdatePool(ctx context.Context, in *UpdatePoolInput) (*UpdatePo
 	}
 
 	if in.NoWait {
-		fallback := *pool
-		fallback.LoadBalanceMethod = algorithm
+		fallback := submittedPool(*pool, body, monitor.HealthCheckProtocol, monitor)
 		return &UpdatePoolOutput{Pool: fallback}, nil
 	}
 

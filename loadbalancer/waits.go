@@ -39,42 +39,43 @@ func contextSleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// poll sleeps firstDelay (when positive), then runs step, then again every
-// interval, until step reports stop true or bound has elapsed, by now, since
-// poll was entered. Elapsed time is read from now rather than counted in
-// interval steps, so a step that itself takes real time, such as a slow
-// read, counts against the bound instead of only the sleeps between steps;
-// a test injects both a fake clock and a sleepFunc that returns quickly.
-// This is the same shape as vDNS's own unexported poll, duplicated here
-// rather than shared, since each write in this package needs its own
-// interval and bound and no package here imports another for this.
-//
-// firstDelay exists because a status read taken the instant a write returns
-// can still show the resource's state from before the write: the server may
-// not have started applying it yet, so step's very first call would call a
-// stale read "settled" without the write ever having been observed to take
-// effect. Terraform's own provider waits before its first read the same
-// way. A caller checking current state before sending anything, rather than
-// confirming a change it just made, passes 0: there step should read
-// immediately, not wait out of caution.
 func poll(ctx context.Context, now clockFunc, sleep sleepFunc, firstDelay, interval, bound time.Duration, step func(ctx context.Context) (stop bool, err error), onTimeout func() error) error {
 	deadline := now().Add(bound)
-	if firstDelay > 0 {
-		if err := sleep(ctx, firstDelay); err != nil {
+	waitCtx, cancel := context.WithTimeout(ctx, bound)
+	defer cancel()
+	check := func() error {
+		if err := ctx.Err(); err != nil {
 			return err
 		}
+		if !now().Before(deadline) || waitCtx.Err() != nil {
+			return onTimeout()
+		}
+		return nil
 	}
+	delay := firstDelay
 	for {
-		stop, err := step(ctx)
+		if err := check(); err != nil {
+			return err
+		}
+		if delay > 0 {
+			err := sleep(waitCtx, min(delay, deadline.Sub(now())))
+			if deadlineErr := check(); deadlineErr != nil {
+				return deadlineErr
+			}
+			if err != nil {
+				return err
+			}
+		}
+		stepCtx, stepCancel := context.WithTimeout(waitCtx, deadline.Sub(now()))
+		stop, err := step(stepCtx)
+		stepCancel()
+		if deadlineErr := check(); deadlineErr != nil {
+			return deadlineErr
+		}
 		if stop {
 			return err
 		}
-		if !now().Before(deadline) {
-			return onTimeout()
-		}
-		if err := sleep(ctx, interval); err != nil {
-			return err
-		}
+		delay = interval
 	}
 }
 

@@ -1,5 +1,12 @@
 # Release Notes
 
+## Unreleased
+
+- Load balancer member writes remerge fresh state after busy refusals and
+  never replay ambiguous replacements. Waits enforce deadlines; `NoWait`
+  outputs include submitted fields. CDN writes reject missing status or
+  mismatched identity in detail responses.
+
 ## v0.96.0 - Setup cost estimate
 
 - Add SDK `pricing.Client.Estimate` and CLI `pricing estimate` to quote a

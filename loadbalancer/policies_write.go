@@ -313,7 +313,7 @@ func (c *Client) CreatePolicy(ctx context.Context, in *CreatePolicyInput) (*Crea
 		return nil, errCreateResponseNoID(op, status, "list-policies")
 	}
 
-	fallback := Policy{UUID: resp.UUID, Name: in.Name, Action: in.Action, RedirectPoolID: in.RedirectPoolID, RedirectURL: in.RedirectURL}
+	fallback := submittedPolicy(Policy{UUID: resp.UUID, Name: in.Name}, body, true)
 	if in.NoWait {
 		return &CreatePolicyOutput{Policy: fallback}, nil
 	}
@@ -364,7 +364,7 @@ type UpdatePolicyInput struct {
 	NoWait bool
 }
 
-// UpdatePolicyOutput holds the result of UpdatePolicy.
+// UpdatePolicyOutput holds observed state, or submitted values with NoWait.
 type UpdatePolicyOutput struct {
 	Policy Policy
 }
@@ -477,9 +477,7 @@ func (c *Client) UpdatePolicy(ctx context.Context, in *UpdatePolicyInput) (*Upda
 	}
 
 	if in.NoWait {
-		fallback := *policy
-		fallback.Action, fallback.RedirectPoolID, fallback.RedirectURL = action, body.RedirectPoolID, body.RedirectURL
-		fallback.RedirectHTTPCode, fallback.KeepQueryString = body.RedirectHTTPCode, fields.Keep
+		fallback := submittedPolicy(*policy, body, in.Rules != nil)
 		return &UpdatePolicyOutput{Policy: fallback}, nil
 	}
 

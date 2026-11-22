@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/jsonresponse"
 )
 
 // ListWebAcceleratorsInput has no fields today; a nil Input is valid.
@@ -72,7 +73,13 @@ func (c *Client) readCDN(ctx context.Context, op, cdnID string) (json.RawMessage
 		return nil, nil, err
 	}
 	var wa WebAccelerator
-	if emptyData(data) || decodeObject(data, &wa) != nil {
+	var state struct {
+		CDNID  flexID `json:"cdnId"`
+		Status *int   `json:"status"`
+	}
+	if emptyData(data) || jsonresponse.ValidateStrict(data, &state) != nil ||
+		json.Unmarshal(data, &state) != nil || state.Status == nil || string(state.CDNID) != cdnID ||
+		decodeObject(data, &wa) != nil {
 		return nil, nil, r.unexpected(http.StatusOK)
 	}
 	return data, &wa, nil

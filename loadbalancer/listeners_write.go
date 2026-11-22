@@ -297,7 +297,7 @@ func (c *Client) CreateListener(ctx context.Context, in *CreateListenerInput) (*
 		return nil, errCreateResponseNoID(op, status, "list-listeners")
 	}
 
-	fallback := Listener{UUID: resp.UUID, Name: in.Name, Protocol: in.Protocol, ProtocolPort: in.Port}
+	fallback := submittedListener(Listener{UUID: resp.UUID, Name: in.Name, Protocol: in.Protocol, ProtocolPort: in.Port}, body.listenerWriteBody)
 	if in.NoWait {
 		return &CreateListenerOutput{Listener: fallback}, nil
 	}
@@ -353,7 +353,7 @@ type UpdateListenerInput struct {
 	NoWait bool
 }
 
-// UpdateListenerOutput holds the result of UpdateListener.
+// UpdateListenerOutput holds observed state, or submitted values with NoWait.
 type UpdateListenerOutput struct {
 	Listener Listener
 }
@@ -499,10 +499,7 @@ func (c *Client) UpdateListener(ctx context.Context, in *UpdateListenerInput) (*
 	}
 
 	if in.NoWait {
-		fallback := *listener
-		fallback.DefaultPoolID = defaultPoolID
-		fallback.TimeoutClient, fallback.TimeoutMember, fallback.TimeoutConnection = body.TimeoutClient, body.TimeoutMember, body.TimeoutConnection
-		fallback.AllowedCIDRs = body.AllowedCIDRs
+		fallback := submittedListener(*listener, body)
 		return &UpdateListenerOutput{Listener: fallback}, nil
 	}
 
