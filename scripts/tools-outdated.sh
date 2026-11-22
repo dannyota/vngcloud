@@ -5,10 +5,12 @@ set -Eeuo pipefail
 tool_token=${GH_TOKEN:-}
 export -n tool_token
 unset GH_TOKEN
-if [[ -n "$tool_token" && ! "$tool_token" =~ ^[A-Za-z0-9_]+$ ]]; then
-  echo 'tools-outdated: invalid GitHub token format' >&2
+if [[ "$tool_token" =~ [[:cntrl:]] ]]; then
+  echo 'tools-outdated: unsafe GitHub authentication header' >&2
   exit 1
 fi
+tool_token=${tool_token//\\/\\\\}
+tool_token=${tool_token//\"/\\\"}
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
