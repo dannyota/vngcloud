@@ -89,6 +89,22 @@ def load_profile(path, profile):
     }
 
 
+def browser_script_root(root):
+    path = os.path.join(root, ".playwright-mcp")
+    try:
+        os.mkdir(path, 0o700)
+    except FileExistsError:
+        pass
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        if os.fstat(descriptor).st_uid != os.getuid():
+            raise ValueError("unsafe browser directory")
+        os.fchmod(descriptor, 0o700)
+    finally:
+        os.close(descriptor)
+    return path
+
+
 def main(argv=None):
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     parser = argparse.ArgumentParser(description="Serve private IAM browser login values once")
@@ -142,7 +158,12 @@ def main(argv=None):
         def log_message(self, *args):
             pass
 
-    with tempfile.TemporaryDirectory(prefix="vngcloud-browser-") as directory:
+    try:
+        browser_root = browser_script_root(root)
+    except (OSError, ValueError):
+        print("browser-creds: cannot use private .playwright-mcp directory", file=sys.stderr)
+        return 2
+    with tempfile.TemporaryDirectory(prefix="vngcloud-browser-", dir=browser_root) as directory:
         os.chmod(directory, 0o700)
         script = os.path.join(directory, "browser-login.js")
         with open(os.path.join(root, "scripts/browser-login.js"), encoding="utf-8") as source:

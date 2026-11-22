@@ -37,7 +37,7 @@ Each log header prints `session id: <id>`; resume with that ID to answer a worke
 
 The manager prepares a disposable copy outside every Git working tree. Supply only tracked source and authorized new files. Exclude `.git`, `.env`, private configs, captures, and local agent state. Add `CHANGES.txt` with the base commit, the source's initial `git status --short`, new and deleted files, and the complete diff; for fix confirmation, put the fix diff (`<old>..<new>`) first. Run `code_reviewer` there with `--no-git`.
 
-The copy has no Git metadata, so `scripts/check-lengths.sh`, which enumerates files with `git ls-files`, passes there without checking anything; the manager runs it in the source worktree. If `go build` reports a VCS status error in the copy, add `-buildvcs=false`. The reviewer may write build output and probes in that copy, never source fixes. Cache and network setup remain manager-owned. Design reviews stay read-only in the source worktree.
+The copy has no Git metadata, so `scripts/check-lengths.sh`, which enumerates files with `git ls-files`, fails there; reviewers run `make -o lengths-check check`, and the manager runs the length check in the source worktree. If `go build` reports a VCS status error in the copy, add `-buildvcs=false`. The reviewer may write build output and probes in that copy, never source fixes. Cache and network setup remain manager-owned. Design reviews stay read-only in the source worktree.
 
 ## GitHub commands
 

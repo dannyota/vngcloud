@@ -22,16 +22,20 @@ live write test.
 ## Browser login
 
 Start `make browser-creds`, or `make browser-creds PROFILE=<name>` for a CLI
-profile. The helper prints a private `browser-login.js` path. Pass that path
-as `filename` to Playwright MCP's `browser_run_code_unsafe` tool. The tracked
+profile. The helper prints a private `browser-login.js` path inside the
+repository's `.playwright-mcp/`, where Playwright MCP can read it. Pass that
+path as `filename` to `browser_run_code_unsafe`. The tracked
 `scripts/browser-login.js` is a template and refuses direct execution.
 
-The temporary script contains a random capability for this helper run. Its
-file mode is 0600 inside a mode 0700 directory. The browser sends the
+The helper creates `.playwright-mcp/` if missing, refuses a symlink or a
+directory owned by another user, and sets its mode to 0700. Each run uses a
+separate mode 0700 directory there. The temporary script contains a random
+capability for this helper run and uses mode 0600. The browser sends the
 capability in the Authorization header to the fixed loopback helper,
 without following redirects. Missing, wrong, and stale capabilities do not
 consume either endpoint. Each authenticated endpoint serves once. The
-helper deletes its temporary script on normal completion or timeout.
+helper deletes its per-run directory and script on normal completion or
+timeout.
 
 Do not read or copy the temporary script into logs or tool output. Process
 termination can leave it behind; remove that private directory after the

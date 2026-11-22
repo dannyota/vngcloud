@@ -22,6 +22,18 @@ creds = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(creds)
 
 
+def synthetic_repository(test):
+    temp = tempfile.TemporaryDirectory()
+    test.addCleanup(temp.cleanup)
+    root = Path(temp.name).resolve()
+    scripts = root / "scripts"
+    scripts.mkdir()
+    template = Path(__file__).resolve().parents[1] / "browser-login.js"
+    (scripts / "browser-login.js").write_text(template.read_text())
+    test.enterContext(mock.patch.object(creds, "__file__", str(scripts / "browser-creds.py")))
+    return root
+
+
 class LoadingTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -165,7 +177,89 @@ class LoadingTest(unittest.TestCase):
         })
 
 
+class BrowserDirectoryTest(unittest.TestCase):
+    def setUp(self):
+        self.root = synthetic_repository(self)
+        self.base = self.root / ".playwright-mcp"
+        self.enterContext(mock.patch.object(creds, "load_env", return_value={}))
+
+    def run_helper(self, inspect=lambda output: None):
+        output, error = io.StringIO(), io.StringIO()
+        with mock.patch.object(creds.http.server, "HTTPServer") as server, \
+                mock.patch.object(creds.time, "monotonic", side_effect=(0, 0, 2)), \
+                mock.patch.object(creds, "TIMEOUT_SECONDS", 1), \
+                contextlib.redirect_stdout(output), contextlib.redirect_stderr(error):
+            server.return_value.__enter__.return_value.handle_request.side_effect = lambda: inspect(output)
+            result = creds.main(["synthetic-input"])
+        return result, output.getvalue(), error.getvalue(), server.called
+
+    def inspect_script(self, output):
+        script = Path(output.getvalue().split("browser script: ", 1)[1].splitlines()[0])
+        self.assertEqual(script.parent.parent, self.base)
+        self.assertEqual(self.base.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(script.parent.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(script.stat().st_mode & 0o777, 0o600)
+        self.script = script
+
+    def test_creates_private_browser_directory_and_removes_script_on_timeout(self):
+        self.assertFalse(self.base.exists())
+        _, _, error, called = self.run_helper(self.inspect_script)
+        self.assertEqual(error, "")
+        self.assertTrue(called)
+        self.assertFalse(self.script.parent.exists())
+        self.assertEqual(list(self.base.iterdir()), [])
+
+    def test_existing_owned_browser_directory_is_private(self):
+        self.base.mkdir(mode=0o755)
+        self.base.chmod(0o755)
+        _, _, error, called = self.run_helper(self.inspect_script)
+        self.assertEqual(error, "")
+        self.assertTrue(called)
+        self.assertFalse(self.script.parent.exists())
+
+    def assert_refused(self):
+        result, output, error, called = self.run_helper()
+        self.assertEqual(result, 2)
+        self.assertEqual(output, "")
+        self.assertEqual(error, "browser-creds: cannot use private .playwright-mcp directory\n")
+        self.assertFalse(called)
+
+    def test_symlink_browser_directory_is_refused(self):
+        for exists in (True, False):
+            with self.subTest(target_exists=exists):
+                target = self.root / ("existing" if exists else "missing")
+                if exists:
+                    target.mkdir(mode=0o755)
+                    target.chmod(0o755)
+                self.base.symlink_to(target, target_is_directory=True)
+                try:
+                    self.assert_refused()
+                    if exists:
+                        self.assertEqual(target.stat().st_mode & 0o777, 0o755)
+                        self.assertEqual(list(target.iterdir()), [])
+                    else:
+                        self.assertFalse(target.exists())
+                finally:
+                    self.base.unlink()
+
+    def test_browser_directory_owned_by_another_user_is_refused(self):
+        self.base.mkdir(mode=0o755)
+        self.base.chmod(0o755)
+        with mock.patch.object(creds.os, "getuid", return_value=os.getuid() + 1):
+            self.assert_refused()
+        self.assertEqual(self.base.stat().st_mode & 0o777, 0o755)
+        self.assertEqual(list(self.base.iterdir()), [])
+
+    def test_non_directory_browser_path_is_refused(self):
+        self.base.write_text("synthetic-blocker")
+        self.assert_refused()
+        self.assertEqual(self.base.read_text(), "synthetic-blocker")
+
+
 class CapabilityTest(unittest.TestCase):
+    def setUp(self):
+        self.root = synthetic_repository(self)
+
     def test_authentication_precedes_one_shot_consumption(self):
         self.run_session("synthetic-first-capability", "synthetic-old-capability")
         self.run_session("synthetic-capability", "synthetic-first-capability")
@@ -217,6 +311,7 @@ class CapabilityTest(unittest.TestCase):
                             self.assertEqual(status, 403)
                             self.assertNotIn(b"synthetic-password", body)
                 script = Path(output.getvalue().split("browser script: ", 1)[1].splitlines()[0])
+                self.assertEqual(script.parent.parent, self.root / ".playwright-mcp")
                 self.assertEqual(script.stat().st_mode & 0o777, 0o600)
                 self.assertEqual(script.parent.stat().st_mode & 0o777, 0o700)
                 self.assertIn(json.dumps(capability), script.read_text())
@@ -231,6 +326,7 @@ class CapabilityTest(unittest.TestCase):
                 future.result(timeout=4)
                 servers[0].server_close()
         self.assertFalse(script.exists())
+        self.assertFalse(script.parent.exists())
         self.assertNotIn(capability, output.getvalue())
         self.assertNotIn("synthetic-password", output.getvalue())
 
