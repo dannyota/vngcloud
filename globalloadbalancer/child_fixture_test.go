@@ -103,7 +103,7 @@ func (f *fixture) poolJSON() string {
 }
 
 func (f *fixture) groupJSON() string {
-	return fmt.Sprintf(`{"id":%q,"name":%q,"region":"reg-1","globalPoolId":%q,"globalLoadBalancerId":%q,"trafficDial":100,"vpcId":%q,"type":"PRIVATE","status":%q,"members":[{"id":%q,"name":"tcp-backend","globalPoolMemberId":%q,"globalLoadBalancerId":%q,"subnetId":%q,"address":%q,"weight":1,"port":8080,"monitorPort":8080,"backupRole":false,"status":%q}]}`, fxGroup, f.groupName, fxPool, fxGLB, fxVPC, f.groupStatus, fxRow, fxGroup, fxGLB, fxSubnet, f.rowAddr, f.groupStatus)
+	return fmt.Sprintf(`{"id":%q,"name":%q,"region":"hcm","globalPoolId":%q,"globalLoadBalancerId":%q,"trafficDial":100,"vpcId":%q,"type":"PRIVATE","status":%q,"members":[{"id":%q,"name":"tcp-backend","globalPoolMemberId":%q,"globalLoadBalancerId":%q,"subnetId":%q,"address":%q,"weight":1,"port":8080,"monitorPort":8080,"backupRole":false,"status":%q}]}`, fxGroup, f.groupName, fxPool, fxGLB, fxVPC, f.groupStatus, fxRow, fxGroup, fxGLB, fxSubnet, f.rowAddr, f.groupStatus)
 }
 
 func (f *fixture) listenerJSON() string {
@@ -126,9 +126,9 @@ func (f *fixture) defaults(w http.ResponseWriter, key string) {
 	case "GET " + glbPrefix:
 		reply(`{"id":"glb-1","name":"g","package":"pkg-1","type":"Layer 4","status":"ACTIVE"}`)
 	case "GET /v1/regions":
-		reply(`[{"id":"reg-1","name":"hcm-3","status":"ACTIVE"}]`)
+		reply(`[{"id":"hcm","name":"HCM-3","status":"","vserverEndpoint":"https://hcm-3.api.vngcloud.vn/vserver/vserver-gateway"},{"id":"han","name":"HAN-1","status":"","vserverEndpoint":"https://han-1.api.vngcloud.vn/vserver/vserver-gateway"}]`)
 	case "GET /v1/packages":
-		reply(`[{"id":"pkg-1","enabled":true,"vlbPackages":[{"region":"hcm-3"}]}]`)
+		reply(`[{"id":"pkg-1","enabled":true,"vlbPackages":[{"region":"hcm"},{"region":"han"}]}]`)
 	case "GET " + vsPrefix + "/servers/" + fxServer:
 		reply(`{"data":{"uuid":"srv-1","status":"ACTIVE","internalInterfaces":[{"serverUuid":"srv-1","networkUuid":"vpc-1","subnetUuid":"sub-1","fixedIp":"10.1.2.3","floatingIp":"203.0.113.9"}]}}`)
 	case "GET " + vsPrefix + "/networks/" + fxVPC:

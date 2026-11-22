@@ -12,7 +12,7 @@ import (
 	"danny.vn/vngcloud"
 )
 
-const wantPoolBody = `{"name":"tcp-pool","protocol":"TCP","algorithm":"ROUND_ROBIN","health":{"protocol":"TCP","healthyThreshold":3,"unhealthyThreshold":3,"interval":30,"timeout":5},"globalPoolMembers":[{"name":"tcp-backend","region":"reg-1","type":"PRIVATE","vpcId":"vpc-1","trafficDial":100,"members":[{"name":"tcp-backend","address":"10.1.2.3","subnetId":"sub-1","port":8080,"monitorPort":8080,"weight":1,"backupRole":false}]}]}`
+const wantPoolBody = `{"name":"tcp-pool","protocol":"TCP","algorithm":"ROUND_ROBIN","health":{"protocol":"TCP","healthyThreshold":3,"unhealthyThreshold":3,"interval":30,"timeout":5},"globalPoolMembers":[{"name":"tcp-backend","region":"hcm","type":"PRIVATE","vpcId":"vpc-1","trafficDial":100,"members":[{"name":"tcp-backend","address":"10.1.2.3","subnetId":"sub-1","port":8080,"monitorPort":8080,"weight":1,"backupRole":false}]}]}`
 
 func sameJSON(t *testing.T, got []byte, want string) {
 	t.Helper()
@@ -125,12 +125,14 @@ func TestCreatePoolRefusesWhenGuardsFail(t *testing.T) {
 		"glb layer 7":         {"GET " + glbPrefix, `{"id":"glb-1","package":"pkg-1","type":"Layer 7","status":"ACTIVE"}`},
 		"glb creating":        {"GET " + glbPrefix, `{"id":"glb-1","package":"pkg-1","type":"Layer 4","status":"CREATING"}`},
 		"glb other id":        {"GET " + glbPrefix, `{"id":"glb-2","package":"pkg-1","type":"Layer 4","status":"ACTIVE"}`},
-		"region inactive":     {"GET /v1/regions", `[{"id":"reg-1","name":"hcm-3","status":"INACTIVE"}]`},
-		"region no match":     {"GET /v1/regions", `[{"id":"reg-1","name":"han-1","status":"ACTIVE"}]`},
-		"two regions":         {"GET /v1/regions", `[{"id":"reg-1","name":"hcm-3","status":"ACTIVE"},{"id":"reg-2","name":"hcm-3","status":"ACTIVE"}]`},
-		"package disabled":    {"GET /v1/packages", `[{"id":"pkg-1","enabled":false,"vlbPackages":[{"region":"hcm-3"}]}]`},
-		"package no region":   {"GET /v1/packages", `[{"id":"pkg-1","enabled":true,"vlbPackages":[{"region":"han-1"}]}]`},
-		"package missing":     {"GET /v1/packages", `[{"id":"pkg-2","enabled":true,"vlbPackages":[{"region":"hcm-3"}]}]`},
+		"region inactive":     {"GET /v1/regions", `[{"id":"hcm","name":"HCM-3","status":"INACTIVE","vserverEndpoint":"https://hcm-3.api.vngcloud.vn/vserver/vserver-gateway"}]`},
+		"region no match":     {"GET /v1/regions", `[{"id":"han","name":"HAN-1","status":"ACTIVE","vserverEndpoint":"https://han-1.api.vngcloud.vn/vserver/vserver-gateway"}]`},
+		"endpoint differs":    {"GET /v1/regions", `[{"id":"hcm","name":"HCM-3","status":"","vserverEndpoint":"https://hcm-3.api.vngcloud.vn/vserver/vserver-gateway/"}]`},
+		"endpoint missing":    {"GET /v1/regions", `[{"id":"hcm","name":"HCM-3","status":""}]`},
+		"two regions":         {"GET /v1/regions", `[{"id":"hcm","name":"HCM-3","status":"ACTIVE","vserverEndpoint":"https://hcm-3.api.vngcloud.vn/vserver/vserver-gateway"},{"id":"hcm2","name":"HCM-3","status":"ACTIVE","vserverEndpoint":"https://hcm-3.api.vngcloud.vn/vserver/vserver-gateway"}]`},
+		"package disabled":    {"GET /v1/packages", `[{"id":"pkg-1","enabled":false,"vlbPackages":[{"region":"hcm"}]}]`},
+		"package no region":   {"GET /v1/packages", `[{"id":"pkg-1","enabled":true,"vlbPackages":[{"region":"han"}]}]`},
+		"package missing":     {"GET /v1/packages", `[{"id":"pkg-2","enabled":true,"vlbPackages":[{"region":"hcm"}]}]`},
 		"existing pool":       {"GET " + glbPrefix + "/global-pools", `[{"id":"other"}]`},
 		"existing listener":   {"GET " + glbPrefix + "/global-listeners", `[{"id":"other"}]`},
 		"null pools":          {"GET " + glbPrefix + "/global-pools", `null`},
@@ -278,7 +280,7 @@ func TestCreatePoolConfirmationMismatchesAreNotSettled(t *testing.T) {
 		"health pool id":   {pool, strings.Replace(newFixture(t).poolJSON(), `"globalPoolId":"gpool-1"`, `"globalPoolId":"gpool-9"`, 1)},
 		"health missing":   {pool, `{"id":"gpool-1","name":"tcp-pool","globalLoadBalancerId":"glb-1","algorithm":"ROUND_ROBIN","protocol":"TCP","status":"ACTIVE","health":null}`},
 		"group name":       {group, strings.Replace(newFixture(t).groupJSON(), `"name":"tcp-backend","region"`, `"name":"x","region"`, 1)},
-		"group region":     {group, strings.Replace(newFixture(t).groupJSON(), `"reg-1"`, `"reg-2"`, 1)},
+		"group region":     {group, strings.Replace(newFixture(t).groupJSON(), `"hcm"`, `"han"`, 1)},
 		"group vpc":        {group, strings.Replace(newFixture(t).groupJSON(), `"vpcId":"vpc-1"`, `"vpcId":"vpc-2"`, 1)},
 		"group type":       {group, strings.Replace(newFixture(t).groupJSON(), `PRIVATE`, `PUBLIC`, 1)},
 		"group dial":       {group, strings.Replace(newFixture(t).groupJSON(), `"trafficDial":100`, `"trafficDial":50`, 1)},

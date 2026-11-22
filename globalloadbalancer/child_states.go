@@ -40,7 +40,8 @@ func parentEligible(status string) bool {
 }
 
 func regionMatches(configured string, region wireRegion) bool {
-	return strings.EqualFold(region.Status, "ACTIVE") && (strings.EqualFold(region.ID, configured) || strings.EqualFold(region.Name, configured))
+	return (region.Status == "" || strings.EqualFold(region.Status, "ACTIVE")) && strings.EqualFold(region.Name, configured) &&
+		region.VServerEndpoint == "https://"+configured+".api.vngcloud.vn/vserver/vserver-gateway"
 }
 
 func packageSupports(p wirePackage, configured, regionID string) bool {
