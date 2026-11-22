@@ -163,7 +163,7 @@ func renderTable(w io.Writer, result any) error {
 		}
 		rowBytes += size.width + size.extra
 	}
-	if len(items) > maxBytes/rowBytes {
+	if len(items) > maxBytes/rowBytes-4 {
 		return tableLimitError{}
 	}
 	columns := make([]string, 0, len(sizes))

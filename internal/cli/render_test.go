@@ -221,6 +221,19 @@ func TestRenderTableProjectedBytes(t *testing.T) {
 	}
 }
 
+func TestRenderTableProjectedBytesIncludesFrame(t *testing.T) {
+	rows := make([]any, 63)
+	for i := range rows {
+		rows[i] = map[string]any{"a": "v"}
+	}
+	rows[0] = map[string]any{"a": strings.Repeat("x", 1<<20)}
+	w := &rejectTableWriter{}
+	err := renderTable(w, rows)
+	if err == nil || exitCode(err) != 2 || !strings.Contains(err.Error(), "--output json") || w.called {
+		t.Fatalf("error = %v, wrote = %v", err, w.called)
+	}
+}
+
 func TestRenderTableLimitAfterWrite(t *testing.T) {
 	row := make(map[string]any)
 	for i := range 101 {
