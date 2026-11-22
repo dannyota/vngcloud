@@ -27,7 +27,7 @@ For each code slice, run its focused commands below while working and `make chec
 
 ## Core boundaries
 
-- [ ] Risk: high security and paid-create safety.
+- [x] Risk: high security and paid-create safety.
 - Owned paths: `internal/core/` except `internal/core/errors.go`; `internal/endpoints/`; `internal/transport/`; `internal/tokencache/`; `internal/iamuser/`; `internal/discovery/`.
 - Closes: region credential redirection at `internal/endpoints/endpoints.go:108` and `internal/core/client.go:87`; mutable IAM/cache identity at `internal/core/client_options.go:178` and `internal/core/client.go:134`; unsafe cache files at `internal/tokencache/cache.go:158`; credential formatting at `internal/core/auth.go:24` and `internal/core/totp.go:32`.
 - Closes: unbounded transport/login at `internal/transport/transport.go:547` and `internal/iamuser/login.go:261`; invalid token lifespan at `internal/iamuser/login.go:189`; cumulative discovery retention at `internal/discovery/session.go:204`; false empty lists and duplicate guards at `internal/core/flexible.go:33` and `internal/core/pagination.go:66`; queued cancellation at `internal/transport/discovery.go:126` and the shared core locks listed above.
@@ -60,7 +60,7 @@ For each code slice, run its focused commands below while working and `make chec
 
 ## Developer credential and live-write safety
 
-- [ ] Risk: high local credential disclosure and unintended cloud mutations.
+- [x] Risk: high local credential disclosure and unintended cloud mutations.
 - Owned paths: `scripts/`; `.github/workflows/`; `Makefile`; `livetest/`; a new test-only Python dependency lock file at `requirements-test.txt`.
 - Closes: unauthenticated local helper at `scripts/browser-creds.py:119`; broad live-write selection at `Makefile:55` and shared-only gates at `livetest/live_write_test.go:11059`; tool-token argv leakage at `scripts/tools-outdated.sh:23`.
 - Closes: missing script/offline safety suites at `.github/workflows/ci.yml:54` and `livetest/live_write_iam_user_mfa_test.go:1`; swallowed producer failures at `scripts/tools-outdated.sh:63` and `scripts/check-lengths.sh:26`; undeclared test dependency at `scripts/test-ci-workflows.py:59`; freshness blocking at `scripts/tools-outdated.sh:65`.
@@ -73,7 +73,7 @@ For each code slice, run its focused commands below while working and `make chec
 
 ## Compute and network guards
 
-- [ ] Risk: high credential disclosure, destructive authorization, and stale replacement writes.
+- [x] Risk: high credential disclosure, destructive authorization, and stale replacement writes.
 - Owned paths: `compute/` except `resize_server.go` and `resize_server*_test.go`; `network/`; `portal/`; `project/`; `internal/floatingip/`.
 - Closes: response-selected endpoints at `network/network.go:676` and substring region matching at `network/models.go:530`; SSH-key/model reflection at `compute/ssh_keys_write.go:208` and `portal/portal.go:47`; route replay at `network/routes_write.go:348`; ACL/subnet incomplete evidence at `network/acls_write.go:157`; substituted server state at `compute/compute.go:115`.
 - Closes: late network waits at `network/waits.go:64`; truncated aggregates at `compute/compute.go:273` and network security-group aggregation; NAT cause loss at `network/nat_write.go:21`; misleading reboot recovery at `compute/waits.go:192`; server-group offset semantics at `compute/read_inputs.go:39` and `compute/compute.go:209`; malformed portal objects at `portal/portal.go:192`.
@@ -85,7 +85,7 @@ For each code slice, run its focused commands below while working and `make chec
 
 ## Storage and volume guards
 
-- [ ] Risk: high data loss and issued-secret disclosure.
+- [x] Risk: high data loss and issued-secret disclosure.
 - Owned paths: `storage/` except `bucket_encryption.go` and `bucket_encryption*_test.go`; `volume/` except `resize_volume.go` and `resize_volume*_test.go`.
 - Closes: replayed bucket deletion at `storage/buckets_delete.go:82`; ambiguous project bucket lists at `storage/project_wait.go:68`; reflected issued secrets at `storage/s3_keys.go:154`; missing volume state at `volume/volume.go:117` and `volume/delete_volume.go:54`.
 - Closes: truncated snapshot aggregates at `volume/volume.go:359`; late waits at `storage/waits.go:41` and `volume/waits.go:58`; canceled region-discovery waiters at `storage/discovery.go:139`; unsafe cleanup hint at `storage/s3_keys.go:212`; unvalidated path IDs at `volume/volume.go:143` and `volume/volume.go:212`.
@@ -98,7 +98,7 @@ For each code slice, run its focused commands below while working and `make chec
 
 ## IAM, registry, DNS, and tagging evidence
 
-- [ ] Risk: high secret disclosure, wrong-resource cleanup, and destructive replacement.
+- [x] Risk: high secret disclosure, wrong-resource cleanup, and destructive replacement.
 - Owned paths: `iam/`; `containerregistry/`; `dns/`; `tagging/`.
 - Closes: dependent-read leaks at `iam/service_accounts_write.go:96`, `iam/service_accounts.go:77`, and registry follow-up paths in `containerregistry/users_write.go`; substituted identities at `iam/service_accounts_write.go:101`, `iam/guard.go:459`, and `iam/policies.go:114`; unproven registry ownership at `containerregistry/users_write.go:321`.
 - Closes: null tag/DNS association snapshots at `tagging/tagging.go:367` and `dns/zones_write.go:183`; lost uncertain outcomes at `tagging/tagging.go:395` and `iam/service_accounts_write.go:181`; missing-ID secret loss at `iam/service_accounts_write.go:91`; false registry absence at `containerregistry/repositories_write.go:118` and `containerregistry/users_write.go:423`.
@@ -112,7 +112,7 @@ For each code slice, run its focused commands below while working and `make chec
 
 ## Monitor orders and privacy
 
-- [ ] Risk: high secret disclosure and duplicate or unauthorized paid orders.
+- [x] Risk: high secret disclosure and duplicate or unauthorized paid orders.
 - Owned paths: `monitor/`.
 - Closes: request credential reflection at `monitor/channels_write.go:87` and `monitor/writes.go:197`; replayed log orders at `monitor/logprojects_write.go:142`; negative create quotes at `monitor/logprojects_write.go:137` and `monitor/logprojects.go:548`; incomplete duplicate searches at `monitor/logprojects_write.go:220` and `monitor/logalarms_body.go:408`.
 - Closes: late waits at `monitor/waits.go:35`; cancellation-blind check locks at `monitor/toggle.go:129` and `monitor/update.go:109`; DNS-owned monitor settlement identities at `monitor/quotas_write.go:125` through Shared settlement names.
@@ -124,7 +124,7 @@ For each code slice, run its focused commands below while working and `make chec
 
 ## Load balancer and CDN write state
 
-- [ ] Risk: high stale-list data loss and wrong-resource writes.
+- [x] Risk: high stale-list data loss and wrong-resource writes.
 - Owned paths: `loadbalancer/`; `globalloadbalancer/`; `cdn/`.
 - Closes: frozen busy-resend members at `loadbalancer/pool_members_write.go:157`; missing/mismatched CDN state at `cdn/webaccelerator.go:75` and `cdn/update.go:159`; late load balancer waits at `loadbalancer/waits.go:68`; inconsistent accepted snapshots at `loadbalancer/policies_write.go:480`, `loadbalancer/pools_write.go:547`, and `loadbalancer/listeners_write.go:502`.
 - Change: after an explicit busy refusal, reread and re-merge the caller's member delta with current members before another validated attempt; never resend an old replacement list after an ambiguous result. Require explicit CDN status and matching identity before toggles/updates; apply real wait deadlines and produce consistent submitted-state `NoWait` snapshots including rules, booleans, certificates, and headers.
@@ -135,7 +135,7 @@ For each code slice, run its focused commands below while working and `make chec
 
 ## Billing and pricing response integrity
 
-- [ ] Risk: high credential disclosure and misleading financial data; medium numeric and error consistency.
+- [x] Risk: high credential disclosure and misleading financial data; medium numeric and error consistency.
 - Owned paths: `billing/`; `pricing/`; `internal/billingresources/`.
 - Closes: credential echoes at `billing/billing.go:129` and `internal/billingresources/resources.go:96`; unbounded budget responses and the preserving test at `billing/budgets.go:232` and `billing/billing_test.go:168`; operation redirects at `pricing/pricing.go:135` and `billing/budgets.go:232`; false zero cost at `billing/billing.go:152`.
 - Closes: nonfinite balances at `billing/models.go:306`; inexact/overflowing budget amounts at `billing/models.go:69`; stale alert recipients at `billing/models.go:155`; lost observed status at `billing/billing.go:131` and `pricing/pricing.go:203`; deadline wording at `billing/history.go:20` through Core boundaries and Documentation and evidence.
@@ -148,11 +148,11 @@ For each code slice, run its focused commands below while working and `make chec
 
 ## SDK input and price contracts
 
-- [ ] Risk: medium accidental encryption disablement and misleading quote units; public compatibility changes.
+- [x] Risk: medium accidental encryption disablement and misleading quote units; public compatibility changes.
 - Owned paths: `storage/bucket_encryption.go`; `storage/bucket_encryption*_test.go`; `volume/resize_volume.go`; `volume/resize_volume*_test.go`; `compute/resize_server.go`; `compute/resize_server*_test.go`.
 - Closes: omission disables encryption at `storage/bucket_encryption.go:66`; signed remaining-term adjustment called monthly price at `volume/resize_volume.go:96` and `compute/resize_server.go:81`. CLI adapter duplication at `internal/cli/svc_storage.go:151` is closed by its CLI owner.
-- Change: use `Bucket` and required `Enabled *bool` for encryption; rename resize `MonthlyPrice` to `QuotedAdjustment` in compute and volume, preserving signed values and their actual remaining-term meaning. Do not reinterpret a credit estimate as a confirmed refund.
-- Breaking: SDK fields/types, encryption CLI input JSON, resize output JSON, and CLI query keys change; existing encryption flags can remain stable.
+- Change: keep `BucketName` and add a required `Enabled *bool` for encryption; rename resize `MonthlyPrice` to `QuotedAdjustment` in compute and volume, preserving signed values and their actual remaining-term meaning. Do not reinterpret a credit estimate as a confirmed refund.
+- Breaking: the encryption SDK field type, resize output JSON, and resize CLI query keys change; encryption flags and CLI input JSON keys stay stable.
 - Decision: clean pre-v1 rename with migration notes; the manager revises the accepted exceptions in their designs before this slice starts.
 - Failing tests first: omitted/null encryption setting sends nothing; explicit false disables and true enables; all resize success, `NoWait`, partial-output, and credit paths expose the signed adjustment consistently; compile representative SDK callers against the new fields and test CLI JSON/query migration through the CLI owner.
 - Checks: `go test -count=1 ./storage ./volume ./compute`; `go vet ./storage ./volume ./compute`; `make check` after coordination with the domain and CLI owners.
@@ -170,7 +170,7 @@ For each code slice, run its focused commands below while working and `make chec
 
 ## Example checker integrity
 
-- [ ] Risk: medium false verification; tooling only.
+- [x] Risk: medium false verification; tooling only.
 - Owned paths: `examples/basic/check.go`; new `examples/basic/check_test.go`.
 - Closes: decode-error false success at `examples/basic/check.go:96` and the SDK-only artifact flag that is never populated.
 - Change: walk both artifact trees recursively and fail a resource when its SDK artifact records any error, when either artifact is not valid JSON, or when a raw capture has no SDK artifact. Report SDK-only artifacts without failing, because many SDK operations have no one-to-one raw capture. Leave key and row comparison as it is; a broader comparison produced endless false failures. Do not read existing example output or run the basic example.
