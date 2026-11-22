@@ -38,18 +38,19 @@ const (
 // differing Input and Output types side by side, while the compiler still
 // rejects an Op built from another client type's method.
 type Op[C any] struct {
-	discovery     bool
-	estimate      bool
-	name          string
-	short         string
-	render        func(io.Writer, string, string, any) error
-	methodName    string
-	kind          opKind
-	destructive   bool
-	confirmReason string
-	guard         func(cmd *cobra.Command, in any) error
-	beforeInput   func(cmd *cobra.Command) error
-	noFlag        map[string]bool
+	discovery        bool
+	estimate         bool
+	name             string
+	short            string
+	render           func(io.Writer, string, string, any) error
+	methodName       string
+	kind             opKind
+	destructive      bool
+	confirmReason    string
+	guard            func(cmd *cobra.Command, in any) error
+	beforeInput      func(cmd *cobra.Command) error
+	noFlag           map[string]bool
+	presenceRequired map[string]bool
 	// optional holds Input fields whose vngcloud:"required" tag the CLI
 	// does not enforce for this op; see Optional.
 	optional map[string]bool
@@ -74,6 +75,7 @@ type writeOption struct {
 	guard            func(cmd *cobra.Command, in any) error
 	redact           func(out any)
 	noFlag           map[string]bool
+	presenceRequired map[string]bool
 	// globalProject is set by WriteGlobalProjectID.
 	globalProject string
 }
@@ -114,6 +116,10 @@ func WriteNoFlag(fields ...string) writeOption {
 		m[f] = true
 	}
 	return writeOption{noFlag: m}
+}
+
+func requiredPresence(field string) writeOption {
+	return writeOption{presenceRequired: map[string]bool{field: true}}
 }
 
 // WriteRedact marks a Write operation's Output as holding a value the CLI
@@ -272,6 +278,9 @@ func Write[C, In, Out any](name string, method func(*C, context.Context, *In) (*
 		if o.redact != nil {
 			redact = o.redact
 		}
+		if o.presenceRequired != nil {
+			op.presenceRequired = o.presenceRequired
+		}
 		if o.globalProject != "" {
 			op.globalProject = o.globalProject
 		}
@@ -402,9 +411,20 @@ func newOpCmd[C any](e *env, serviceName string, newClient func(vngcloud.Config)
 		cmd.Example = docExampleOverride["pricing estimate"]
 	}
 	bound := registerFlags(cmd, specs)
-	for _, field := range docFieldsFor(input, op.noFlag, op.optional, nil) {
+	for _, field := range operationDocFields(op, nil) {
 		if field.viaJSON {
 			continue
+		}
+		if field.name == "project-id" && field.required {
+			cmd.SetHelpFunc(func(c *cobra.Command, args []string) {
+				flag := c.InheritedFlags().Lookup("project-id")
+				if flag != nil {
+					usage := flag.Usage
+					flag.Usage += "; required (may be supplied via --cli-input-json)"
+					defer func() { flag.Usage = usage }()
+				}
+				c.Parent().HelpFunc()(c, args)
+			})
 		}
 		if flag := cmd.Flags().Lookup(field.name); flag != nil {
 			description := "Input type: " + field.goType

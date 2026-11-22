@@ -167,7 +167,7 @@ var networkOps = []Op[network.Client]{
 		Guard(requireYesForACLChange("add-network-acl-rule"))),
 	Write[network.Client, network.RemoveNetworkACLRuleInput, network.RemoveNetworkACLRuleOutput](
 		kebab("RemoveNetworkACLRule"), (*network.Client).RemoveNetworkACLRule,
-		Guard(requireYesAndPriorityToRemoveACLRule)),
+		Guard(requireYesAndPriorityToRemoveACLRule), requiredPresence(aclPriorityField)),
 	Write[network.Client, network.AssociateNetworkACLSubnetInput, network.AssociateNetworkACLSubnetOutput](
 		kebab("AssociateNetworkACLSubnet"), (*network.Client).AssociateNetworkACLSubnet,
 		Guard(requireYesForACLChange("associate-network-acl-subnet"))),

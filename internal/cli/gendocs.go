@@ -71,14 +71,7 @@ func buildDocService[C any](name string, ops []Op[C]) docService {
 		for _, f := range extra {
 			extraNames[f.name] = true
 		}
-		fields := docFieldsFor(op.newInput(), op.noFlag, op.optional, extraNames)
-		for j := range fields {
-			// The global --project-id flag fills this field, so it reads as
-			// a flag, not as a JSON-only field.
-			if fields[j].viaJSON && fields[j].name == op.globalProject {
-				fields[j] = docField{name: "project-id", goType: "string", required: fields[j].required}
-			}
-		}
+		fields := operationDocFields(op, extraNames)
 		svc.ops[i] = docOp{
 			name:       op.name,
 			kind:       kind,
@@ -87,6 +80,21 @@ func buildDocService[C any](name string, ops []Op[C]) docService {
 		}
 	}
 	return svc
+}
+
+func operationDocFields[C any](op Op[C], extraNames map[string]bool) []docField {
+	fields := docFieldsFor(op.newInput(), op.noFlag, op.optional, extraNames)
+	for i := range fields {
+		if fields[i].viaJSON && fields[i].name == op.globalProject {
+			fields[i] = docField{name: "project-id", goType: "string", required: fields[i].required}
+		}
+		for field := range op.presenceRequired {
+			if fields[i].name == flagNameFor(field) || (fields[i].viaJSON && fields[i].name == field) {
+				fields[i].required = true
+			}
+		}
+	}
+	return fields
 }
 
 // docFieldsFor lists every exported Input field in declaration order: its

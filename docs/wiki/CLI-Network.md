@@ -964,7 +964,7 @@ Needs --yes on every call: remove-network-acl-rule can pass or drop traffic for 
 |-|-|-|
 | `--network-acl-id` | `string` | yes |
 | `--direction` | `string` | yes |
-| `--priority` | `int` |  |
+| `--priority` | `int` | yes |
 | `--no-wait` | `bool` |  |
 
 ```sh

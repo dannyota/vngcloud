@@ -23,8 +23,10 @@ func requireYesForACLChange(command string) func(cmd *cobra.Command, in any) err
 	}
 }
 
+const aclPriorityField = "Priority"
+
 func requireYesAndPriorityToRemoveACLRule(cmd *cobra.Command, _ any) error {
-	if !cmd.Flags().Changed("priority") && !cliInputJSONHasKey(cmd, "Priority") {
+	if !cmd.Flags().Changed(flagNameFor(aclPriorityField)) && !cliInputJSONHasKey(cmd, aclPriorityField) {
 		return newUsageError("--priority is required")
 	}
 	if yes, _ := cmd.Flags().GetBool("yes"); yes {
