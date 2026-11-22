@@ -175,6 +175,11 @@ the reported `dailyAvg`, and `StartDate` holds the reported `startDate`
 string in `YYYY-MM-DD` format. The SDK omits `region` and the account's
 `userId`.
 
+Cost-resource pagination requires `page`, `size`, `total`, and `totalPages`;
+its summary requires `totalAll`, `activeCount`, and `avgPerResource`. Missing
+or null fields return `InvalidResponse` with no output. Empty resource lists
+with explicit zero totals remain valid.
+
 `GetBalances` reads the account's cash and POC (pay-on-credit) balances.
 Each field is nil when the account has none of that kind:
 
