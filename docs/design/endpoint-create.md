@@ -16,7 +16,7 @@ checkout flow adds a separate payment contract and is not a fallback. Keep
 console management and existing SDK inventory available while any lifecycle
 gate is open. Do not ship create without a safe delete path.
 
-Keep private DNS and auto-renew off. Do not add tags, rename, DNS mutation,
+Keep private DNS off and request auto-renew off. Do not add tags, rename, DNS mutation,
 VPC or subnet creation, VKS integration, checkout, credit top-ups, payment
 methods, or a second write to correct renewal. An endpoint changes network
 reachability; it grants no bucket rights and does not certify S3 connectivity.
@@ -42,8 +42,8 @@ switch, `NoWait`, or force, cascade, or funding option.
 
 `QuoteCreateEndpointOutput` has `MonthlyPrice float64` and `Currency string`.
 `CreateEndpointOutput` has `EndpointID` and `Status` strings, `MonthlyPrice
-float64`, `Currency string`, and `AutoRenew *bool`. The amount is the fresh
-quote, not the recorded debit. Unknown renewal stays nil. Include only a
+float64`, and `Currency string`. The amount is the fresh quote, not the
+recorded debit. Output carries no renewal or billing status. Include only a
 screened ID and last verified state in partial output; never infer an ID
 from a name. `DeleteEndpointOutput` has `EndpointID` and `Deleted bool`.
 `Deleted` becomes true only after the confirmation below.
@@ -75,8 +75,8 @@ catalog and picker reads are private in this slice.
 - Validate all IDs before reuse. Apply [ADR 0002](../adr/0002-write-api-conventions.md)
   to path IDs, then the narrower verified forms where known: 24 hex for
   `regionUuid` and `categoryUuid`, `pro-<uuid>` for project, `net-<uuid>` for
-  VPC, `sub-<uuid>` for subnet, and UUIDs for service and package. The
-  endpoint ID form needs live evidence. Require a nonblank name without
+  VPC, `sub-<uuid>` for subnet, UUIDs for service and package, and
+  `enp-<uuid>` for the endpoint. Require a nonblank name without
   control characters; leave product naming rules to the server.
 - Resolve the offer through the [recorded catalog reads](network-endpoints-api.md#recorded-hcm-3-catalog-reads),
   all under the pinned base. Zone: `GET .../endpoints/zones` must hold
@@ -90,11 +90,13 @@ catalog and picker reads are private in this slice.
   `vstorage.hcm03`. Absent, repeated, or conflicting rows refuse.
 - The caller names the VPC and subnet. `GET .../endpoints/vpcs` filtered by
   `status=ACTIVE`, the resolved `endpointServiceId`, and
-  `zoneType=AVAILABILITY` must hold exactly one row with that `uuid`, the
-  pinned `projectUuid`, and `regionUuid`. `GET .../endpoints/vpcs/{vpcUuid}/subnets`
-  filtered by `isEndpointUsable=true` and `zoneUuid=HCM03-1C` must hold
-  exactly one row with that subnet `uuid`. An envelope without `data` is an
-  empty result and refuses. Do not substitute a different VPC, subnet, or
+  `zoneType=AVAILABILITY` must hold exactly one row with that `uuid`,
+  `status: ACTIVE`, the pinned `projectUuid`, and `regionUuid`.
+  `GET .../endpoints/vpcs/{vpcUuid}/subnets` filtered by
+  `isEndpointUsable=true` and `zoneUuid=HCM03-1C` must hold exactly one row
+  with that subnet `uuid`, `status: ACTIVE`, `vpcUuid` equal to the VPC,
+  and `zone.uuid` `HCM03-1C`. An envelope without `data` is an empty result
+  and refuses. Do not substitute a different VPC, subnet, or
   zone.
 
 ## Quote and create
@@ -131,15 +133,17 @@ catalog and picker reads are private in this slice.
    price lock. A quote is not proof of prepaid term, payment, or refund.
 5. Send one POST to the endpoint collection. Accept only HTTP 201 with
    `code: 0`, `success: true`, `data.uuid` of `enp-<uuid>` form, and
-   `data.name` equal to the requested name. Any other reply is
-   `ErrNotSettled` with the ID when one validates. Never resend or adopt a
-   candidate from a name.
+   `data.name` equal to the requested name. A 4xx is a definitive refusal
+   with fixed SDK text and nil output. Any other 2xx, a reply whose name
+   differs, or an ID already in the baseline is `ErrNotSettled` with no ID
+   reported as created. Never resend or adopt a candidate from a name.
 6. Wait for the returned ID in the complete scoped list: it must be absent
-   from the baseline and match the name, VPC, subnet, service, package, and
-   `HCM03-1C`, with `enableDnsName: false`. `ACTIVE` is success;
+   from the baseline and match the name, `vpcId`, `subnet.uuid`,
+   `endpointServiceId`, `packageId.uuid`, `vpc.projectUuid` (the pinned
+   project), and `zoneUuid` `HCM03-1C`, with `enableDnsName: false`. `ACTIVE` is success;
    `PROVISIONING` is transitional; any other state is `ErrNotSettled`.
-   `billingStatus` is reported, not required. Output reports readiness
-   only. The API exposes no per-ID renewal or settlement read, so output
+   `billingStatus` is neither output nor used to confirm success. Output
+   reports readiness only. The API exposes no per-ID renewal or settlement read, so output
    never claims renewal off or payment settled, and help says the request
    asks for renewal off.
 

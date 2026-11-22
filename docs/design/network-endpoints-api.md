@@ -231,8 +231,11 @@ takes a `params` JSON query with `search`, `sort`, `page`, and `size`
   `total`; rows carry `uuid`, `projectUuid`, `regionUuid`, and `status`.
 - **Subnets.** `GET /vpcs/{vpcUuid}/subnets` filtered by
   `isEndpointUsable=true` and `zoneUuid` returns `message`, `code` (0),
-  and `success`. With no eligible subnet it omits `data`, which explains
-  the Hanoi response above.
+  `success`, and `data`. A row carries `uuid` (`sub-<uuid>`), `name`,
+  `status` (`ACTIVE`), `cidr`, `subnetType` (`USER`), `vpcUuid` (equal to
+  the path VPC), a 24-hex `zoneId`, and a `zone` object whose `uuid` is the
+  zone name, such as `HCM03-1C`. With no eligible subnet the reply omits
+  `data`, which explains the Hanoi response above.
 
 ## Recorded hcm-3 create and delete probe
 
