@@ -52,6 +52,7 @@ type DeleteBucketOutput struct{}
 // bucketUsage holds the details fields the delete guard reads. Pointers tell
 // a null or absent field from zero.
 type bucketUsage struct {
+	Name         string   `json:"name"`
 	Count        *int64   `json:"count"`
 	Size         *float64 `json:"size"`
 	UsedCapacity *float64 `json:"usedCapacity"`
@@ -123,6 +124,9 @@ func (c *Client) checkBucketEmpty(ctx context.Context, op, regionID string, in *
 	}
 	if err := json.Unmarshal(env.Data, &u); err != nil {
 		return &core.APIError{Operation: op, StatusCode: http.StatusOK, Err: fmt.Errorf("decode bucket: %w", transport.SanitizeDecodeError(err))}
+	}
+	if u.Name != in.Bucket {
+		return &core.APIError{Operation: op, StatusCode: http.StatusOK, Code: "InvalidResponse", Message: "bucket identity did not match; nothing was deleted"}
 	}
 	switch {
 	case u.Count != nil && *u.Count < 0, u.Size != nil && *u.Size < 0, u.UsedCapacity != nil && *u.UsedCapacity < 0:

@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -369,6 +370,13 @@ func fixtureServer(t *testing.T, getFixture, writeFixture string, writes *atomic
 		case r.Method == http.MethodGet && r.URL.Path == detailsPath:
 			if deleted.Load() {
 				testutil.WriteFixture(t, w, fixtures+"error_envelope_not_found.json")
+				return
+			}
+			if getFixture == "get_bucket_created.json" && (writeFixture == "delete_bucket.json" || writeFixture == "error_envelope_not_found.json") {
+				recorder := httptest.NewRecorder()
+				testutil.WriteFixture(t, recorder, fixtures+getFixture)
+				name, _ := json.Marshal("<bucket>")
+				_, _ = w.Write([]byte(strings.Replace(recorder.Body.String(), string(name), `"my-bucket"`, 1)))
 				return
 			}
 			testutil.WriteFixture(t, w, fixtures+getFixture)

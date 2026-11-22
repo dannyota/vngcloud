@@ -64,6 +64,16 @@ func validateProjectPagination(op string, raw json.RawMessage) error {
 	if json.Unmarshal(raw, &page) != nil {
 		return projectResponseError(op, "list has invalid pagination")
 	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil {
+		return projectResponseError(op, "list has invalid pagination")
+	}
+	for key := range fields {
+		switch strings.ToLower(key) {
+		case "page", "paging", "pagination", "pagesize", "totalpage", "totalpages", "totalitem", "total", "next", "nextpage", "hasmore", "continuationtoken":
+			return projectResponseError(op, "list has unsupported pagination")
+		}
+	}
 	if len(page.IsNext) != 0 {
 		var next *bool
 		if json.Unmarshal(page.IsNext, &next) != nil || next == nil {
