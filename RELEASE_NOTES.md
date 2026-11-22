@@ -1,5 +1,17 @@
 # Release Notes
 
+## Unreleased - Global Load Balancer TCP pool and listener
+
+- Add `globalloadbalancer create-pool`, `create-listener`, `delete-listener`,
+  `delete-pool-member` and `delete-pool` for an existing Layer 4 load
+  balancer: one TCP pool with one private vServer backend, then one TCP
+  listener limited to explicit IPv4 CIDRs from `/8` through `/32`. Every write
+  needs `--yes` and is sent once. A create succeeds only on exact read-back,
+  and an unconfirmed write returns `NotSettled` with the IDs. No quote is
+  available; GreenNode bills child usage under the account's terms, and
+  deleting does not promise a refund. Delete listener, member group, then the
+  empty pool; nothing cascades.
+
 ## v0.101.0 - vDB MySQL instance create
 
 - Add `database create-database-instance` and `delete-database-instance` for

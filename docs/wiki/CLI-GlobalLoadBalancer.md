@@ -2,6 +2,26 @@
 
 # CLI: GlobalLoadBalancer
 
+## create-listener
+
+Kind: Write.
+
+Requires --yes. Step two of a Layer 4 setup, after `create-pool`: add one TCP listener bound to the load balancer's only pool, which must be settled and have no listener. `--allowed-cidrs` is repeatable and required. Each value is a canonical IPv4 network from /8 through /32 with no host bits, with no repeats and no set covering all IPv4 addresses; prefer a /32 for a known client. The set is confirmed by exact read-back, but that does not prove the provider enforces it. No quote is available, and the request carries no price or payment field. GreenNode bills child usage under the account's terms; the SDK neither selects nor verifies the payment source. Deleting does not promise a refund. The create is sent once and never resent. On NotSettled or WriteFailed the partial output on stdout holds only IDs; inspect inventory and billing before another mutation.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--load-balancer-id` | `string` | yes |
+| `--name` | `string` | yes |
+| `--pool-id` | `string` | yes |
+| `--port` | `int` | yes |
+| `--allowed-cidrs` | `[]string` | yes |
+| `--project-id` | `string` | yes |
+| `--backend-server-id` | `string` | yes |
+
+```sh
+vngcloud globalloadbalancer create-listener --load-balancer-id <glb-id> --name <name> --pool-id <pool-id> --port <port> --allowed-cidrs <cidr> --backend-server-id <server-id> --project-id <project-id> --yes
+```
+
 ## create-load-balancer
 
 Kind: Write.
@@ -18,6 +38,42 @@ Requires --yes. Automated payment holds credits for a prepaid three-day forecast
 vngcloud globalloadbalancer create-load-balancer --name <name> --package-id <package-id> --yes
 ```
 
+## create-pool
+
+Kind: Write.
+
+Requires --yes. Step one of a Layer 4 setup: create the pool first, then `create-listener`. Adds one TCP pool with one private member group holding one vServer backend, on an existing Layer 4 load balancer that has no pool and no listener. The backend address is the server's private fixed IP, proven from the server, VPC and subnet under `--project-id`, which must be the project of this client; a floating IP is never used and no raw address is accepted. No quote is available, and the request carries no price or payment field. GreenNode bills child usage under the account's terms; the SDK neither selects nor verifies the payment source. Deleting does not promise a refund. The create is sent once and never resent. Success needs exact read-back of one pool and its group, never traffic. On NotSettled or WriteFailed the partial output on stdout holds only IDs; inspect inventory and billing before another mutation.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--load-balancer-id` | `string` | yes |
+| `--name` | `string` | yes |
+| `--member-name` | `string` | yes |
+| `--project-id` | `string` | yes |
+| `--backend-server-id` | `string` | yes |
+| `--backend-vpc-id` | `string` | yes |
+| `--backend-subnet-id` | `string` | yes |
+| `--backend-port` | `int` | yes |
+
+```sh
+vngcloud globalloadbalancer create-pool --load-balancer-id <glb-id> --name <name> --member-name <member-name> --backend-server-id <server-id> --backend-vpc-id <vpc-id> --backend-subnet-id <subnet-id> --backend-port <port> --project-id <project-id> --yes
+```
+
+## delete-listener
+
+Kind: Write, destructive.
+
+Requires --yes. Step one of cleanup, then `delete-pool-member`, `delete-pool`, and `delete-load-balancer`. Deletes the sole listener of a Layer 4 load balancer after re-reading it and its pool; the pool and member group stay, and the listener stops receiving traffic. `Deleted` is true only after the listener is absent from the exact read and the list while its pool and the load balancer remain. Deleting does not promise a refund. On NotSettled the partial output holds the IDs; inspect inventory and billing before another mutation.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--load-balancer-id` | `string` | yes |
+| `--listener-id` | `string` | yes |
+
+```sh
+vngcloud globalloadbalancer delete-listener --load-balancer-id <glb-id> --listener-id <listener-id> --yes
+```
+
 ## delete-load-balancer
 
 Kind: Write, destructive.
@@ -30,6 +86,37 @@ Requires --yes. Deletion is not a refund promise; later connection and traffic c
 
 ```sh
 vngcloud globalloadbalancer delete-load-balancer --load-balancer-id <load-balancer-id> --yes
+```
+
+## delete-pool
+
+Kind: Write, destructive.
+
+Requires --yes. Step three of cleanup, before `delete-load-balancer`. Refuses, sending nothing, unless the pool is the load balancer's only pool, is stable, and has no listener and no member group; nothing cascades. `Deleted` is true only after the pool is absent from the exact read and the list while the load balancer remains. Deleting does not promise a refund. On NotSettled the partial output holds the IDs; inspect inventory and billing before another mutation.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--load-balancer-id` | `string` | yes |
+| `--pool-id` | `string` | yes |
+
+```sh
+vngcloud globalloadbalancer delete-pool --load-balancer-id <glb-id> --pool-id <pool-id> --yes
+```
+
+## delete-pool-member
+
+Kind: Write, destructive.
+
+Requires --yes. Step two of cleanup. Deletes the member group named by `--pool-member-id` from a pool that has no listener and exactly this one group; it never deletes the nested backend row's vServer or the pool. `Deleted` is true only after the group is absent from the exact read and the list while the pool and the load balancer remain. Deleting does not promise a refund. On NotSettled the partial output holds the IDs; inspect inventory and billing before another mutation.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--load-balancer-id` | `string` | yes |
+| `--pool-id` | `string` | yes |
+| `--pool-member-id` | `string` | yes |
+
+```sh
+vngcloud globalloadbalancer delete-pool-member --load-balancer-id <glb-id> --pool-id <pool-id> --pool-member-id <member-group-id> --yes
 ```
 
 ## get-listener

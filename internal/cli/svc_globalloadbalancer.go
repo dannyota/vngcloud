@@ -11,7 +11,7 @@ import (
 // child read below is Shape, not Live; gen-docs marks each with
 // globalLoadBalancerShapeUnverifiedNote, per the CLI reads design's
 // globalloadbalancer section.
-var globalLoadBalancerOps = []Op[globalloadbalancer.Client]{
+var globalLoadBalancerOps = append([]Op[globalloadbalancer.Client]{
 	createGlobalLoadBalancerOp(),
 	Write[globalloadbalancer.Client, globalloadbalancer.DeleteLoadBalancerInput, globalloadbalancer.DeleteLoadBalancerOutput](
 		kebab("DeleteLoadBalancer"), (*globalloadbalancer.Client).DeleteLoadBalancer, Destructive()),
@@ -35,7 +35,7 @@ var globalLoadBalancerOps = []Op[globalloadbalancer.Client]{
 		kebab("GetPoolMember"), (*globalloadbalancer.Client).GetPoolMember),
 	Read[globalloadbalancer.Client, globalloadbalancer.ListUsageHistoriesInput, globalloadbalancer.ListUsageHistoriesOutput](
 		kebab("ListUsageHistories"), (*globalloadbalancer.Client).ListUsageHistories),
-}
+}, globalLoadBalancerChildOps()...)
 
 func newGlobalLoadBalancerCmd(e *env) *cobra.Command {
 	return Service(e, "globalloadbalancer", "Global load balancers, pools, and listeners", globalloadbalancer.New, globalLoadBalancerOps...)

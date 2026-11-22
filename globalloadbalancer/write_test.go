@@ -20,6 +20,11 @@ func (f glbRoundTrip) RoundTrip(r *http.Request) (*http.Response, error) { retur
 
 func newWriteTestClient(t *testing.T, handler http.Handler) *Client {
 	t.Helper()
+	return newWriteTestClientOpts(t, handler)
+}
+
+func newWriteTestClientOpts(t *testing.T, handler http.Handler, extra ...vngcloud.LoadOption) *Client {
+	t.Helper()
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 	target, err := url.Parse(server.URL)
@@ -49,7 +54,8 @@ func newWriteTestClient(t *testing.T, handler http.Handler) *Client {
 		}
 		return w.Result(), nil
 	})
-	cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("hcm-3"), vngcloud.WithIAMUser(&vngcloud.IAMUserAuth{RootEmail: "root", Username: "user", Password: "synthetic", HTTPClient: &http.Client{Transport: authTransport}}), vngcloud.WithTransport(apiTransport), vngcloud.WithRetry(0, 0))
+	options := []vngcloud.LoadOption{vngcloud.WithRegion("hcm-3"), vngcloud.WithIAMUser(&vngcloud.IAMUserAuth{RootEmail: "root", Username: "user", Password: "synthetic", HTTPClient: &http.Client{Transport: authTransport}}), vngcloud.WithTransport(apiTransport), vngcloud.WithRetry(0, 0)}
+	cfg, err := vngcloud.NewConfig(append(options, extra...)...)
 	if err != nil {
 		t.Fatal(err)
 	}

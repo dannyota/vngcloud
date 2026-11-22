@@ -123,6 +123,7 @@ A flag or operation name the mechanical kebab-case conversion would otherwise ge
 | Name | CLI form |
 |-|-|
 | `AttachS3Key` | `attach-s3-key` |
+| `BackendVPCID` | `backend-vpc-id` |
 | `CDNID` | `cdn-id` |
 | `ClearVPCDHCPOptions` | `clear-vpc-dhcp-options` |
 | `CreateS3Key` | `create-s3-key` |

@@ -6,6 +6,7 @@ import (
 	"context"
 	"net/url"
 	"strconv"
+	"time"
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
@@ -15,7 +16,8 @@ import (
 
 // Client is the global load balancer service client.
 type Client struct {
-	c *core.Client
+	c    *core.Client
+	poll time.Duration
 }
 
 // New builds a Client from cfg. A Client built from the same Config as

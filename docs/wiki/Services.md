@@ -329,10 +329,21 @@ glbClient.GetListener(ctx, in)         // LoadBalancerID, ListenerID (both requi
 glbClient.ListPoolMembers(ctx, in)     // LoadBalancerID, PoolID (both required)
 glbClient.GetPoolMember(ctx, in)       // LoadBalancerID, PoolID, PoolMemberID (all required)
 glbClient.ListUsageHistories(ctx, in)  // LoadBalancerID (required), From, To, Type
+glbClient.CreatePool(ctx, in)          // TCP pool, one private group, one vServer backend
+glbClient.CreateListener(ctx, in)      // TCP listener on that pool; AllowedCIDRs /8 to /32
+glbClient.DeleteListener(ctx, in)      // then DeletePoolMember, then DeletePool
 ```
 
 Package and region catalog methods are global metadata calls. Inventory and
 nested resource methods require IAM User access to the target resources.
+
+The child writes need IAM-user login, default endpoints, and `BackendProjectID`
+equal to the client's project. Each is sent once, never resent, and succeeds
+only on exact read-back; an unconfirmed write returns `ErrNotSettled` with
+safe IDs. No quote exists; GreenNode bills child usage under the account's
+terms, and the SDK neither selects nor verifies the payment source. Deleting
+does not promise a refund. Deletes run listener, member group, then empty
+pool, and never cascade.
 
 ## DNS
 

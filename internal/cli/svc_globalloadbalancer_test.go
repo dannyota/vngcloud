@@ -46,7 +46,7 @@ func TestGoldenGlobalLoadBalancerGetLoadBalancer(t *testing.T) {
 }
 
 // TestGlobalLoadBalancerCommandsMatchDesignTable checks the CLI reads
-// design's "globalloadbalancer" table: the ten command names, each with the
+// design's "globalloadbalancer" table: the command names, each with the
 // flags the table names.
 func TestGlobalLoadBalancerCommandsMatchDesignTable(t *testing.T) {
 	wantFlags := map[string][]string{
@@ -62,6 +62,11 @@ func TestGlobalLoadBalancerCommandsMatchDesignTable(t *testing.T) {
 		"list-pool-members":    {"load-balancer-id", "pool-id"},
 		"get-pool-member":      {"load-balancer-id", "pool-id", "pool-member-id"},
 		"list-usage-histories": {"load-balancer-id", "from", "to", "type"},
+		"create-pool":          {"load-balancer-id", "name", "member-name", "backend-project-id", "backend-server-id", "backend-vpc-id", "backend-subnet-id", "backend-port"},
+		"create-listener":      {"load-balancer-id", "name", "pool-id", "port", "allowed-cidrs", "backend-project-id", "backend-server-id"},
+		"delete-listener":      {"load-balancer-id", "listener-id"},
+		"delete-pool-member":   {"load-balancer-id", "pool-id", "pool-member-id"},
+		"delete-pool":          {"load-balancer-id", "pool-id"},
 	}
 	if got := opNames(globalLoadBalancerOps); len(got) != len(wantFlags) {
 		t.Fatalf("globalloadbalancer ops = %v, want %d commands", got, len(wantFlags))

@@ -18,6 +18,7 @@ var renameTable = map[string]string{
 	"NATID":        "nat-id",
 	"CDNID":        "cdn-id",
 	"NetworkACLID": "network-acl-id",
+	"BackendVPCID": "backend-vpc-id",
 	"Query":        "search",
 	// SecurityGroupIDs is a repeatable []string flag, one ID per
 	// --security-group-id occurrence, so the singular form reads right; the
