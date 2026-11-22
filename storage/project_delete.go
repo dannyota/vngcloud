@@ -98,6 +98,9 @@ func (c *Client) readProjectBuckets(ctx context.Context, op, regionID, projectID
 	if !*env.Success {
 		return nil, c.envelopeError(op, status, &env, credentials...)
 	}
+	if err := validateDeletionListFields(op, raw, false); err != nil {
+		return nil, err
+	}
 	if err := validateProjectPagination(op, raw); err != nil {
 		return nil, err
 	}

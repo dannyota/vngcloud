@@ -191,7 +191,7 @@ func TestDeleteBucketRejectsMismatchedName(t *testing.T) {
 
 func TestDeleteProjectRejectsUnsupportedPagination(t *testing.T) {
 	for _, stage := range []string{"projects", "buckets"} {
-		for _, marker := range []string{`"hasMore":true`, `"HASMORE":true`, `"nextPage":1`, `"next":"token"`, `"total":2`} {
+		for _, marker := range []string{`"hasMore":true`, `"HASMORE":true`, `"nextPage":1`, `"next":"token"`, `"total":2`, `"totalItems":2`, `"TOTALITEMS":2`, `"unexpected":true`, `"UNEXPECTED":true`} {
 			t.Run(stage+"/"+marker, func(t *testing.T) {
 				s := &projectWriteServer{before: projectList(newProjectJSON), buckets: `{"success":true,"datas":[]}`}
 				if stage == "projects" {
@@ -211,11 +211,14 @@ func TestDeleteProjectRejectsUnsupportedPagination(t *testing.T) {
 func TestDeleteBucketRejectsConflictingUsage(t *testing.T) {
 	for _, fields := range []string{`"count":1,"count":0`, `"count":1,"COUNT":0`, `"count":-1`, `"count":0,"size":-1`, `"count":0,"usedCapacity":1,"USEDCAPACITY":0`} {
 		s := &bucketServer{status: 200, body: okEnvelope, detail: func(w http.ResponseWriter) {
-			_, _ = w.Write([]byte(`{"success":true,"data":{` + fields + `}}`))
+			_, _ = w.Write([]byte(`{"success":true,"data":{"name":"my-bucket",` + fields + `}}`))
 		}}
 		_, err := newDeleteClient(t, s.handler(t)).DeleteBucket(context.Background(), &DeleteBucketInput{ProjectID: "proj-1", Bucket: "my-bucket", NoWait: true})
 		if err == nil || s.writes.Load() != 0 {
 			t.Fatalf("error = %v, writes = %d", err, s.writes.Load())
+		}
+		if strings.Contains(fields, ":-1") && !errors.Is(err, ErrBucketNotEmpty) {
+			t.Fatalf("fields = %s, error = %v, want ErrBucketNotEmpty", fields, err)
 		}
 	}
 }

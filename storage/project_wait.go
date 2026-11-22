@@ -33,6 +33,11 @@ func (c *Client) completeProjects(ctx context.Context, op, id string) ([]project
 			if jsonresponse.ValidateStrict(raw, (*envelope)(nil)) != nil {
 				return projectResponseError(op, "list is null or malformed")
 			}
+			if op == "storage.DeleteProject" {
+				if err := validateDeletionListFields(op, raw, true); err != nil {
+					return err
+				}
+			}
 			return validateProjectPagination(op, raw)
 		},
 	})
@@ -55,6 +60,31 @@ func (c *Client) completeProjects(ctx context.Context, op, id string) ([]project
 		result = append(result, projectRecord{project: p, fields: fields})
 	}
 	return result, nil
+}
+
+func validateDeletionListFields(op string, raw json.RawMessage, projects bool) error {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil || fields == nil {
+		return projectResponseError(op, "list has invalid envelope")
+	}
+	var status struct {
+		Success *bool `json:"success"`
+	}
+	if json.Unmarshal(raw, &status) == nil && status.Success != nil && !*status.Success {
+		return nil
+	}
+	for key := range fields {
+		switch strings.ToLower(key) {
+		case "code", "success", "data", "datas", "isnext":
+		case "action":
+			if !projects {
+				return projectResponseError(op, "list has unsupported envelope field")
+			}
+		default:
+			return projectResponseError(op, "list has unsupported envelope field")
+		}
+	}
+	return nil
 }
 
 func validateProjectPagination(op string, raw json.RawMessage) error {
