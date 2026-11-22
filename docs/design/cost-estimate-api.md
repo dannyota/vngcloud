@@ -162,29 +162,18 @@ the repository; no website or live API was contacted for this design.
 [network-evidence]: pricing-discovery-api.md#storage-and-network-results
 [tariff-evidence]: pricing-discovery-api.md#published-tariffs-and-conflicts
 
-## Evidence gates and read-only probes
+## Evidence
 
 Existing [fixture provenance](../../testdata/pricing/discovery-provenance.md)
-records sanitized raw bodies and requests. Reuse those fixtures through the
-new SDK helper, not through decoded-output snapshots. Existing server body and
-encryption tests prove serialization, not raw response decoding for CES or
-bundled disks. No matching raw fixture containing those lines was found.
-
-Before releasing those branches, the manager must supply sanitized raw server
-quotes covering plain bundled data, encrypted root, and encrypted bundled data.
-Prefer already captured raw bodies with provenance. If unavailable, propose at
-most four `server/create` price POSTs: a fixed plain baseline; that baseline
-plus a data disk; encrypted root; encrypted root plus encrypted data disk.
-Use existing valid returned IDs, period 1, fixed accepted bodies, and no order.
-Record full top-level prices and returned property names/types, without
-assuming the data-disk property's spelling. No paid resource is required.
-
-Also propose one `public-vip/create` quote for `type:public` with both false
-flags to close the exact-body provenance gap. Until that evidence exists, keep
-that branch's live-equivalence claim gated; `public-vm` and `public-mkp` already
-have matching raw-body provenance. These proposals grant no live-run approval.
-If a branch lacks its required fixture, hold that branch out of the first
-release and resolve the advertised scope with the owner before implementation.
+records sanitized raw bodies and requests for plain servers, volumes, public
+VM and marketplace IPs, storage, images, and catalogs. The
+[estimate fixtures](../../testdata/pricing/estimate-provenance.md) add
+sanitized raw server quotes for a bundled data disk, an encrypted root, and an
+encrypted root with an encrypted data disk, plus the flagged `public-vip`
+quote, all from one account in `hcm-3`. They show the paired `dataDiskSize`
+and `dataDiskTypeId` spelling, separate `DATA DISK` and `CES` rows, and a
+top-level price equal to the row sum. The SDK decodes these raw bodies through
+`Estimate`; serialization tests alone do not count as decoding evidence.
 
 No probe here attempts bandwidth, FIP, egress, eligibility, NAT, or an unknown
 route. No price probe can establish a universal discount policy. Broader region
