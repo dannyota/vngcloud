@@ -29,12 +29,13 @@ type sdkFile struct {
 }
 
 type sdkEntry struct {
-	Config string          `json:"config"`
-	Region string          `json:"region"`
-	Scope  string          `json:"scope"`
-	Count  int             `json:"count"`
-	Items  json.RawMessage `json:"items"`
-	Error  string          `json:"error"`
+	Config        string          `json:"config"`
+	Region        string          `json:"region"`
+	Scope         string          `json:"scope"`
+	Count         int             `json:"count"`
+	Items         json.RawMessage `json:"items"`
+	Error         string          `json:"error"`
+	SkippedParent string          `json:"skippedParent"`
 }
 
 type resourceReport struct {
@@ -49,6 +50,7 @@ type resourceReport struct {
 	unreadable        string
 	noComparable      bool
 	comparisonSkipped string
+	skippedCalls      int
 }
 
 type captureScope struct {
@@ -101,7 +103,7 @@ func checkSmokeOutput(root string) ([]resourceReport, error) {
 			reports = append(reports, report)
 			continue
 		}
-		if err := compareResource(rawPath, sdkPath, &report); err != nil {
+		if err := compareResource(root, rawPath, sdkPath, &report); err != nil {
 			report.unreadable = err.Error()
 		}
 		reports = append(reports, report)
@@ -116,11 +118,8 @@ func checkSmokeOutput(root string) ([]resourceReport, error) {
 				resource:      strings.TrimSuffix(filepath.ToSlash(rel), ".json"),
 				sdkWithoutRaw: true,
 			}
-			if reason := uncapturedOutputReason(report.resource); reason != "" {
-				report.comparisonSkipped = reason
-				if err := inspectUncapturedSDK(sdkPath, &report); err != nil {
-					report.unreadable = err.Error()
-				}
+			if err := inspectUncapturedSDK(root, sdkPath, &report); err != nil {
+				report.unreadable = err.Error()
 			}
 			reports = append(reports, report)
 		}
@@ -146,12 +145,19 @@ func smokeArtifactPaths(root string) ([]string, error) {
 	return paths, err
 }
 
-func inspectUncapturedSDK(path string, report *resourceReport) error {
+func inspectUncapturedSDK(root, path string, report *resourceReport) error {
 	var sdk sdkFile
 	if err := readJSON(path, &sdk); err != nil {
 		return err
 	}
 	report.noComparable = len(sdk.Regions) == 0
+	if err := validateSkippedCalls(root, sdk, report); err != nil {
+		return err
+	}
+	report.comparisonSkipped = uncapturedOutputReason(report.resource)
+	if report.skippedCalls > 0 && report.skippedCalls == len(sdk.Regions) {
+		report.comparisonSkipped = "parent inventory is empty; child calls were not made"
+	}
 	for _, entry := range sdk.Regions {
 		if entry.Error != "" {
 			report.sdkErrors++
@@ -168,6 +174,98 @@ func inspectUncapturedSDK(path string, report *resourceReport) error {
 			return errors.New("SDK count does not match its items")
 		}
 		report.sdkRows += count
+	}
+	return nil
+}
+
+func validateSkippedCalls(root string, sdk sdkFile, report *resourceReport) error {
+	for _, entry := range sdk.Regions {
+		if entry.SkippedParent == "" {
+			continue
+		}
+		if !validSkippedParent(report.resource, entry.SkippedParent) {
+			return errors.New("invalid skipped operation parent")
+		}
+		var items any
+		if len(entry.Items) > 0 && json.Unmarshal(entry.Items, &items) != nil {
+			return errors.New("invalid skipped operation items")
+		}
+		if entry.Error != "" || entry.Count != 0 || countItems(items) != 0 {
+			return errors.New("skipped operation contains a result")
+		}
+		for _, other := range sdk.Regions {
+			if other.Config == entry.Config && other.Region == entry.Region && other.SkippedParent == "" {
+				return errors.New("skipped operation conflicts with a recorded call")
+			}
+		}
+		if err := requireEmptyParent(root, entry); err != nil {
+			return err
+		}
+		report.skippedCalls++
+	}
+	return nil
+}
+
+func validSkippedParent(resource, parent string) bool {
+	if parent == "glb/load_balancer" {
+		switch resource {
+		case "glb/load_balancer_detail", "glb/listener", "glb/listener_detail",
+			"glb/pool", "glb/pool_member", "glb/pool_member_detail", "glb/usage_history":
+			return true
+		default:
+			return false
+		}
+	}
+	switch resource {
+	case "glb/listener_detail":
+		return parent == "glb/listener"
+	case "glb/pool_member":
+		return parent == "glb/pool"
+	case "glb/pool_member_detail":
+		return parent == "glb/pool" || parent == "glb/pool_member"
+	default:
+		return false
+	}
+}
+
+func requireEmptyParent(root string, entry sdkEntry) error {
+	var raw rawFile
+	var sdk sdkFile
+	if readJSON(filepath.Join(root, "raw", entry.SkippedParent+".json"), &raw) != nil ||
+		readJSON(filepath.Join(root, "sdk", entry.SkippedParent+".json"), &sdk) != nil {
+		return errors.New("empty parent evidence is missing or invalid")
+	}
+	rawSeen, sdkSeen := false, false
+	for _, parent := range raw.Regions {
+		if parent.Config != entry.Config || parent.Region != entry.Region || parent.StatusCode != 200 {
+			continue
+		}
+		payloads, err := payloadsFromBody(parent.Body)
+		if err != nil || len(payloads) != 0 {
+			return errors.New("skipped operation parent is not explicitly empty")
+		}
+		if entry.SkippedParent == "glb/load_balancer" {
+			var metadata struct {
+				Total *int `json:"total"`
+			}
+			if json.Unmarshal(parent.Body, &metadata) != nil || metadata.Total == nil || *metadata.Total != 0 {
+				return errors.New("skipped operation parent does not have an empty total")
+			}
+		}
+		rawSeen = true
+	}
+	for _, parent := range sdk.Regions {
+		if parent.Config != entry.Config || parent.Region != entry.Region {
+			continue
+		}
+		payloads, count, err := payloadsFromRaw(parent.Items, entry.SkippedParent)
+		if err != nil || parent.Error != "" || parent.SkippedParent != "" || parent.Count != 0 || count != 0 || len(payloads) != 0 {
+			return errors.New("skipped operation parent did not succeed with an empty result")
+		}
+		sdkSeen = true
+	}
+	if !rawSeen || !sdkSeen {
+		return errors.New("matching empty parent evidence is missing")
 	}
 	return nil
 }
@@ -200,13 +298,16 @@ func printSmokeCheck(reports []resourceReport) bool {
 	return true
 }
 
-func compareResource(rawPath, sdkPath string, report *resourceReport) error {
+func compareResource(root, rawPath, sdkPath string, report *resourceReport) error {
 	var raw rawFile
 	if err := readJSON(rawPath, &raw); err != nil {
 		return err
 	}
 	var sdk sdkFile
 	if err := readJSON(sdkPath, &sdk); err != nil {
+		return err
+	}
+	if err := validateSkippedCalls(root, sdk, report); err != nil {
 		return err
 	}
 
@@ -278,6 +379,9 @@ func rawPayloadCoverage(raw rawFile, accountConfigs map[string]bool, report *res
 func sdkPayloadCoverage(sdk sdkFile, report *resourceReport) (map[captureScope]*payloadCoverage, error) {
 	coverage := make(map[captureScope]*payloadCoverage)
 	for _, entry := range sdk.Regions {
+		if entry.SkippedParent != "" {
+			continue
+		}
 		if entry.Error != "" {
 			report.sdkErrors++
 			continue

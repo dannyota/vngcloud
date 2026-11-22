@@ -16,6 +16,15 @@ func showGlobalLoadBalancer(ctx context.Context, cfg vngcloud.Config, outputs *s
 		loadBalancers = loadBalancersOut.Items
 	}
 	record(outputs, cfg, "glb/load_balancer", "glb load balancers", loadBalancers, err)
+	if err == nil && loadBalancersOut != nil && loadBalancersOut.Total == 0 && len(loadBalancers) == 0 {
+		for _, path := range []string{
+			"glb/load_balancer_detail", "glb/listener", "glb/listener_detail",
+			"glb/pool", "glb/pool_member", "glb/pool_member_detail", "glb/usage_history",
+		} {
+			outputs.addSkipped(path, "glb/load_balancer", cfg)
+		}
+		return
+	}
 
 	var children globalLoadBalancerChildren
 	nestedErr := err
@@ -66,10 +75,23 @@ func recordGlobalLoadBalancerChildren(outputs *sdkOutputStore, cfg vngcloud.Conf
 	}
 	record(outputs, cfg, "glb/load_balancer_detail", "glb load balancer details", children.details, nil)
 	record(outputs, cfg, "glb/listener", "glb listeners", children.listeners, nil)
-	record(outputs, cfg, "glb/listener_detail", "glb listener details", children.listenerDetails, nil)
+	if len(children.listeners) == 0 {
+		outputs.addSkipped("glb/listener_detail", "glb/listener", cfg)
+	} else {
+		record(outputs, cfg, "glb/listener_detail", "glb listener details", children.listenerDetails, nil)
+	}
 	record(outputs, cfg, "glb/pool", "glb pools", children.pools, nil)
-	record(outputs, cfg, "glb/pool_member", "glb pool members", children.poolMembers, nil)
-	record(outputs, cfg, "glb/pool_member_detail", "glb pool member details", children.poolMemberDetails, nil)
+	if len(children.pools) == 0 {
+		outputs.addSkipped("glb/pool_member", "glb/pool", cfg)
+		outputs.addSkipped("glb/pool_member_detail", "glb/pool", cfg)
+	} else {
+		record(outputs, cfg, "glb/pool_member", "glb pool members", children.poolMembers, nil)
+		if len(children.poolMembers) == 0 {
+			outputs.addSkipped("glb/pool_member_detail", "glb/pool_member", cfg)
+		} else {
+			record(outputs, cfg, "glb/pool_member_detail", "glb pool member details", children.poolMemberDetails, nil)
+		}
+	}
 	record(outputs, cfg, "glb/usage_history", "glb usage histories", children.usageHistories, nil)
 }
 

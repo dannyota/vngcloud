@@ -115,7 +115,6 @@ var operationOutputPaths = map[string]string{
 	"monitor.GetCheck":                           "monitor/check_detail",
 	"monitor.ListLocations":                      "monitor/location",
 	"monitor.ListChannelTypes":                   "monitor/channel_type",
-	"monitor.ListChannels":                       "monitor/channel",
 	"storage.ListRegions":                        "storage/region",
 	"storage.ListProjects":                       "storage/project",
 	"storage.ListBuckets":                        "storage/bucket",
@@ -125,6 +124,8 @@ var operationOutputPaths = map[string]string{
 
 func uncapturedOutputReason(resource string) string {
 	switch resource {
+	case "monitor/channel":
+		return "channel list and detail lookup share an SDK operation"
 	case "vks/cluster", "vks/cluster_version", "vks/quota",
 		"backup/backends", "backup/policies", "billing/resources",
 		"iam/user", "iam/user_detail", "iam/user_filtered", "network/vpn_connection",
@@ -181,6 +182,7 @@ type sdkRegionOutput struct {
 	Count           int    `json:"count"`
 	Items           any    `json:"items,omitempty"`
 	Error           string `json:"error,omitempty"`
+	SkippedParent   string `json:"skippedParent,omitempty"`
 }
 
 func newRawCaptureStore() *rawCaptureStore {
@@ -236,6 +238,12 @@ func newSDKOutputStore() *sdkOutputStore {
 
 func (s *sdkOutputStore) setConfig(config string) {
 	s.config = config
+}
+
+func (s *sdkOutputStore) addSkipped(path, parent string, cfg vngcloud.Config) {
+	s.record(path, cfg.Region(), false, "region", nil, nil)
+	resource := s.resources[path]
+	resource.Regions[len(resource.Regions)-1].SkippedParent = parent
 }
 
 func (s *sdkOutputStore) add(path string, cfg vngcloud.Config, items any, err error) {

@@ -325,7 +325,7 @@ func TestSmokeCheckAccountsForUncapturedArtifacts(t *testing.T) {
 		"monitor/check_alarm", "monitor/check_alarm_history",
 		"server/flavor_prices", "server/public_ip", "network/prices", "volume/discovery",
 		"storage/discovery", "storage/project_types", "storage/project_quote_Gold",
-		"storage/project_auto_renew", "monitor/channel_detail", "portal/quota_detail",
+		"storage/project_auto_renew", "monitor/channel", "monitor/channel_detail", "portal/quota_detail",
 	}
 	for _, resource := range resources {
 		t.Run(resource, func(t *testing.T) {
@@ -357,7 +357,6 @@ func TestSmokeCheckPairsAdditionalCapturedArtifacts(t *testing.T) {
 		body      string
 	}{
 		{"monitor.ListChannelTypes", "monitor/channel_type", "https://synthetic.invalid/types", `{"lstData":[{"id":"item-1"}]}`},
-		{"monitor.ListChannels", "monitor/channel", "https://synthetic.invalid/channels", `{"lstData":[{"id":"item-1"}]}`},
 		{"volume.ListSnapshotPolicies", "volume/snapshot_policy/backend-1", "https://synthetic.invalid/snapshot-policies?backendId=backend-1", `{"items":[{"id":"item-1"}]}`},
 	} {
 		t.Run(tc.operation, func(t *testing.T) {
@@ -473,6 +472,219 @@ func TestSmokeCheckRejectsInvalidUncapturedArtifacts(t *testing.T) {
 				t.Fatal("invalid or unrecognized SDK-only artifact passed")
 			}
 		})
+	}
+}
+
+func TestSmokeCheckMarksUncalledGLBChildren(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/global-load-balancers" {
+			t.Error("empty parent inventory triggered a child request")
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write([]byte(`{"items":[],"offset":0,"limit":10000,"total":0}`))
+	}))
+	defer server.Close()
+	raw := newRawCaptureStore()
+	cfg, err := vngcloud.NewConfig(
+		vngcloud.WithRegion("han-1"), vngcloud.WithStaticToken("synthetic-token"),
+		vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{GLB: server.URL}),
+		vngcloud.WithResponseCapture(func(c vngcloud.ResponseCapture) { raw.add("synthetic", "han-1", c) }),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sdk := newSDKOutputStore()
+	sdk.setConfig("synthetic")
+	showGlobalLoadBalancer(t.Context(), cfg, sdk)
+	if requests != 1 {
+		t.Fatalf("empty inventory made %d requests, want 1", requests)
+	}
+	root := writeSmokeStores(t, raw, sdk)
+	reports, err := checkSmokeOutput(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reports) != 8 || !printSmokeCheck(reports) {
+		t.Fatalf("uncalled child operations were rejected: %+v", reports)
+	}
+	for _, report := range reports {
+		if report.resource != "glb/load_balancer" && (report.skippedCalls != 1 || report.comparisonSkipped == "") {
+			t.Fatal("uncalled child operation lacks an explicit skip indication")
+		}
+	}
+}
+
+func TestSmokeCheckMarksUncalledNestedGLBChildren(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		var body string
+		switch r.URL.Path {
+		case "/v1/global-load-balancers":
+			body = `{"items":[{"id":"lb-1"}],"offset":0,"limit":10000,"total":1}`
+		case "/v1/global-load-balancers/lb-1":
+			body = `{"id":"lb-1"}`
+		case "/v1/global-load-balancers/lb-1/global-listeners", "/v1/global-load-balancers/lb-1/global-pools":
+			body = `[]`
+		case "/v1/global-load-balancers/lb-1/usage-histories":
+			body = `{"items":[]}`
+		default:
+			t.Errorf("empty nested inventory triggered a child request: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write([]byte(body))
+	}))
+	defer server.Close()
+	raw := newRawCaptureStore()
+	cfg, err := vngcloud.NewConfig(
+		vngcloud.WithRegion("han-1"), vngcloud.WithStaticToken("synthetic-token"),
+		vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{GLB: server.URL}),
+		vngcloud.WithResponseCapture(func(c vngcloud.ResponseCapture) { raw.add("synthetic", "han-1", c) }),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sdk := newSDKOutputStore()
+	sdk.setConfig("synthetic")
+	showGlobalLoadBalancer(t.Context(), cfg, sdk)
+	if requests != 5 {
+		t.Fatalf("nested inventory made %d requests, want 5", requests)
+	}
+	root := writeSmokeStores(t, raw, sdk)
+	reports, err := checkSmokeOutput(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !printSmokeCheck(reports) {
+		t.Fatalf("uncalled nested child operations were rejected: %+v", reports)
+	}
+}
+
+func TestSmokeCheckRejectsUnprovenSkippedCalls(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		rawParent string
+		sdkParent string
+		child     string
+		childRaw  string
+	}{
+		{name: "missing raw parent", rawParent: "omit"},
+		{name: "missing SDK parent", sdkParent: "omit"},
+		{name: "failed parent", rawParent: `{"regions":[{"config":"synthetic","region":"han-1","statusCode":403,"body":[]}]}`},
+		{name: "missing parent payload", rawParent: `{"regions":[{"config":"synthetic","region":"han-1","statusCode":200,"body":{"total":0}}]}`},
+		{name: "nonempty parent", rawParent: `{"regions":[{"config":"synthetic","region":"han-1","statusCode":200,"body":{"items":[{"id":"lb-1"}],"total":1}}]}`},
+		{name: "nonempty parent total", rawParent: `{"regions":[{"config":"synthetic","region":"han-1","statusCode":200,"body":{"items":[],"total":1}}]}`},
+		{name: "failed SDK parent", sdkParent: `{"regions":[{"config":"synthetic","region":"han-1","count":0,"error":"synthetic"}]}`},
+		{name: "wrong scope", child: `{"regions":[{"config":"different","region":"han-1","count":0,"skippedParent":"glb/load_balancer"}]}`},
+		{name: "SDK child error", child: `{"regions":[{"config":"synthetic","region":"han-1","count":0,"error":"synthetic","skippedParent":"glb/load_balancer"}]}`},
+		{name: "populated child", child: `{"regions":[{"config":"synthetic","region":"han-1","count":1,"items":[{"id":"lb-1"}],"skippedParent":"glb/load_balancer"}]}`},
+		{name: "missing skip marker", child: `{"regions":[{"config":"synthetic","region":"han-1","count":0,"items":[]}]}`},
+		{name: "wrong parent", child: `{"regions":[{"config":"synthetic","region":"han-1","count":0,"skippedParent":"../other"}]}`},
+		{name: "unexpected child capture", childRaw: `{"regions":[{"config":"synthetic","region":"han-1","statusCode":200,"body":[]}]}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			rawParent := tc.rawParent
+			if rawParent == "" {
+				rawParent = `{"regions":[{"config":"synthetic","region":"han-1","statusCode":200,"body":{"items":[],"total":0}}]}`
+			}
+			sdkParent := tc.sdkParent
+			if sdkParent == "" {
+				sdkParent = `{"regions":[{"config":"synthetic","region":"han-1","count":0,"items":[]}]}`
+			}
+			child := tc.child
+			if child == "" {
+				child = `{"regions":[{"config":"synthetic","region":"han-1","count":0,"skippedParent":"glb/load_balancer"}]}`
+			}
+			if rawParent != "omit" {
+				writeSmokeArtifact(t, root, "raw", "glb/load_balancer", rawParent)
+			}
+			if sdkParent != "omit" {
+				writeSmokeArtifact(t, root, "sdk", "glb/load_balancer", sdkParent)
+			}
+			writeSmokeArtifact(t, root, "sdk", "glb/load_balancer_detail", child)
+			if tc.childRaw != "" {
+				writeSmokeArtifact(t, root, "raw", "glb/load_balancer_detail", tc.childRaw)
+			}
+			reports, err := checkSmokeOutput(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if printSmokeCheck(reports) {
+				t.Fatal("unproven skipped operation passed the check")
+			}
+		})
+	}
+}
+
+func TestSmokeCheckComparesOtherScopesBesideSkippedCalls(t *testing.T) {
+	root := t.TempDir()
+	writeSmokeArtifact(t, root, "raw", "glb/load_balancer", `{"regions":[{"region":"han-1","statusCode":200,"body":{"items":[],"total":0}},{"region":"hcm-3","statusCode":200,"body":{"items":[{"id":"lb-1"}],"total":1}}]}`)
+	writeSmokeArtifact(t, root, "sdk", "glb/load_balancer", `{"regions":[{"region":"han-1","count":0,"items":[]},{"region":"hcm-3","count":1,"items":[{"id":"lb-1"}]}]}`)
+	writeSmokeArtifact(t, root, "raw", "glb/load_balancer_detail", `{"regions":[{"region":"hcm-3","statusCode":200,"body":{"id":"lb-1"}}]}`)
+	writeSmokeArtifact(t, root, "sdk", "glb/load_balancer_detail", `{"regions":[{"region":"han-1","count":0,"skippedParent":"glb/load_balancer"},{"region":"hcm-3","count":1,"items":[{"id":"lb-1"}]}]}`)
+	reports, err := checkSmokeOutput(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !printSmokeCheck(reports) {
+		t.Fatalf("skipped call obscured a compared scope: %+v", reports)
+	}
+}
+
+func TestSmokeCheckSeparatesMonitorChannelLookupCaptures(t *testing.T) {
+	lists := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Error("unexpected write")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		switch r.URL.Path {
+		case "/notification-gateway/api/v1/type/list":
+			_, _ = w.Write([]byte(`{"lstData":[]}`))
+		case "/notification-gateway/api/v1/notification/list/typeSearch":
+			lists++
+			_, _ = w.Write([]byte(`{"lstData":[{"id":"channel-1"}],"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`))
+		default:
+			t.Errorf("unexpected request: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	raw := newRawCaptureStore()
+	cfg, err := vngcloud.NewConfig(
+		vngcloud.WithRegion("han-1"), vngcloud.WithStaticToken("synthetic-token"),
+		vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{Monitor: server.URL}),
+		vngcloud.WithResponseCapture(func(c vngcloud.ResponseCapture) { raw.add("synthetic", "han-1", c) }),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sdk := newSDKOutputStore()
+	sdk.setConfig("synthetic")
+	showMonitorChannels(t.Context(), cfg, sdk)
+	if lists != 2 {
+		t.Fatalf("channel list and detail made %d list requests, want 2", lists)
+	}
+	root := writeSmokeStores(t, raw, sdk)
+	reports, err := checkSmokeOutput(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !printSmokeCheck(reports) {
+		t.Fatalf("detail lookup inflated list comparison: %+v", reports)
+	}
+	for _, report := range reports {
+		if report.resource == "monitor/channel" || report.resource == "monitor/channel_detail" {
+			if !report.sdkWithoutRaw || report.comparisonSkipped == "" {
+				t.Fatal("channel result was presented as raw-verified")
+			}
+		}
 	}
 }
 
