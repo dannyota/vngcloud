@@ -5,6 +5,7 @@ package containerregistry
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/jsonresponse"
 	"danny.vn/vngcloud/internal/routes"
 	"danny.vn/vngcloud/internal/transport"
 )
@@ -68,7 +70,11 @@ func (c *Client) ListRepositories(ctx context.Context, in *ListRepositoriesInput
 	}, &resp); err != nil {
 		return nil, err
 	}
-	return core.NewPagedList(resp.Items, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
+	out := core.NewPagedList(resp.Items, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem)
+	if resp.TotalPage > 1 || resp.TotalItem > len(resp.Items) {
+		return out, errors.New("containerregistry.ListRepositories: incomplete list; continuation parameters are unverified")
+	}
+	return out, nil
 }
 
 // ListUsersInput selects parameters for ListUsers.
@@ -211,28 +217,22 @@ type listUsersResponse struct {
 }
 
 func (r *listRepositoriesResponse) UnmarshalJSON(data []byte) error {
-	items, page, pageSize, totalPage, totalItem, err := core.DecodeFlexibleList[Repository](data)
-	if err != nil {
+	var page registryPage[Repository]
+	if err := json.Unmarshal(data, &page); err != nil {
 		return err
 	}
-	r.Items = items
-	r.Page = page
-	r.PageSize = pageSize
-	r.TotalPage = totalPage
-	r.TotalItem = totalItem
+	r.Items, r.Page, r.PageSize = page.items(), page.Page, page.PageSize
+	r.TotalPage, r.TotalItem = *page.TotalPage, *page.TotalItem
 	return nil
 }
 
 func (r *listUsersResponse) UnmarshalJSON(data []byte) error {
-	items, page, pageSize, totalPage, totalItem, err := core.DecodeFlexibleList[User](data)
-	if err != nil {
+	var page registryPage[User]
+	if err := json.Unmarshal(data, &page); err != nil {
 		return err
 	}
-	r.Items = items
-	r.Page = page
-	r.PageSize = pageSize
-	r.TotalPage = totalPage
-	r.TotalItem = totalItem
+	r.Items, r.Page, r.PageSize = page.items(), page.Page, page.PageSize
+	r.TotalPage, r.TotalItem = *page.TotalPage, *page.TotalItem
 	return nil
 }
 
@@ -279,6 +279,9 @@ func (r *Repository) UnmarshalJSON(data []byte) error {
 		ImageCount *int `json:"imageCount"`
 		*repositoryAlias
 	}{repositoryAlias: (*repositoryAlias)(r)}
+	if err := jsonresponse.ValidateStrict(data, &aux); err != nil {
+		return err
+	}
 	if err := json.Unmarshal(data, &aux); err != nil {
 		return err
 	}
@@ -332,6 +335,9 @@ func (u *User) UnmarshalJSON(data []byte) error {
 		UserID json.RawMessage `json:"userId"`
 		*userAlias
 	}{userAlias: (*userAlias)(u)}
+	if err := jsonresponse.ValidateStrict(data, &aux); err != nil {
+		return err
+	}
 	if err := json.Unmarshal(data, &aux); err != nil {
 		return err
 	}

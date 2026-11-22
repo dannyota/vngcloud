@@ -161,12 +161,9 @@ func TestGoldenContainerRegistryListPermissions(t *testing.T) {
 	checkGolden(t, "containerregistry-list-permissions.table.golden", "table", "", v)
 }
 
-// TestGoldenContainerRegistryCreateUser checks create-user's exact output
-// shape: User and the redacted SecretKey flattened to the top level,
-// alongside SecretFile, the path the new value was written to.
 func TestGoldenContainerRegistryCreateUser(t *testing.T) {
 	v := &createUserOutput{
-		CreateUserOutput: containerregistry.CreateUserOutput{User: exampleUser(), SecretKey: vngcloud.Secret("s3cr3t-value")},
+		CreateUserOutput: containerregistry.CreateUserOutput{SecretKey: vngcloud.Secret("s3cr3t-value")},
 		SecretFile:       "/home/agent/vcr-secret",
 	}
 	checkGolden(t, "containerregistry-create-user.json.golden", "json", "", v)
@@ -670,13 +667,6 @@ func containerRegistryCreateUserArgs(secretFilePath string) []string {
 	}
 }
 
-// TestContainerRegistryCreateUserWritesSecretFileAndRedactsOutput drives a
-// real create-user call, with --debug on, and checks: the POST body resolves
-// "Pull Images" to its policy id, the file lands at mode 0600 holding
-// exactly the secret plus one trailing newline, stdout's SecretKey field
-// reads "[redacted]" with a SecretFile field naming the path, and the secret
-// text itself appears nowhere in stdout or stderr, --debug's own write
-// started/finished lines included.
 func TestContainerRegistryCreateUserWritesSecretFileAndRedactsOutput(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "vcr-secret")
@@ -684,8 +674,9 @@ func TestContainerRegistryCreateUserWritesSecretFileAndRedactsOutput(t *testing.
 	fixture, createBody := containerRegistryUserFixture(t, []string{"app-ci"}, nil)
 	root, stdout, stderr := newSvcRoot(t, fixture)
 	root.SetArgs(append([]string{"--debug"}, containerRegistryCreateUserArgs(path)...))
-	if err := root.ExecuteContext(context.Background()); err != nil {
-		t.Fatalf("create-user: %v (stderr=%s)", err, stderr.String())
+	err := root.ExecuteContext(context.Background())
+	if err == nil || classify(err).Code != "UserNotFound" || exitCode(err) != 1 {
+		t.Fatalf("secret-only create must preserve its partial outcome: %v", err)
 	}
 
 	var decoded map[string]any
@@ -874,13 +865,7 @@ func TestContainerRegistryCreateUserNotFoundStillWritesSecretFile(t *testing.T) 
 	}
 }
 
-// TestContainerRegistryCreateUserSecretFileFailureDeletesUser checks the vCR
-// writes design's create-user step 3: when --secret-file cannot be written
-// after a plain create success (the user's id is known), the CLI deletes the
-// new user through the SDK and reports SecretFileFailed, naming the user by
-// its id since the cleanup delete itself succeeded, and the secret never
-// reaches stdout or stderr either.
-func TestContainerRegistryCreateUserSecretFileFailureDeletesUser(t *testing.T) {
+func TestContainerRegistryCreateUserSecretFileFailureDoesNotDeleteNameCandidate(t *testing.T) {
 	path := filepath.Join(unwritableSecretFileDir(t), "vcr-secret")
 
 	deleted := false
@@ -904,11 +889,11 @@ func TestContainerRegistryCreateUserSecretFileFailureDeletesUser(t *testing.T) {
 	if got := exitCode(err); got != 1 {
 		t.Fatalf("exitCode = %d, want 1", got)
 	}
-	if !deleted {
-		t.Fatal("the orphaned user was never deleted")
+	if deleted {
+		t.Fatal("a name candidate was deleted without creation ownership")
 	}
-	if !strings.Contains(err.Error(), "ra-1") {
-		t.Fatalf("error = %q, want it to name the user by its id (ra-1)", err.Error())
+	if strings.Contains(err.Error(), "ra-1") || !strings.Contains(err.Error(), "reconcile") || strings.Contains(err.Error(), "must be deleted") {
+		t.Fatalf("unsafe candidate recovery: %v", err)
 	}
 	if strings.Contains(stdout.String(), containerRegistryTestSecret) || strings.Contains(stderr.String(), containerRegistryTestSecret) {
 		t.Fatalf("the secret leaked into output: stdout=%s stderr=%s", stdout.String(), stderr.String())
@@ -918,13 +903,7 @@ func TestContainerRegistryCreateUserSecretFileFailureDeletesUser(t *testing.T) {
 	}
 }
 
-// TestContainerRegistryCreateUserSecretFileFailureNamesUserAndErrorsWhenDeleteFails
-// checks create-user's own exceptional case: when the cleanup delete itself
-// also fails, even though the user's id was known, the error names the user
-// by that id and includes both the write error and the delete error, so a
-// person can act on why each one failed, while the secret itself, which
-// neither error can hold, never appears.
-func TestContainerRegistryCreateUserSecretFileFailureNamesUserAndErrorsWhenDeleteFails(t *testing.T) {
+func TestContainerRegistryCreateUserSecretFileFailureDoesNotAttemptCandidateCleanup(t *testing.T) {
 	path := filepath.Join(unwritableSecretFileDir(t), "vcr-secret")
 
 	fixture, _ := containerRegistryUserFixture(t, []string{"app-ci"}, func(w http.ResponseWriter, r *http.Request) {
@@ -940,14 +919,11 @@ func TestContainerRegistryCreateUserSecretFileFailureNamesUserAndErrorsWhenDelet
 	if got := classify(err).Code; got != "SecretFileFailed" {
 		t.Fatalf("Code = %q, want SecretFileFailed (stderr=%s)", got, stderr.String())
 	}
-	if !strings.Contains(err.Error(), "ra-1") {
-		t.Fatalf("error = %q, want it to name the user by its known id (ra-1)", err.Error())
+	if strings.Contains(err.Error(), "ra-1") || strings.Contains(err.Error(), "permission denied") || strings.Contains(err.Error(), "cleanup delete boom") || !strings.Contains(err.Error(), "reconcile") {
+		t.Fatalf("unsafe candidate cleanup diagnostics: %v", err)
 	}
-	if !strings.Contains(err.Error(), "permission denied") {
-		t.Fatalf("error = %q, want it to include the write error", err.Error())
-	}
-	if !strings.Contains(err.Error(), "cleanup delete boom") {
-		t.Fatalf("error = %q, want it to include the delete error", err.Error())
+	if _, ok := fixture.methodFor("/v1/user/ra-1"); ok {
+		t.Fatal("candidate cleanup was attempted")
 	}
 	if strings.Contains(stdout.String(), containerRegistryTestSecret) || strings.Contains(stderr.String(), containerRegistryTestSecret) ||
 		strings.Contains(err.Error(), containerRegistryTestSecret) {
@@ -955,13 +931,7 @@ func TestContainerRegistryCreateUserSecretFileFailureNamesUserAndErrorsWhenDelet
 	}
 }
 
-// TestContainerRegistryCreateUserSecretFileFailureWithNoIDNamesByName checks
-// the vCR writes design's create-user step 3 for its other exceptional case:
-// when the post-create list never confirmed the user (UserNotFound, so its
-// id is unknown) and the --secret-file write also fails, the CLI sends no
-// delete at all (there is no id to send one to) and the error names the user
-// only by --name.
-func TestContainerRegistryCreateUserSecretFileFailureWithNoIDNamesByName(t *testing.T) {
+func TestContainerRegistryCreateUserSecretFileFailureWithNoIDRequiresOwnershipReconciliation(t *testing.T) {
 	path := filepath.Join(unwritableSecretFileDir(t), "vcr-secret")
 
 	fixture, _ := containerRegistryUserFixture(t, nil, func(_ http.ResponseWriter, r *http.Request) {
@@ -976,8 +946,8 @@ func TestContainerRegistryCreateUserSecretFileFailureWithNoIDNamesByName(t *test
 	if got := classify(err).Code; got != "SecretFileFailed" {
 		t.Fatalf("Code = %q, want SecretFileFailed (stderr=%s)", got, stderr.String())
 	}
-	if !strings.Contains(err.Error(), "app-ci") {
-		t.Fatalf("error = %q, want it to name the user by --name (app-ci)", err.Error())
+	if strings.Contains(err.Error(), "app-ci") || !strings.Contains(err.Error(), "reconcile") {
+		t.Fatalf("unproven ownership needs safe reconciliation guidance: %v", err)
 	}
 	if strings.Contains(stdout.String(), containerRegistryTestSecret) || strings.Contains(stderr.String(), containerRegistryTestSecret) {
 		t.Fatalf("the secret leaked into output: stdout=%s stderr=%s", stdout.String(), stderr.String())

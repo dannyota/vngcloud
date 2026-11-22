@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -143,7 +144,7 @@ func TestGuardRefusesMalformedStatements(t *testing.T) {
 			var writes atomic.Int32
 			c := newGuardTestClient(t, g, func(mux *http.ServeMux) {
 				mux.HandleFunc("GET /policies-api/v1/policies/policy-malformed", func(w http.ResponseWriter, r *http.Request) {
-					_, _ = w.Write([]byte(tc.document))
+					_, _ = w.Write([]byte(strings.Replace(tc.document, `{`, `{"name":"policy","description":"d",`, 1)))
 				})
 				mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 					if r.Method != http.MethodGet {

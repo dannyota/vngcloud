@@ -22,7 +22,7 @@ vngcloud containerregistry create-repository --name <name> --quota-limit-gb <quo
 
 Kind: Write.
 
-The server requires --name to be 6 to 14 characters of letters, digits, '_', or '-', starting with a letter or digit, and refuses any other name with 400. A name that already matches an existing user's is refused with InvalidUsage before any create request; check list-users --name <name>. Each Permissions[].Actions entry must exactly match one of the server's own action names, read from list-permissions: currently "Pull Images", "Push Images", and "All"; an unknown action is refused before any create request, naming the ones list-permissions did return. Needs --secret-file <path>: the create returns the new secret once, and this command writes it only to that file, at mode 0600, never to stdout, stderr, --debug, or an error message; the printed SecretKey field always reads "[redacted]", and a SecretFile field names the path. --secret-file must not already exist, symlink included, checked before any request. The create is never retried after a failure that may have already reached the server: run list-users --name <name> and delete a stray match before creating again, rather than repeating this command blindly, since that match has already lost its secret. When the create itself succeeds but a follow-up list cannot confirm the new user by name (error code UserNotFound), the secret is still written to --secret-file and the command still exits 1; check list-users --name <name> by hand. If writing --secret-file itself fails, the new user is deleted through the SDK and the command exits 1 with error code SecretFileFailed; without a confirmed user id (after UserNotFound) or if that delete also fails, the message names the user only by --name, for a person to find and delete by hand. Which of the printed User's Name or a repository's own Name is docker login's -u value is unconfirmed.
+Needs --secret-file <path>, which must be new, including no existing symlink. The server requires names of 6 to 14 letters, digits, '_' or '-', starting with a letter or digit. Permissions[].Actions must match list-permissions exactly. The SDK refuses an existing exact name before creating and checks every supported user page. Set --duration-days for temporary users. The create sends once. Its response carries a secret but no attributable user ID, so even one exact-name match is only a candidate. The SDK returns UserNotFound with the secret retained and User empty; the CLI saves the secret at mode 0600 and exits 1. Inspect both output and error in SDK callers. Never log Reveal(). Dependent reads withhold captures and reject reflected credentials. A name match does not authorize automatic cleanup, including after secret-file failure. Reconcile ownership with list-users --name and other administrators before any delete or another create. The printed SecretKey is redacted. Which name docker login needs remains unverified.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -93,7 +93,7 @@ vngcloud containerregistry list-permissions
 
 Kind: Read.
 
-The server applies no account prefix: a row's Name is exactly the value given to create-repository's own --name.
+The server applies no account prefix: a row's Name equals the create name. A response reporting more pages returns partial output and an explicit incomplete-list error, since repository continuation parameters remain unverified. Never use that partial output as a complete inventory.
 
 | Flag | Type | Required |
 |-|-|-|

@@ -19,8 +19,8 @@ type ListUserPoliciesInput struct {
 	Size int
 }
 
-// ListUserPoliciesOutput holds PolicySummary items.
-type ListUserPoliciesOutput = core.List[PolicySummary]
+// ListUserPoliciesOutput holds PolicySummary items and the returned nullable page metadata.
+type ListUserPoliciesOutput = pageList[PolicySummary]
 
 // ListUserPolicies reads user policies.
 func (c *Client) ListUserPolicies(ctx context.Context, in *ListUserPoliciesInput) (*ListUserPoliciesOutput, error) {
@@ -32,9 +32,7 @@ func (c *Client) ListUserPolicies(ctx context.Context, in *ListUserPoliciesInput
 		return nil, err
 	}
 
-	var resp struct {
-		Data []PolicySummary `json:"data"`
-	}
+	var resp pageResponse[PolicySummary]
 	req := transport.Request{
 		Operation: op,
 		Method:    http.MethodGet,
@@ -44,7 +42,7 @@ func (c *Client) ListUserPolicies(ctx context.Context, in *ListUserPoliciesInput
 	if err := c.c.DoJSON(ctx, req, &resp); err != nil {
 		return nil, err
 	}
-	return &ListUserPoliciesOutput{Items: resp.Data}, nil
+	return resp.output(), nil
 }
 
 // ListUserGroupsInput identifies the user whose groups to list. This call
@@ -93,8 +91,8 @@ type ListServiceAccountPoliciesInput struct {
 	Size int
 }
 
-// ListServiceAccountPoliciesOutput holds PolicySummary items.
-type ListServiceAccountPoliciesOutput = core.List[PolicySummary]
+// ListServiceAccountPoliciesOutput holds PolicySummary items and the returned nullable page metadata.
+type ListServiceAccountPoliciesOutput = pageList[PolicySummary]
 
 // ListServiceAccountPolicies reads service account policies.
 func (c *Client) ListServiceAccountPolicies(ctx context.Context, in *ListServiceAccountPoliciesInput) (*ListServiceAccountPoliciesOutput, error) {
@@ -106,9 +104,7 @@ func (c *Client) ListServiceAccountPolicies(ctx context.Context, in *ListService
 		return nil, err
 	}
 
-	var resp struct {
-		Data []PolicySummary `json:"data"`
-	}
+	var resp pageResponse[PolicySummary]
 	req := transport.Request{
 		Operation: op,
 		Method:    http.MethodGet,
@@ -118,5 +114,5 @@ func (c *Client) ListServiceAccountPolicies(ctx context.Context, in *ListService
 	if err := c.c.DoJSON(ctx, req, &resp); err != nil {
 		return nil, err
 	}
-	return &ListServiceAccountPoliciesOutput{Items: resp.Data}, nil
+	return resp.output(), nil
 }

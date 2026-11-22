@@ -39,25 +39,28 @@ func contextSleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// poll runs step at once, then again every interval, until step reports
-// stop true or bound has elapsed, by now, since poll's first call to step.
-// Elapsed time is read from now rather than counted in interval steps, so a
-// step that itself takes real time counts against the bound instead of only
-// the sleeps between steps; a test injects both a fake clock and a
-// sleepFunc that returns quickly. This is the same shape as network's and
-// dns's own unexported poll, duplicated here rather than shared, since none
-// of these packages imports another.
-func poll(ctx context.Context, now clockFunc, sleep sleepFunc, interval, bound time.Duration, step func(ctx context.Context) (stop bool, err error), onTimeout func() error) error {
-	deadline := now().Add(bound)
+func poll(ctx context.Context, now clockFunc, sleep sleepFunc, step func(ctx context.Context) (stop bool, err error), onTimeout func() error) error {
+	ctx, cancel := context.WithTimeout(ctx, repoPollBound)
+	defer cancel()
+	deadline := now().Add(repoPollBound)
 	for {
-		stop, err := step(ctx)
-		if stop {
+		if err := ctx.Err(); err != nil {
 			return err
 		}
 		if !now().Before(deadline) {
 			return onTimeout()
 		}
-		if err := sleep(ctx, interval); err != nil {
+		stop, err := step(ctx)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if !now().Before(deadline) {
+			return onTimeout()
+		}
+		if stop {
+			return err
+		}
+		if err := sleep(ctx, min(repoPollInterval, deadline.Sub(now()))); err != nil {
 			return err
 		}
 	}

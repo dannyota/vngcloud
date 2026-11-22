@@ -308,12 +308,6 @@ func (c *Client) UpdateRecord(ctx context.Context, in *UpdateRecordInput) (*Upda
 	return &UpdateRecordOutput{Record: *settled}, err
 }
 
-// recordMatchesUpdate reports whether r shows every field that in's caller
-// set. SubDomain is checked against the zone's full name, since the
-// server returns SubDomain as the full name (the zone's DomainName for the
-// apex, or "<label>.<DomainName>" otherwise) rather than the label sent;
-// that comparison, and Type's, are case-insensitive, since the server
-// lowercases the subDomain it stores regardless of the case sent.
 func recordMatchesUpdate(r *Record, zone *HostedZone, in *UpdateRecordInput) bool {
 	if in.SubDomain != nil && !strings.EqualFold(r.SubDomain, fullSubDomain(*in.SubDomain, zone.DomainName)) {
 		return false
@@ -327,7 +321,7 @@ func recordMatchesUpdate(r *Record, zone *HostedZone, in *UpdateRecordInput) boo
 	if in.RoutingPolicy != nil && r.RoutingPolicy != *in.RoutingPolicy {
 		return false
 	}
-	if in.Values != nil && !recordValuesEqual(r.Value, *in.Values) {
+	if in.Values != nil && !recordValuesEqual(r.Value, *in.Values, r.Type) {
 		return false
 	}
 	if in.StickySession != nil && !ptrEqual(r.EnableStickySession, in.StickySession) {
@@ -348,15 +342,13 @@ func fullSubDomain(subDomain, domainName string) string {
 
 // recordValuesEqual reports whether a and b hold the same values in the
 // same order, since the server keeps the order values were sent in;
-// Value compares case-insensitively, for the same reason SubDomain does in
-// recordMatchesUpdate, and Location and Weight compare by their pointed-to
-// value rather than by pointer identity.
-func recordValuesEqual(a, b []RecordValue) bool {
+
+func recordValuesEqual(a, b []RecordValue, recordType string) bool {
 	if len(a) != len(b) {
 		return false
 	}
 	for i := range a {
-		if !strings.EqualFold(a[i].Value, b[i].Value) {
+		if a[i].Value != b[i].Value && (recordType != "MX" || !strings.EqualFold(a[i].Value, b[i].Value)) {
 			return false
 		}
 		if !ptrEqual(a[i].Location, b[i].Location) {

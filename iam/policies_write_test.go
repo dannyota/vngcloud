@@ -859,9 +859,7 @@ func TestGuardUserPolicySummariesMissingTotalsRefusesUpdate(t *testing.T) {
 	}
 }
 
-// TestUpdatePolicyRetriesOn502 checks that the PUT, idempotent regardless of
-// any request field, is retried by the transport after a 502.
-func TestUpdatePolicyRetriesOn502(t *testing.T) {
+func TestUpdatePolicyDoesNotReplaySnapshotAfter502(t *testing.T) {
 	g := unprivilegedPolicyFixture()
 	var putCalls int32
 	handler := g.mux(t, func(mux *http.ServeMux) {
@@ -879,11 +877,11 @@ func TestUpdatePolicyRetriesOn502(t *testing.T) {
 	cfg := core.NewTestConfig("hcm-3", "project-1", endpoints.Set{Region: "hcm-3", Dashboard: server.URL + "/", IAM: server.URL + "/"}, tc)
 	c := New(cfg)
 
-	if _, err := c.UpdatePolicy(context.Background(), &UpdatePolicyInput{PolicyID: "policy-1", Description: vngcloud.Ptr("x")}); err != nil {
+	if _, err := c.UpdatePolicy(context.Background(), &UpdatePolicyInput{PolicyID: "policy-1", Description: vngcloud.Ptr("x")}); !errors.Is(err, ErrNotSettled) {
 		t.Fatalf("UpdatePolicy() error = %v", err)
 	}
-	if putCalls != 2 {
-		t.Fatalf("server received %d PUT request(s), want 2 (retried once after 502)", putCalls)
+	if putCalls != 1 {
+		t.Fatalf("server received %d PUT request(s), want 1 (snapshot is sent once)", putCalls)
 	}
 }
 

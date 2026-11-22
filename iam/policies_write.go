@@ -164,23 +164,9 @@ type updatePolicyBody struct {
 	Statements  []Statement `json:"statements"`
 }
 
-// UpdatePolicy replaces a customer policy's name, description, and
-// statements with a PUT, filling any field the caller left nil from the
-// policy's own current state, and reads it back with GetPolicy.
-//
-// The guard runs first and sends nothing when it refuses: ErrSelfChange if
-// the change would affect the caller's own rights, ErrManagedPolicy if the
-// policy is managed, or ErrPrivilegedChange if its current or proposed
-// statements are privileged or it is attached to some other protected
-// principal or group.
-//
-// If the confirm read after the PUT fails, UpdatePolicy still returns a
-// non-nil Output, its Policy holding only PolicyID (every other field left
-// zero), and wraps ErrNotSettled rather than returning nil: the update
-// already reached the server either way.
-//
-// PUT is idempotent regardless of any request field, so the transport's own
-// retry after a 5xx is safe to repeat.
+// UpdatePolicy checks protection and complete preserved fields, then sends
+// the replacement once. Uncertain sends and failed confirmations retain the
+// policy ID with ErrNotSettled; reconcile with reads before another write.
 func (c *Client) UpdatePolicy(ctx context.Context, in *UpdatePolicyInput) (*UpdatePolicyOutput, error) {
 	const op = "iam.UpdatePolicy"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -211,15 +197,23 @@ func (c *Client) UpdatePolicy(ctx context.Context, in *UpdatePolicyInput) (*Upda
 		body.Statements = *in.Statements
 	}
 
+	notSent := false
 	req := transport.Request{
-		Operation: op,
-		Method:    http.MethodPut,
-		URL:       c.policiesURL([]string{"policies", in.PolicyID}, nil),
-		Body:      body,
-		OK:        []int{204},
+		Once:               true,
+		NotSent:            &notSent,
+		KeepObservedStatus: true,
+		Operation:          op,
+		Method:             http.MethodPut,
+		URL:                c.policiesURL([]string{"policies", in.PolicyID}, nil),
+		Body:               body,
+		OK:                 []int{204},
 	}
-	if err := c.c.DoJSON(ctx, req, nil); err != nil {
-		return nil, err
+	status, err := c.c.DoJSONStatus(ctx, req, nil)
+	if err != nil {
+		if notSent || status >= 400 && status < 500 && status != 408 && status != 499 {
+			return nil, err
+		}
+		return &UpdatePolicyOutput{Policy: Policy{ID: in.PolicyID}}, fmt.Errorf("%s: %w: replacement outcome is uncertain; read the policy before another write: %w", op, ErrNotSettled, err)
 	}
 
 	got, err := c.GetPolicy(ctx, &GetPolicyInput{PolicyID: in.PolicyID})

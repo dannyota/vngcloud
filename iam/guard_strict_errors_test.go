@@ -47,7 +47,7 @@ func guardErrorCases() []guardErrorCase {
 		{name: "group policies", token: "1234567890123456", op: "iam.DeleteGroup", group: group("policies", numbers), typeError: true},
 		{name: "group users", token: "1234567890123456", op: "iam.DeleteGroup", group: group("iamUsers", numbers), typeError: true},
 		{name: "attachment total", token: "1234567890123456", op: "iam.DeleteServiceAccount", page: func(token string) any { return map[string]any{"data": []any{}, "totalItems": json.Number(token)} }},
-		{name: "attachment policy ID", token: "synthetic.bearer-canary", op: "iam.GetPolicy", invalidInput: true, page: func(token string) any {
+		{name: "attachment policy ID", token: "synthetic.bearer-canary", op: "iam.DeleteServiceAccount", page: func(token string) any {
 			return map[string]any{"data": []any{map[string]any{"id": token}}, "totalItems": 1}
 		}},
 	}

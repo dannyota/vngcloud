@@ -24,14 +24,6 @@ func TestPollStopsOnFirstStep(t *testing.T) {
 	}
 }
 
-// TestPollStepCountAndSpacing checks the design's own accounting: a wait
-// that never settles calls step 31 times (once at the start of each of the
-// 30 pollInterval-wide windows within pollBound, plus the final check
-// exactly at the bound) and sleeps pollInterval, never any other duration,
-// between them. The fake clock only advances when the injected sleep
-// advances it, by exactly the duration it was asked to sleep, so this
-// reproduces the same accounting as a real clock would when every read is
-// instant and only the sleeps between them consume time.
 func TestPollStepCountAndSpacing(t *testing.T) {
 	steps := 0
 	var sleptFor []time.Duration
@@ -49,12 +41,12 @@ func TestPollStepCountAndSpacing(t *testing.T) {
 	if !errors.Is(err, ErrZoneBusy) {
 		t.Fatalf("err = %v, want ErrZoneBusy", err)
 	}
-	const wantSteps = int(pollBound/pollInterval) + 1
+	const wantSteps = int(pollBound / pollInterval)
 	if steps != wantSteps {
 		t.Fatalf("steps = %d, want %d", steps, wantSteps)
 	}
-	if len(sleptFor) != wantSteps-1 {
-		t.Fatalf("sleeps = %d, want %d", len(sleptFor), wantSteps-1)
+	if len(sleptFor) != wantSteps {
+		t.Fatalf("sleeps = %d, want %d", len(sleptFor), wantSteps)
 	}
 	for _, d := range sleptFor {
 		if d != pollInterval {

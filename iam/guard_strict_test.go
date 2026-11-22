@@ -13,7 +13,7 @@ import (
 	"danny.vn/vngcloud/internal/transport"
 )
 
-const strictSafePolicy = `{"id":"policy-1","manager":"user","statements":[{"effect":"allow","actions":["vserver:List*"]}]}`
+const strictSafePolicy = `{"id":"policy-1","name":"policy","description":"d","manager":"user","statements":[{"effect":"allow","actions":["vserver:List*"]}]}`
 
 func strictGuardClient(t *testing.T, overrides map[string]string) (*Client, *atomic.Int32) {
 	t.Helper()
@@ -157,8 +157,8 @@ func TestGuardStrictNormal(t *testing.T) {
 
 func TestGuardStrictRawPolicyFixture(t *testing.T) {
 	body := testutil.FixtureBody(t, "../testdata/iam/get_policy_customer_numeric_root.json")
-	c, _ := strictGuardClient(t, map[string]string{"/policies-api/v1/policies/policy-1": body})
-	got, err := c.GetPolicy(context.Background(), &GetPolicyInput{PolicyID: "policy-1"})
+	c, _ := strictGuardClient(t, map[string]string{"/policies-api/v1/policies/policy-2": body})
+	got, err := c.GetPolicy(context.Background(), &GetPolicyInput{PolicyID: "policy-2"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,8 +194,8 @@ func TestGuardStrictWritePrereads(t *testing.T) {
 
 func TestGuardStrictRawGroupFixture(t *testing.T) {
 	body := testutil.FixtureBody(t, "../testdata/iam/get_group_numeric_root.json")
-	c, _ := strictGuardClient(t, map[string]string{"/policies-api/v1/groups/group-1": body})
-	got, err := c.GetGroup(context.Background(), &GetGroupInput{GroupID: "group-1"})
+	c, _ := strictGuardClient(t, map[string]string{"/policies-api/v1/groups/group-2": body})
+	got, err := c.GetGroup(context.Background(), &GetGroupInput{GroupID: "group-2"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestGuardStrictRawGroupFixture(t *testing.T) {
 }
 
 func TestGuardStrictPolicyCondition(t *testing.T) {
-	body := `{"statements":[{"effect":"allow","actions":["vserver:List*"],"condition":{"stringEquals":{"Env":"one","env":"two"}}}]}`
+	body := `{"id":"policy-1","statements":[{"effect":"allow","actions":["vserver:List*"],"condition":{"stringEquals":{"Env":"one","env":"two"}}}]}`
 	c, _ := strictGuardClient(t, map[string]string{"/policies-api/v1/policies/policy-1": body})
 	got, err := c.GetPolicy(context.Background(), &GetPolicyInput{PolicyID: "policy-1"})
 	if err != nil {

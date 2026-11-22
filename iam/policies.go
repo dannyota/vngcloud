@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/transport"
@@ -21,8 +22,8 @@ type ListPoliciesInput struct {
 	Size int
 }
 
-// ListPoliciesOutput holds PolicySummary items.
-type ListPoliciesOutput = core.List[PolicySummary]
+// ListPoliciesOutput holds PolicySummary items and the returned nullable page metadata.
+type ListPoliciesOutput = pageList[PolicySummary]
 
 // ListPolicies reads policies.
 func (c *Client) ListPolicies(ctx context.Context, in *ListPoliciesInput) (*ListPoliciesOutput, error) {
@@ -38,9 +39,7 @@ func (c *Client) ListPolicies(ctx context.Context, in *ListPoliciesInput) (*List
 	if in.Name != "" {
 		q.Set("name", in.Name)
 	}
-	var resp struct {
-		Data []PolicySummary `json:"data"`
-	}
+	var resp pageResponse[PolicySummary]
 	req := transport.Request{
 		Operation: op,
 		Method:    http.MethodGet,
@@ -50,7 +49,7 @@ func (c *Client) ListPolicies(ctx context.Context, in *ListPoliciesInput) (*List
 	if err := c.c.DoJSON(ctx, req, &resp); err != nil {
 		return nil, err
 	}
-	return &ListPoliciesOutput{Items: resp.Data}, nil
+	return resp.output(), nil
 }
 
 // GetPolicyInput requires PolicyID.
@@ -70,6 +69,10 @@ func (c *Client) GetPolicy(ctx context.Context, in *GetPolicyInput) (*GetPolicyO
 }
 
 func (c *Client) getPolicy(ctx context.Context, in *GetPolicyInput, options ...userReadOptions) (*GetPolicyOutput, error) {
+	return c.getPolicySnapshot(ctx, in, false, options...)
+}
+
+func (c *Client) getPolicySnapshot(ctx context.Context, in *GetPolicyInput, complete bool, options ...userReadOptions) (*GetPolicyOutput, error) {
 	const op = "iam.GetPolicy"
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
@@ -94,8 +97,10 @@ func (c *Client) getPolicy(ctx context.Context, in *GetPolicyInput, options ...u
 	type fields Policy
 	var policy fields
 	resp := struct {
-		Root      flexibleRoot `json:"root"`
-		CreatedAt epochMillis  `json:"createdAt"`
+		Root        flexibleRoot `json:"root"`
+		CreatedAt   epochMillis  `json:"createdAt"`
+		Name        *string      `json:"name"`
+		Description *string      `json:"description"`
 		*fields
 	}{fields: &policy}
 	req := transport.Request{
@@ -108,6 +113,18 @@ func (c *Client) getPolicy(ctx context.Context, in *GetPolicyInput, options ...u
 	}
 	if err := c.guardReadJSON(ctx, "policy", req, &resp, options...); err != nil {
 		return nil, err
+	}
+	if core.CheckPathID(op, "PolicyID", policy.ID) != nil || !strings.EqualFold(policy.ID, in.PolicyID) {
+		return nil, fmt.Errorf("%s: policy identity is unproven", op)
+	}
+	if complete && (resp.Name == nil || resp.Description == nil) {
+		return nil, fmt.Errorf("%s: incomplete policy replacement snapshot", op)
+	}
+	if resp.Name != nil {
+		policy.Name = *resp.Name
+	}
+	if resp.Description != nil {
+		policy.Description = *resp.Description
 	}
 	policy.Root = string(resp.Root)
 	policy.CreatedAt = int64(resp.CreatedAt)

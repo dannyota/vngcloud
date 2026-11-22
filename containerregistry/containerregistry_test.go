@@ -177,7 +177,7 @@ func TestContainerRegistryListUsersDefaultPageSize(t *testing.T) {
 		if r.URL.Query().Get("page") != "1" || r.URL.Query().Get("size") != "10000" {
 			t.Fatalf("unexpected query: %s", r.URL.RawQuery)
 		}
-		_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":10000}`))
+		_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":10000,"totalPage":0,"totalItem":0}`))
 	}))
 
 	if _, err := c.ListUsers(context.Background(), nil); err != nil {

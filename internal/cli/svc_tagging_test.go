@@ -74,12 +74,12 @@ func TestTaggingTagResourceRequestSent(t *testing.T) {
 			case http.MethodGet:
 				calls++
 				if calls == 1 {
-					_, _ = w.Write([]byte(taggingTagJSON(t, []map[string]any{{"key": "env", "value": "prod"}})))
+					_, _ = w.Write([]byte(taggingTagJSON(t, []map[string]any{{"key": "env", "value": "prod", "systemTag": false}})))
 					return
 				}
 				_, _ = w.Write([]byte(taggingTagJSON(t, []map[string]any{
-					{"key": "env", "value": "prod"},
-					{"key": "owner", "value": "sre"},
+					{"key": "env", "value": "prod", "systemTag": false},
+					{"key": "owner", "value": "sre", "systemTag": false},
 				})))
 			case http.MethodPut:
 				defer func() { _ = r.Body.Close() }()
@@ -132,7 +132,7 @@ func TestTaggingTagResourceNoOpSendsNoPUT(t *testing.T) {
 			if r.Method != http.MethodGet {
 				t.Fatalf("unexpected method %s: a no-change tag must send no PUT", r.Method)
 			}
-			_, _ = w.Write([]byte(taggingTagJSON(t, []map[string]any{{"key": "env", "value": "prod"}})))
+			_, _ = w.Write([]byte(taggingTagJSON(t, []map[string]any{{"key": "env", "value": "prod", "systemTag": false}})))
 		},
 	})
 	root, stdout, stderr := newSvcRoot(t, fixture)
@@ -199,7 +199,7 @@ func TestTaggingTagResourceNotSettledPrintsOutputOnStdout(t *testing.T) {
 					_, _ = w.Write([]byte("[]"))
 					return
 				}
-				_, _ = w.Write([]byte(taggingTagJSON(t, []map[string]any{{"key": "other", "value": "x"}})))
+				_, _ = w.Write([]byte(taggingTagJSON(t, []map[string]any{{"key": "other", "value": "x", "systemTag": false}})))
 			case http.MethodPut:
 				_, _ = w.Write([]byte("[]"))
 			default:
@@ -242,12 +242,12 @@ func TestTaggingUntagResourceRequestSent(t *testing.T) {
 				calls++
 				if calls == 1 {
 					_, _ = w.Write([]byte(taggingTagJSON(t, []map[string]any{
-						{"key": "env", "value": "prod"},
-						{"key": "team", "value": "platform"},
+						{"key": "env", "value": "prod", "systemTag": false},
+						{"key": "team", "value": "platform", "systemTag": false},
 					})))
 					return
 				}
-				_, _ = w.Write([]byte(taggingTagJSON(t, []map[string]any{{"key": "team", "value": "platform"}})))
+				_, _ = w.Write([]byte(taggingTagJSON(t, []map[string]any{{"key": "team", "value": "platform", "systemTag": false}})))
 			case http.MethodPut:
 				defer func() { _ = r.Body.Close() }()
 				putBody, _ = io.ReadAll(r.Body)
@@ -295,7 +295,7 @@ func TestTaggingUntagResourceNoOpSendsNoPUT(t *testing.T) {
 			if r.Method != http.MethodGet {
 				t.Fatalf("unexpected method %s: an absent key must send no PUT", r.Method)
 			}
-			_, _ = w.Write([]byte(taggingTagJSON(t, []map[string]any{{"key": "team", "value": "platform"}})))
+			_, _ = w.Write([]byte(taggingTagJSON(t, []map[string]any{{"key": "team", "value": "platform", "systemTag": false}})))
 		},
 	})
 	root, stdout, stderr := newSvcRoot(t, fixture)
@@ -364,7 +364,7 @@ func TestTaggingWritesNeedNoYes(t *testing.T) {
 			// without this, a static response would make the confirm read
 			// disagree with what was just sent and turn every real write
 			// into a spurious tagging.ErrNotSettled.
-			current := []map[string]any{{"key": "env", "value": "prod"}}
+			current := []map[string]any{{"key": "env", "value": "prod", "systemTag": false}}
 			fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 				"/v2/proj-1/tag/resource/res-1": func(w http.ResponseWriter, r *http.Request) {
 					switch r.Method {
@@ -379,7 +379,7 @@ func TestTaggingWritesNeedNoYes(t *testing.T) {
 						}
 						next := make([]map[string]any, len(body.TagRequestList))
 						for i, tr := range body.TagRequestList {
-							next[i] = map[string]any{"key": tr["key"], "value": tr["value"]}
+							next[i] = map[string]any{"key": tr["key"], "value": tr["value"], "systemTag": false}
 						}
 						current = next
 						_, _ = w.Write([]byte("[]"))

@@ -106,7 +106,7 @@ vngcloud iam create-policy --name <name> --document-file policy.json
 
 Kind: Write.
 
-Needs --secret-file <path>: the client secret is returned once, and this command writes it only to that file, at mode 0600, never to stdout, stderr, --debug, or an error message; the printed ClientSecret field always reads "[redacted]", and a SecretFile field names the path. --secret-file must not already exist, symlink included, checked before any request. If the create response holds no client secret at all, the new service account is kept, no file is written, and the command exits 1 with error code SecretFileFailed naming reset-service-account-secret. If the read the SDK makes after the create to confirm the new account fails, --secret-file is still written from the create response's own secret and the account is kept, but the command exits 1 naming list-service-accounts, since the account's other fields could not be confirmed. If writing --secret-file itself fails after a secret was returned, the new service account is deleted through the SDK and the command exits 1 with SecretFileFailed; if that delete also fails, the message names the service account only by its ID. Never retried after a failure that may have already reached the server: list service accounts by --name before creating it again rather than repeating this command; a service account found that way has already lost its client secret and needs reset-service-account-secret. A failed confirm read preserves the ID and secret but may omit ClientID: recover it with get-service-account --service-account-id <id>, never another create. Configure a fresh profile using client_id and stdin-only client_secret, then set read_only last; see [Configuration](Configuration.md#service-account-profile).
+Needs a new --secret-file path, including no existing symlink. The client secret is returned once and saved at mode 0600; printed ClientSecret is redacted. Persist every non-empty secret before handling an SDK error. A failed confirmation retains the attributable create ID and secret. A missing, invalid, or unsafe create ID returns ErrCreateUnconfirmed with the secret retained and an empty ID, which grants no cleanup authority. Dependent reads withhold captures and reject credential reflections. Missing secrets return ErrNoSecret. The create sends once; reconcile with list-service-accounts before another create. A name match alone never proves ownership. Recover ClientID for a safe create ID with get-service-account --service-account-id <id>, never another create. Configure a fresh profile using client_id and stdin-only client_secret, then set read_only last; see [Configuration](Configuration.md#service-account-profile).
 
 | Flag | Type | Required |
 |-|-|-|
@@ -342,6 +342,8 @@ vngcloud iam list-actions
 
 Kind: Read.
 
+Returns Items and nullable PageNumber, PageSize, TotalItems, and TotalPages from the response. Missing metadata stays null; zero is a real value. Use the existing --page and --size inputs for continuation, and do not infer completeness when metadata is missing. SDK callers using the former core.List aliases must use the operation output types and keyed literals.
+
 | Flag | Type | Required |
 |-|-|-|
 | `--group-id` | `string` | yes |
@@ -365,6 +367,8 @@ vngcloud iam list-groups
 ## list-policies
 
 Kind: Read.
+
+Returns Items and nullable PageNumber, PageSize, TotalItems, and TotalPages from the response. Missing metadata stays null; zero is a real value. Use the existing --page and --size inputs for continuation, and do not infer completeness when metadata is missing. SDK callers using the former core.List aliases must use the operation output types and keyed literals.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -391,6 +395,8 @@ vngcloud iam list-policy-attachments --policy-id <policy-id>
 ## list-service-account-policies
 
 Kind: Read.
+
+Returns Items and nullable PageNumber, PageSize, TotalItems, and TotalPages from the response. Missing metadata stays null; zero is a real value. Use the existing --page and --size inputs for continuation, and do not infer completeness when metadata is missing. SDK callers using the former core.List aliases must use the operation output types and keyed literals.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -434,6 +440,8 @@ vngcloud iam list-user-groups --user-id <user-id>
 
 Kind: Read.
 
+Returns Items and nullable PageNumber, PageSize, TotalItems, and TotalPages from the response. Missing metadata stays null; zero is a real value. Use the existing --page and --size inputs for continuation, and do not infer completeness when metadata is missing. SDK callers using the former core.List aliases must use the operation output types and keyed literals.
+
 | Flag | Type | Required |
 |-|-|-|
 | `--user-id` | `string` | yes |
@@ -448,7 +456,7 @@ vngcloud iam list-user-policies --user-id <user-id>
 
 Kind: Read.
 
---name adds the server's observed case-insensitive substring filter; compare exact usernames and IDs before reconciliation. A name match proves current state only, never ownership of a create or its password. Paging remains one zero-based page, with default size 10000. Use list-user-policies --user-id <id> and list-user-groups --user-id <id> to see attached policies and group memberships.
+--name adds the server's observed case-insensitive substring filter; compare exact usernames and IDs before reconciliation. A name match proves current state only, never ownership of a create or its password. Paging remains one zero-based page, with default size 10000. Returns Items and nullable PageNumber, PageSize, TotalItems, and TotalPages from the response. Missing metadata stays null; zero is a real value. Use the existing --page and --size inputs for continuation, and do not infer completeness when metadata is missing. SDK callers using the former core.List aliases must use the operation output types and keyed literals. Use list-user-policies --user-id <id> and list-user-groups --user-id <id> to see attached policies and group memberships.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -529,7 +537,7 @@ vngcloud iam update-group --group-id <group-id>
 
 Kind: Write, destructive.
 
-Refuses, before any request, with error code ManagedPolicy when the policy is managed, and PrivilegedChange when its current or proposed statements grant an IAM write action, or it is attached to a protected principal or group; see the IAM design's guard rules. Sends a full PUT, filling any field left unset (Name, Description, Statements) from the policy's own current state first, so leaving out --document-file keeps the current statements rather than clearing them.
+Refuses, before any request, with error code ManagedPolicy when the policy is managed, and PrivilegedChange when its current or proposed statements grant an IAM write action, or it is attached to a protected principal or group; see the IAM design's guard rules. Sends a full PUT, filling any field left unset (Name, Description, Statements) from the policy's own current state first, so leaving out --document-file keeps the current statements rather than clearing them. The snapshot must explicitly identify the policy and carry its name and description. Sends once; an uncertain replacement returns ErrNotSettled with the policy ID. Read and reconcile before another write.
 
 Statements has no flag of its own; set it with --document-file <path>, a JSON object in the console's own form, or --cli-input-json (Statements, its exact Go field name). --document-file wins when both are given. The file must be a regular file of at most 64 KiB, opened without following a FIFO or other special file, and is decoded with unknown fields refused: an AWS-style document (top-level Version and Statement, or a statement's own Action and Resource) exits 2 before any request instead of reaching the server as an empty policy. Keys match without regard to case, so get-policy's own Go field names (Statements, Effect, Actions, Resources) decode the same way as the console's lower-case ones. Example, granting a read-only vServer action:
 
@@ -553,7 +561,7 @@ vngcloud iam update-policy --policy-id <policy-id> --document-file policy.json -
 
 Kind: Write.
 
-Refuses, before any request, with error code SelfChange when the service account is the caller's own token, or the caller's own type is a service account (every service account target is refused then, not only the caller's own ID), and PrivilegedChange when the target holds a policy that grants an IAM write right; see the IAM design's guard rules. Neither guard has a flag or Input field that turns it off.
+Refuses, before any request, with error code SelfChange when the service account is the caller's own token, or the caller's own type is a service account (every service account target is refused then, not only the caller's own ID), and PrivilegedChange when the target holds a policy that grants an IAM write right; see the IAM design's guard rules. Neither guard has a flag or Input field that turns it off. Accepted updates whose response handling or confirmation fails return partial output with ErrNotSettled. Check settlement before nested HTTP or context errors, and read the account before another write.
 
 | Flag | Type | Required |
 |-|-|-|

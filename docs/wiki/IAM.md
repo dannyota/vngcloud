@@ -91,8 +91,9 @@ same ID with `get-user`, never a replacement username.
 
 Adding `ListUsersInput.Name` breaks unkeyed struct literals. Responses are
 bounded: get 256 KiB, list 4 MiB, and create/delete 64 KiB. Oversized bodies
-fail instead of decoding a truncated prefix. Public list paging and output
-remain unchanged. The [CLI reference](CLI-IAM.md#create-user) lists flags.
+fail instead of decoding a truncated prefix. Paged IAM lists expose the returned
+metadata described below. The [CLI reference](CLI-IAM.md#create-user) lists
+flags.
 
 ## Reset user password
 
@@ -215,6 +216,23 @@ unknown. These operations do not change profiles or token caches and do not
 promise session revocation. See the
 [CLI reference](CLI-IAM.md#enable-user-mfa) for flags.
 
+## Paging and mutation evidence
+
+`ListUsers`, `ListServiceAccounts`, `ListPolicies`, `ListGroupPolicies`,
+`ListUserPolicies`, and `ListServiceAccountPolicies` return `Items` plus
+nullable `PageNumber`, `PageSize`, `TotalItems`, and `TotalPages`. These fields
+preserve the server's metadata: missing metadata stays `nil`, and zero is a real
+value. Use the existing `Page` and `Size` inputs to request another page. Do not
+infer completeness when metadata is missing. These output types replace the
+former `core.List` aliases; use keyed literals and update CLI queries that
+assumed an `Items`-only object.
+
+Policy, group, and service-account mutation evidence must identify the requested
+resource. Missing, conflicting, or substituted identities fail before they can
+authorize a write or cleanup. Policy replacement requires an explicit name and
+description in the snapshot; a group update that preserves its name requires
+that name explicitly.
+
 ## Service account writes
 
 ```go
@@ -222,10 +240,12 @@ created, err := iamClient.CreateServiceAccount(ctx, &iam.CreateServiceAccountInp
 	Name:        "app",
 	Description: "app service account",
 })
+if created != nil && created.ClientSecret != "" {
+	saveSecret(created.ClientSecret.Reveal())
+}
 if err != nil {
 	log.Fatal(err)
 }
-secret := created.ClientSecret.Reveal() // save this now; it is never shown again
 
 if _, err := iamClient.UpdateServiceAccount(ctx, &iam.UpdateServiceAccountInput{
 	ServiceAccountID: created.ServiceAccount.ID,
@@ -251,16 +271,29 @@ if _, err := iamClient.DeleteServiceAccount(ctx, &iam.DeleteServiceAccountInput{
 
 `ClientSecret` is a `vngcloud.Secret`, the same type `compute.CreateSSHKey`
 returns for a private key: printing, logging, or JSON-encoding it gives
-`"[redacted]"`, and `Reveal()` is the only way to read the value back out.
-See [Compute](Compute.md#the-private-key-is-a-secret) for the full
-redaction contract. When a create or reset response holds no secret,
-`CreateServiceAccount` and `ResetServiceAccountSecret` return
-`iam.ErrNoSecret` alongside their Output rather than succeeding silently;
-`ClientSecret` stays empty in that case. If the read `CreateServiceAccount`
-makes to confirm a new account fails, it returns `iam.ErrCreateUnconfirmed`
-alongside an Output that still carries the create response's own ID and
-client secret, with every other `ServiceAccount` field zero: the account and
-its secret are real either way, even though the error is not nil.
+`"[redacted]"`, and `Reveal()` is the only way to read the value back out. See
+[Compute](Compute.md#the-private-key-is-a-secret) for the full redaction
+contract. When a create or reset response holds no secret,
+`CreateServiceAccount` and `ResetServiceAccountSecret` return `iam.ErrNoSecret`
+alongside their Output rather than succeeding silently; `ClientSecret` stays
+empty in that case. If the read `CreateServiceAccount` makes to confirm a new
+account fails, it returns `iam.ErrCreateUnconfirmed` alongside an Output that
+still carries the create response's own ID and client secret, with every other
+`ServiceAccount` field zero. A missing, invalid, or unsafe create ID also
+returns `ErrCreateUnconfirmed`, preserving the secret but leaving the ID empty.
+An empty ID grants no cleanup authority. Save every non-empty secret before
+handling the error. The SDK withholds dependent captures and rejects credential
+reflections in models and errors, including credentials sent before a token
+refresh.
+
+If a saved-file path contains the issued secret, that value is redacted in
+diagnostics and `SecretFile` output. Use the original `--secret-file`
+argument to locate the saved file.
+
+An accepted `UpdateServiceAccount` whose response handling or confirmation fails
+returns partial output and `iam.ErrNotSettled`. Check that sentinel before
+classifying a nested HTTP or context error, and read the account before another
+write.
 
 `CreateServiceAccount` and `ResetServiceAccountSecret` are `POST` and are
 sent at most once: a resend after a 401 or a followed redirect would create
@@ -335,14 +368,16 @@ if _, err := iamClient.DeletePolicy(ctx, &iam.DeletePolicyInput{
 ```
 
 `Statements` takes the API's own document shape: at least one statement,
-`Effect` of `"allow"` or `"deny"`, and non-empty `Actions` and `Resources`
-with no empty string. `CreatePolicy` and `UpdatePolicy` check this shape,
-returning `vngcloud.ErrInvalidInput` before any request, so a document
-shaped like AWS's (`Version`, `Statement`, capitalized `Effect`) fails
-instead of reaching the server as an empty policy. Action, resource, and
-condition values are not checked; the server checks those. `UpdatePolicy`
-sends a full `PUT`, so it fills any field left nil (`Name`, `Description`,
-`Statements`) from the policy's current state first.
+`Effect` of `"allow"` or `"deny"`, and non-empty `Actions` and `Resources` with
+no empty string. `CreatePolicy` and `UpdatePolicy` check this shape, returning
+`vngcloud.ErrInvalidInput` before any request, so a document shaped like AWS's
+(`Version`, `Statement`, capitalized `Effect`) fails instead of reaching the
+server as an empty policy. Action, resource, and condition values are not
+checked; the server checks those. `UpdatePolicy` sends a full `PUT`, so it fills
+any field left nil (`Name`, `Description`, `Statements`) from the policy's
+current state first. It sends this snapshot once, refusing redirects and
+automatic replay. An uncertain send retains the policy ID with `ErrNotSettled`;
+read and reconcile before another write.
 
 `CreatePolicy` is `POST` and sent at most once, the same as
 `CreateServiceAccount`: a resend after a 401 or a followed redirect would
@@ -381,8 +416,8 @@ policy attached, or with a protected principal as a member.
 | `iam.ErrManagedPolicy` | `UpdatePolicy` or `DeletePolicy` targets a GreenNode-managed policy |
 | `iam.ErrInUse` | `DeletePolicy` targets a policy still attached to a group, an IAM user, or a service account, or `DeleteGroup` targets a group with a member or a policy |
 | `iam.ErrNoSecret` | A create or reset response reported success but carried no client secret |
-| `iam.ErrCreateUnconfirmed` | A create succeeded but the read-back that confirms it failed |
-| `iam.ErrNotSettled` | `CreatePolicy`, `UpdatePolicy`, `CreateGroup`, or `UpdateGroup` succeeded but the read-back that confirms it failed; Output keeps the resource's ID. For `ResetUserPassword`, acceptance was observed but response handling failed; Output retains a generated password. For Google MFA, acceptance was observed but response handling or confirmation failed |
+| `iam.ErrCreateUnconfirmed` | A create returned a secret or identity but confirmation failed; an empty ID grants no cleanup authority |
+| `iam.ErrNotSettled` | A service-account update was accepted but could not be confirmed, a policy replacement has an uncertain outcome, or `CreatePolicy`, `UpdatePolicy`, `CreateGroup`, or `UpdateGroup` succeeded but the read-back that confirms it failed; Output keeps the resource's ID. For `ResetUserPassword`, acceptance was observed but response handling failed; Output retains a generated password. For Google MFA, acceptance was observed but response handling or confirmation failed |
 
 None of these sentinels name the policy, statement, or action involved, and
 there is no way to turn any guard off; make such a change from the IAM

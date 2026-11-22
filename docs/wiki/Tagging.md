@@ -50,10 +50,13 @@ tags, err := client.ListResourceTags(ctx, &tagging.ListResourceTagsInput{
 })
 ```
 
-`ListResourceTags` reads every tag on `ResourceID`, whatever its type: the
-read accepts any resource id, which does not itself confirm that
-`ResourceID` names a type the tag write also accepts. Each `tagging.Tag`
-holds `Key`, `Value`, `SystemTag`, and `CreatedAt`.
+`ListResourceTags` reads every tag on `ResourceID`, whatever its type: the read
+accepts any resource id, which does not itself confirm that `ResourceID` names a
+type the tag write also accepts. Each `tagging.Tag` holds `Key`, `Value`,
+`SystemTag`, and `CreatedAt`. The response must be an explicit array. Each entry
+must explicitly carry a non-empty key, a value, and its system-tag marker. Null
+lists, missing fields, duplicate keys, and conflicting JSON fields fail before a
+replacement PUT; `[]` remains valid.
 
 Every resource carries system tags the platform manages: `vng.zone`,
 `vng.region`, and `vng.createdBy`, confirmed live on a virtual IP address.
@@ -90,18 +93,18 @@ tags, it returns at once with `Changed` false and sends nothing. The
 server refuses a `Value` shorter than 3 or longer than 255 characters with
 400; the SDK leaves that rule to the server.
 
-Otherwise it sends every user tag it read, with `Key`'s value replaced or
-added, in one `PUT`. System tags are never included: the `PUT` replaces
-only the user tag list, confirmed live, so a resource's system tags are
-never sent and never touched. `PUT` is idempotent, so the transport's
-normal retries apply, and this read-merge-send shape keeps every user tag
-the call read. The API has no conditional update, so a user tag another
-caller writes between that read and the `PUT` is replaced without an
-error: keep tag writes on one resource to one writer at a time. It then
-reads the tags again to confirm the user tags equal what was sent. A mismatch, or a
-failure of that confirming read, returns an error wrapping
-`tagging.ErrNotSettled`; read the tags again before writing once more,
-rather than repeating the same call blind.
+Otherwise it sends every user tag it read, with `Key`'s value replaced or added,
+in one `PUT`. System tags are never included: the `PUT` replaces only the user
+tag list, confirmed live, so a resource's system tags are never sent and never
+touched. The SDK sends the replacement once, including on redirects,
+authentication failures, and server errors. It keeps every user tag the call
+read. The API has no conditional update, so a user tag another caller writes
+between that read and the `PUT` is replaced without an error: keep tag writes on
+one resource to one writer at a time. It then reads the tags again to confirm
+the user tags equal what was sent. A mismatch, or a failure of that confirming
+read or an uncertain PUT outcome, returns an error wrapping
+`tagging.ErrNotSettled`; read the tags again before writing once more, rather
+than repeating the same call blind.
 
 `TagResourceOutput.Tags` is the resource's whole tag list, system tags
 included. `Previous` is `Key`'s value before the write, or `nil` when the
@@ -135,10 +138,13 @@ var ErrSystemTag  = errors.New("tagging: key is a system tag")
 var ErrNotSettled = errors.New("tagging: write accepted but not settled")
 ```
 
-`ErrSystemTag` means `Key` names a system tag, either by its `vng.` prefix
-or by matching an existing system tag, and `TagResource` or `UntagResource`
-sent nothing. `ErrNotSettled` means the `PUT` was sent, and may have
-reached the server, but the confirming read did not come back matching it:
-either that read itself failed, or another writer changed the tags in
-between. On a mismatched read, `Output` holds that read's tags. On a failed
-confirming read, `Output` holds the tags read before the write.
+`ErrSystemTag` means `Key` names a system tag, either by its `vng.` prefix or by
+matching an existing system tag, and `TagResource` or `UntagResource` sent
+nothing. `ErrNotSettled` means the `PUT` was sent, and may have reached the
+server, but the confirming read did not come back matching it: either that read
+itself failed, or another writer changed the tags in between. On a mismatched
+read, `Output` holds that read's tags. On a failed confirming read or an
+uncertain send, `Output` holds the tags read before the write, its `Previous`
+value, and `Changed: true`. That flag records the attempt; it does not prove
+that the server applied it. Check `ErrNotSettled` before a nested HTTP or
+context error.

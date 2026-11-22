@@ -10,6 +10,7 @@ import (
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/iam"
+	"danny.vn/vngcloud/internal/transport"
 )
 
 // iamOps is iam's operation table. Every read the IAM writes design lists
@@ -159,37 +160,8 @@ func createServiceAccountOp() Op[iam.Client] {
 	}
 }
 
-// callCreateServiceAccount runs the real create, then writes the client
-// secret to --secret-file, which guardSecretFilePath already checked before
-// this call ever ran. iam.CreateServiceAccount returns a non-nil Output
-// alongside an error for its two documented failure cases, and this call
-// branches on them before touching the generic err != nil case below:
-//
-//   - iam.ErrNoSecret: the create response held no secret at all. The new
-//     service account is kept, no file is written, and the command reports
-//     SecretFileFailed naming reset-service-account-secret.
-//   - iam.ErrCreateUnconfirmed: the create landed but the read-back that
-//     fills in the rest of the service account's fields failed.
-//     finishUnconfirmedServiceAccountCreate still writes --secret-file from
-//     the create response's own secret, since the account and its secret
-//     are real either way and the secret is only ever handed out once.
-//
-// Any other error means the create request itself never produced a usable
-// response, so nothing was created and nothing is written.
-//
-// A write failure after a create that did return a secret deletes the new
-// service account through the SDK, since the secret is unusable either way
-// once lost, and reports SecretFileFailed; if that delete itself fails, the
-// resource is named only by its ID. The cleanup delete runs on a context
-// detached from ctx (context.WithoutCancel, with its own short timeout), so
-// a canceled command still cleans up the orphaned account; a NotFound from
-// that delete counts as cleanup succeeding, since the account is gone
-// either way.
 func callCreateServiceAccount(cmd *cobra.Command, client *iam.Client, ctx context.Context, in any) (any, error) {
 	out, err := client.CreateServiceAccount(ctx, in.(*iam.CreateServiceAccountInput))
-	// guardSecretFilePath ran before any request and already required this
-	// flag and checked its path, so the only new failure possible below is
-	// the actual write.
 	path, _ := cmd.Flags().GetString(secretFileFlagName)
 	switch {
 	case errors.Is(err, iam.ErrNoSecret):
@@ -202,21 +174,9 @@ func callCreateServiceAccount(cmd *cobra.Command, client *iam.Client, ctx contex
 	if writeErr := writeServiceAccountSecretFile(client, ctx, out.ServiceAccount.ID, out.ClientSecret.Reveal(), path); writeErr != nil {
 		return nil, writeErr
 	}
-	return &createServiceAccountOutput{CreateServiceAccountOutput: *out, SecretFile: path}, nil
+	return &createServiceAccountOutput{CreateServiceAccountOutput: *out, SecretFile: transport.RedactErrorText(path, out.ClientSecret.Reveal())}, nil
 }
 
-// finishUnconfirmedServiceAccountCreate handles iam.ErrCreateUnconfirmed:
-// out already carries the create response's own ID and client secret
-// (every other ServiceAccount field zero), since CreateServiceAccount never
-// drops a secret the server issued just because its own read-back failed.
-// The secret is written to path exactly as a normal success would; only
-// this command's own success, and the account's other fields, are what the
-// failed read-back costs. A write failure still deletes the account through
-// the SDK by the create response's own ID, since no read-back ID exists to
-// use instead, the same cleanup callCreateServiceAccount's success path
-// uses. When the create response itself held no secret either, this is
-// treated the same as iam.ErrNoSecret: no file is written and the account
-// is kept, since there is nothing left to write or lose.
 func finishUnconfirmedServiceAccountCreate(client *iam.Client, ctx context.Context, out *iam.CreateServiceAccountOutput, path string) (any, error) {
 	id := out.ServiceAccount.ID
 	secret := out.ClientSecret.Reveal()
@@ -226,30 +186,28 @@ func finishUnconfirmedServiceAccountCreate(client *iam.Client, ctx context.Conte
 	if writeErr := writeServiceAccountSecretFile(client, ctx, id, secret, path); writeErr != nil {
 		return nil, writeErr
 	}
-	return nil, newServiceAccountCreateUnconfirmed(id, path, "list-service-accounts")
+	safePath := transport.RedactErrorText(path, secret)
+	if id == "" {
+		return nil, fmt.Errorf("create identity and ownership are unproven; secret saved to %s; reconcile with list-service-accounts before any cleanup: %w", safePath, iam.ErrCreateUnconfirmed)
+	}
+	return nil, newServiceAccountCreateUnconfirmed(id, safePath, "list-service-accounts")
 }
 
-// writeServiceAccountSecretFile writes secret to path, the file
-// --secret-file names, with one trailing newline added only when secret
-// does not already end in one. A write failure deletes serviceAccountID
-// through the SDK, since the secret is unusable either way once lost, and
-// returns newSecretFileWriteFailed, or newSecretFileCleanupFailed if that
-// delete itself fails; a NotFound from the delete counts as cleanup
-// succeeding, since the account is gone either way. The cleanup delete runs
-// on a context detached from ctx (context.WithoutCancel, with its own short
-// timeout), so a canceled command still cleans up the orphaned account. A
-// nil return means path now holds secret.
 func writeServiceAccountSecretFile(client *iam.Client, ctx context.Context, serviceAccountID, secret, path string) error {
+	safeID := transport.RedactErrorText(serviceAccountID, secret)
 	if !strings.HasSuffix(secret, "\n") {
 		secret += "\n"
 	}
 	if writeErr := writeSecretFile(path, []byte(secret)); writeErr != nil {
+		if serviceAccountID == "" {
+			return secretFileFailedError{msg: "could not write --secret-file; create identity and ownership are unproven; no cleanup was attempted; reconcile with list-service-accounts before any deletion"}
+		}
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), secretFileCleanupDeleteTimeout)
 		defer cancel()
 		if _, delErr := client.DeleteServiceAccount(cleanupCtx, &iam.DeleteServiceAccountInput{ServiceAccountID: serviceAccountID}); delErr != nil && !vngcloud.IsNotFound(delErr) {
-			return newSecretFileCleanupFailed("service account", serviceAccountID)
+			return newSecretFileCleanupFailed("service account", safeID)
 		}
-		return newSecretFileWriteFailed("service account", serviceAccountID, writeErr)
+		return newSecretFileWriteFailed("service account", safeID, errors.New("secret file could not be saved"))
 	}
 	return nil
 }
@@ -291,16 +249,6 @@ func resetServiceAccountSecretOp() Op[iam.Client] {
 	}
 }
 
-// callResetServiceAccountSecret runs the real reset, then writes the new
-// client secret to --secret-file. Unlike create-service-account's own
-// failure path, a reset cannot be undone: the old secret already stopped
-// working the moment the reset request landed, so a write failure here
-// reports SecretFileFailed and tells the caller to reset again, rather than
-// deleting anything. ResetServiceAccountSecret's own iam.ErrNoSecret case is
-// handled the same way: the reset itself still reached the server and most
-// likely rotated the secret without returning it, so this writes no file
-// and reports SecretFileFailed naming this same command to run again,
-// rather than pointing at any other one.
 func callResetServiceAccountSecret(cmd *cobra.Command, client *iam.Client, ctx context.Context, in any) (any, error) {
 	resetIn := in.(*iam.ResetServiceAccountSecretInput)
 	out, err := client.ResetServiceAccountSecret(ctx, resetIn)
@@ -316,9 +264,9 @@ func callResetServiceAccountSecret(cmd *cobra.Command, client *iam.Client, ctx c
 		secret += "\n"
 	}
 	if writeErr := writeSecretFile(path, []byte(secret)); writeErr != nil {
-		return nil, newSecretFileResetFailed("service account", resetIn.ServiceAccountID, "reset-service-account-secret", writeErr)
+		return nil, newSecretFileResetFailed("service account", transport.RedactErrorText(resetIn.ServiceAccountID, out.ClientSecret.Reveal()), "reset-service-account-secret", errors.New("secret file could not be saved"))
 	}
-	return &resetServiceAccountSecretOutput{ResetServiceAccountSecretOutput: *out, SecretFile: path}, nil
+	return &resetServiceAccountSecretOutput{ResetServiceAccountSecretOutput: *out, SecretFile: transport.RedactErrorText(path, out.ClientSecret.Reveal())}, nil
 }
 
 // createPolicyOp and updatePolicyOp build create-policy's and

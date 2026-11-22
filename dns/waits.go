@@ -79,51 +79,70 @@ func contextSleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// poll runs step at once, then again every pollInterval, until step reports
-// stop true or pollBound has elapsed, by now, since poll's first call to
-// step. Elapsed time is read from now rather than counted in pollInterval
-// steps, so a step that itself takes real time, such as a slow read, counts
-// against the bound instead of only the sleeps between steps; a test
-// injects both a fake clock and a sleepFunc that returns quickly.
-//
-// step reports stop true for two different reasons, told apart by its own
-// err: a settled or otherwise final outcome (err nil or a wrapped
-// ErrFailed), or an outright read failure (a plain error, which poll
-// returns unchanged). onTimeout is called, and its result returned, only
-// when the bound elapses with step never reporting stop.
 func poll(ctx context.Context, now clockFunc, sleep sleepFunc, step func(ctx context.Context) (stop bool, err error), onTimeout func() error) error {
+	ctx, cancel := context.WithTimeout(ctx, pollBound)
+	defer cancel()
 	deadline := now().Add(pollBound)
 	for {
-		stop, err := step(ctx)
-		if stop {
+		if err := ctx.Err(); err != nil {
 			return err
 		}
 		if !now().Before(deadline) {
 			return onTimeout()
 		}
-		if err := sleep(ctx, pollInterval); err != nil {
+		stop, err := step(ctx)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if !now().Before(deadline) {
+			return onTimeout()
+		}
+		if stop {
+			return err
+		}
+		delay := min(pollInterval, deadline.Sub(now()))
+		if err := sleep(ctx, delay); err != nil {
 			return err
 		}
 	}
 }
 
-// getHostedZone is GetHostedZone's request, reused by every wait under the
-// calling write's own operation name, so a failure names the write it
-// happened inside rather than "dns.GetHostedZone". zoneID is assumed
-// already checked with core.CheckPathID.
 func (c *Client) getHostedZone(ctx context.Context, op, zoneID string) (*HostedZone, error) {
+	type fields HostedZone
+	var zone fields
 	var resp struct {
-		Data HostedZone `json:"data"`
+		Data *struct {
+			*fields
+			Description *string   `json:"description"`
+			VPCIDs      *[]string `json:"assocVpcIds"`
+		} `json:"data"`
 	}
+	resp.Data = &struct {
+		*fields
+		Description *string   `json:"description"`
+		VPCIDs      *[]string `json:"assocVpcIds"`
+	}{fields: &zone}
 	if err := c.c.DoJSON(ctx, transport.Request{
-		Operation: op,
-		Method:    http.MethodGet,
-		URL:       c.url([]string{"dns", "hosted-zone", zoneID}, nil),
-		OK:        []int{200},
+		Operation: op, Method: http.MethodGet,
+		URL: c.url([]string{"dns", "hosted-zone", zoneID}, nil), OK: []int{200},
+		StrictJSON: true, MaxBody: 256 << 10,
 	}, &resp); err != nil {
 		return nil, err
 	}
-	return &resp.Data, nil
+	if resp.Data == nil || zone.ID != zoneID || zone.Status == "" {
+		return nil, fmt.Errorf("%s: hosted zone identity or state is unproven", op)
+	}
+	if op == "dns.UpdateHostedZone" && (resp.Data.Description == nil || resp.Data.VPCIDs == nil) {
+		return nil, fmt.Errorf("%s: incomplete hosted zone replacement snapshot", op)
+	}
+	if resp.Data.Description != nil {
+		zone.Description = *resp.Data.Description
+	}
+	if resp.Data.VPCIDs != nil {
+		zone.AssociatedVPCIDs = *resp.Data.VPCIDs
+	}
+	out := HostedZone(zone)
+	return &out, nil
 }
 
 // waitZoneReady is the pre-write wait every zone update and delete, and

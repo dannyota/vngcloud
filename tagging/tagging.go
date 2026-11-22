@@ -142,8 +142,8 @@ type TagResourceOutput struct {
 //
 // Otherwise it sends every user tag read, with Key's value replaced or
 // added, in one PUT: system tags are never included, since the PUT
-// replaces only the user tag list and leaves system tags untouched. PUT is
-// idempotent, so the transport's normal retries apply. TagResource then
+// replaces only the user tag list and leaves system tags untouched. The
+// replacement sends once. TagResource then
 // reads the tags again to confirm the user tags equal what was sent. A
 // mismatch, or a failure of that confirming read, returns an error wrapping
 // ErrNotSettled. The Output holds the confirming read's tags on a mismatch,
@@ -320,8 +320,6 @@ func tagsEqual(a, b []Tag) bool {
 		values[tag.Key] = tag.Value
 	}
 	if len(values) != len(a) {
-		// A duplicate key in a means a can never equal a set of distinct
-		// keys; treating it as a mismatch is the safe default.
 		return false
 	}
 	for _, tag := range b {
@@ -348,33 +346,42 @@ type tagRequest struct {
 	Value string `json:"value"`
 }
 
-// listTags reads ResourceID's tags. The response is a bare JSON array, not
-// wrapped in a "data" field.
 func (c *Client) listTags(ctx context.Context, op, resourceID string) ([]Tag, error) {
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var tags []Tag
+	var wire []struct {
+		Key       *string `json:"key"`
+		Value     *string `json:"value"`
+		SystemTag *bool   `json:"systemTag"`
+		CreatedAt string  `json:"createdAt"`
+	}
 	if err := c.c.DoJSON(ctx, transport.Request{
-		Operation: op,
-		Method:    http.MethodGet,
-		URL:       c.tagURL(projectID, resourceID),
-		OK:        []int{200},
-	}, &tags); err != nil {
+		Operation:  op,
+		Method:     http.MethodGet,
+		URL:        c.tagURL(projectID, resourceID),
+		OK:         []int{200},
+		StrictJSON: true,
+		MaxBody:    4 << 20,
+	}, &wire); err != nil {
 		return nil, err
 	}
-	if tags == nil {
-		tags = []Tag{}
+	if wire == nil {
+		return nil, fmt.Errorf("%s: missing tag list", op)
+	}
+	tags := make([]Tag, 0, len(wire))
+	seen := make(map[string]bool, len(wire))
+	for _, tag := range wire {
+		if tag.Key == nil || *tag.Key == "" || tag.Value == nil || tag.SystemTag == nil || seen[*tag.Key] {
+			return nil, fmt.Errorf("%s: incomplete or conflicting tag snapshot", op)
+		}
+		seen[*tag.Key] = true
+		tags = append(tags, Tag{Key: *tag.Key, Value: *tag.Value, SystemTag: *tag.SystemTag, CreatedAt: tag.CreatedAt})
 	}
 	return tags, nil
 }
 
-// writeTags sends next as ResourceID's whole user tag list, never system,
-// and confirms the result by reading the tags again. previous is threaded
-// through to the returned Output unchanged; it plays no part in the write
-// itself. current is returned if the confirming read fails, because it is
-// the last tag list the SDK observed.
 func (c *Client) writeTags(ctx context.Context, op, resourceID, resourceType string, current, next []Tag, previous *string) (*TagResourceOutput, error) {
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
@@ -385,19 +392,26 @@ func (c *Client) writeTags(ctx context.Context, op, resourceID, resourceType str
 	for i, tag := range next {
 		list[i] = tagRequest{Key: tag.Key, Value: tag.Value}
 	}
+	notSent := false
 	req := transport.Request{
-		Operation: op,
-		Method:    http.MethodPut,
-		URL:       c.tagURL(projectID, resourceID),
-		Body:      tagWriteBody{ResourceID: resourceID, ResourceType: resourceType, TagRequestList: list},
-		OK:        []int{200},
+		Once:               true,
+		NotSent:            &notSent,
+		KeepObservedStatus: true,
+		Operation:          op,
+		Method:             http.MethodPut,
+		URL:                c.tagURL(projectID, resourceID),
+		Body:               tagWriteBody{ResourceID: resourceID, ResourceType: resourceType, TagRequestList: list},
+		OK:                 []int{200},
 	}
-	if err := c.c.DoJSON(ctx, req, nil); err != nil {
-		return nil, err
+	status, err := c.c.DoJSONStatus(ctx, req, nil)
+	if err != nil {
+		if notSent || status >= 400 && status < 500 && status != 408 && status != 499 {
+			return nil, err
+		}
+		return &TagResourceOutput{Tags: current, Previous: previous, Changed: true},
+			fmt.Errorf("%w: %s: replacement outcome is uncertain; read tags before another write: %w", ErrNotSettled, op, err)
 	}
 
-	// The PUT above already succeeded, so from here on every error means
-	// the write may have landed and must not be sent again.
 	confirmed, err := c.listTags(ctx, op, resourceID)
 	if err != nil {
 		return &TagResourceOutput{Tags: current, Previous: previous, Changed: true},

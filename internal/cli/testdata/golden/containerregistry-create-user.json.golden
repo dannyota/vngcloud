@@ -1,27 +1,15 @@
 {
   "User": {
-    "ID": "ra-1",
-    "Name": "app-ci",
-    "BackendName": "app-ci",
-    "Description": "CI pull user",
+    "ID": "",
+    "Name": "",
+    "BackendName": "",
+    "Description": "",
     "Disabled": false,
-    "ExpiredAt": "2026-06-01T00:00:00Z",
-    "CreatedAt": "2026-01-01T00:00:00Z",
-    "NumberOfRepositories": 1,
-    "UserID": "1001",
-    "Repositories": [
-      {
-        "RepositoryID": "repo-1",
-        "RepositoryName": "app-test",
-        "BackendRepositoryName": "app-test",
-        "Policies": [
-          {
-            "ID": "policy-1",
-            "Action": "Pull Images"
-          }
-        ]
-      }
-    ]
+    "ExpiredAt": "",
+    "CreatedAt": "",
+    "NumberOfRepositories": 0,
+    "UserID": "",
+    "Repositories": []
   },
   "SecretKey": "[redacted]",
   "SecretFile": "/home/agent/vcr-secret"

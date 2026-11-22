@@ -596,9 +596,6 @@ func TestCreateServiceAccountDuplicateNameNotWrapped(t *testing.T) {
 	}
 }
 
-// TestCreateServiceAccountNeverCaptured checks that the Sensitive create
-// request never reaches the configured response-capture hook, while an
-// ordinary read on the same Client still does.
 func TestCreateServiceAccountNeverCaptured(t *testing.T) {
 	var captured []transport.Capture
 	cfg := testutil.NewConfigWithCapture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -616,17 +613,15 @@ func TestCreateServiceAccountNeverCaptured(t *testing.T) {
 	if _, err := c.GetServiceAccount(context.Background(), &GetServiceAccountInput{ServiceAccountID: "sa-1"}); err != nil {
 		t.Fatalf("GetServiceAccount() error = %v", err)
 	}
-	if len(captured) != 1 {
-		t.Fatalf("captured = %d after GetServiceAccount, want 1", len(captured))
+	if len(captured) != 0 {
+		t.Fatalf("captured = %d after GetServiceAccount, want 0", len(captured))
 	}
 
 	if _, err := c.CreateServiceAccount(context.Background(), &CreateServiceAccountInput{Name: "app"}); err != nil {
 		t.Fatalf("CreateServiceAccount() error = %v", err)
 	}
-	// The create itself must never be captured; the follow-up
-	// GetServiceAccount read is not Sensitive and does add one capture.
-	if len(captured) != 2 {
-		t.Fatalf("captured = %d after CreateServiceAccount, want 2 (create itself never captured)", len(captured))
+	if len(captured) != 0 {
+		t.Fatalf("captured = %d after CreateServiceAccount, want 0", len(captured))
 	}
 }
 

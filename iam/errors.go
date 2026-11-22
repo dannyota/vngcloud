@@ -26,28 +26,15 @@ var ErrPrivilegedChange = errors.New("iam: refused: target is protected")
 // value.
 var ErrNoSecret = errors.New("iam: no client secret returned")
 
-// ErrCreateUnconfirmed is returned by CreateUser or CreateServiceAccount
-// after a valid create ID was returned but confirmation failed. It accompanies
-// a partial output retaining the created ID and any generated credential.
-// CreateServiceAccount retains its returned ID and client secret when
-// the create itself succeeded but
-// the read-back that fills in the rest of the ServiceAccount fields failed.
-// The account is real either way: the caller can still write --secret-file
-// from Output.ClientSecret, or delete the account by Output.ServiceAccount.ID.
+// ErrCreateUnconfirmed means a create returned a credential or identity but
+// could not be confirmed. Preserve any returned secret. Only an attributable,
+// non-empty create ID can authorize cleanup; a missing or unsafe ID stays empty.
 var ErrCreateUnconfirmed = errors.New("iam: created but not confirmed by a read")
 
-// ErrNotSettled also reports accepted password reset response failures,
-// retaining any generated password without a confirmation read.
-// It is returned by CreatePolicy, UpdatePolicy, CreateGroup, and
-// UpdateGroup when their own write reached the server, but the read that
-// confirms it and fills in the rest of the Policy or Group failed. The write
-// already happened either way: Output still carries the resource's ID.
-// CreatePolicy, UpdatePolicy, and CreateGroup leave every other field zero.
-// UpdateGroup carries the rest of the group too, as it read it before the
-// write, when Name was left nil and that read already ran; otherwise it
-// leaves every other field zero, the same as the other three. Either way,
-// the caller can look it up again with GetPolicy, list-policies, GetGroup, or
-// list-groups.
+// ErrNotSettled means an accepted write could not be confirmed, or a policy
+// replacement may have reached the server. Partial output retains a safe ID
+// or generated credential. Check settlement before nested HTTP or context
+// errors, and reconcile with reads before another write.
 var ErrNotSettled = errors.New("iam: write accepted but not confirmed by a read")
 
 // ErrManagedPolicy is returned, with no request sent, by UpdatePolicy and

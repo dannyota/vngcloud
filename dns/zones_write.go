@@ -191,24 +191,28 @@ func (c *Client) UpdateHostedZone(ctx context.Context, in *UpdateHostedZoneInput
 		description = *in.Description
 	}
 
+	fallback := HostedZone{ID: in.HostedZoneID, Description: description, AssociatedVPCIDs: vpcIDs}
+	notSent := false
 	req := transport.Request{
-		Operation: op,
-		Method:    http.MethodPut,
-		URL:       c.url([]string{"dns", "hosted-zone", in.HostedZoneID}, nil),
+		Once:               true,
+		NotSent:            &notSent,
+		KeepObservedStatus: true,
+		Operation:          op,
+		Method:             http.MethodPut,
+		URL:                c.url([]string{"dns", "hosted-zone", in.HostedZoneID}, nil),
 		Body: updateHostedZoneBody{
 			AssocVPCIDs: vpcIDs,
 			Description: description,
 		},
 		OK: []int{204},
 	}
-	if err := c.c.DoJSON(ctx, req, nil); err != nil {
-		return nil, err
+	status, err := c.c.DoJSONStatus(ctx, req, nil)
+	if err != nil {
+		if notSent || status >= 400 && status < 500 && status != 408 && status != 499 {
+			return nil, err
+		}
+		return &UpdateHostedZoneOutput{HostedZone: fallback}, fmt.Errorf("%w: %s: replacement outcome is uncertain; read the zone before another write: %w", ErrNotSettled, op, err)
 	}
-	// The PUT above already succeeded, so from here on every error means
-	// the write may have landed and must not be sent again; fallback is
-	// what the caller falls back to when no read after the write confirms
-	// it, built from the fields the PUT itself carried.
-	fallback := HostedZone{ID: in.HostedZoneID, Description: description, AssociatedVPCIDs: vpcIDs}
 
 	if in.NoWait {
 		zone, err := c.getHostedZone(ctx, op, in.HostedZoneID)

@@ -368,7 +368,7 @@ const networkDeleteVirtualIPAddressNote = "After its read and before any DELETE,
 var docOpNotes = map[string]string{
 	"iam create-user":                         iamCreateUserNote,
 	"iam delete-user":                         iamDeleteUserNote,
-	"iam list-users":                          iamListUsersNote,
+	"iam list-users":                          iamListUsersNote + " " + iamPagingNote,
 	"monitor get-check-alarm":                 monitorGetCheckAlarmNote,
 	"monitor list-check-alarm-history":        monitorCheckHistoryNote,
 	"monitor get-quota-usage":                 monitorQuotaUsageNote,
@@ -377,6 +377,11 @@ var docOpNotes = map[string]string{
 	"monitor get-synthetic-quota-usage":       monitorSyntheticUsageNote,
 	"volume list-volume-prices":               volumeDiscoveryNote,
 	"storage list-storage-prices":             storageDiscoveryNote,
+	"iam list-service-accounts":               iamPagingNote,
+	"iam list-policies":                       iamPagingNote,
+	"iam list-group-policies":                 iamPagingNote,
+	"iam list-user-policies":                  iamPagingNote,
+	"iam list-service-account-policies":       iamPagingNote,
 	"iam create-service-account":              iamCreateServiceAccountNote,
 	"iam update-service-account":              iamUpdateServiceAccountNote,
 	"iam reset-service-account-secret":        iamResetServiceAccountSecretNote,
@@ -523,6 +528,13 @@ var docOpNotes = map[string]string{
 	"globalloadbalancer list-pool-members":    globalLoadBalancerShapeUnverifiedNote,
 	"globalloadbalancer get-pool-member":      globalLoadBalancerShapeUnverifiedNote,
 	"globalloadbalancer list-usage-histories": globalLoadBalancerShapeUnverifiedNote + " The formats and allowed values of --from, --to, and --type are unknown; the CLI passes them through unchecked.",
+	"dns list-records":                        dnsRecordPagingNote,
+	"dns update-hosted-zone":                  dnsZoneReplacementNote + " " + dnsWaitEvidenceNote,
+	"dns create-hosted-zone":                  dnsWaitEvidenceNote,
+	"dns delete-hosted-zone":                  dnsWaitEvidenceNote,
+	"dns create-record":                       dnsWaitEvidenceNote,
+	"dns update-record":                       dnsWaitEvidenceNote,
+	"dns delete-record":                       dnsWaitEvidenceNote,
 	"tagging list-resource-tags":              taggingListResourceTagsNote,
 	"tagging tag-resource":                    taggingTagResourceNote,
 	"tagging untag-resource":                  taggingUntagResourceNote,
@@ -624,13 +636,6 @@ var docExampleExtraFlag = map[string]string{
 // sets Certificate two contradictory ways at once. The override shows the
 // one runnable form: every PEM and key field through its own file flag.
 // storage put-bucket-versioning: a bool flag takes its value only as --enabled=<value>.
-// iam create-policy needs it because Statements is required and viaJSON:
-// buildExample would otherwise need a docJSONPlaceholders entry for it and
-// print an unrunnable --cli-input-json blob, when --document-file is the
-// command's own real, documented way to set it. iam update-policy is not
-// required to have an override (Statements carries no vngcloud:"required"
-// tag there), but gets one anyway so its example shows --document-file too,
-// rather than leaving Statements out of the example entirely.
 // loadbalancer create-load-balancer needs one because MaxPrice is not a
 // required field, so buildExample's own loop would otherwise leave
 // --max-price out of the example entirely, even though a bare create orders

@@ -24,7 +24,7 @@ Kind: Write.
 
 Refuses, before any write, with error code SystemTag, when --key starts with vng. or already names an existing system tag on the resource: the platform's own tags (vng.zone, vng.region, and vng.createdBy, confirmed live on a virtual IP address) are never sent and can never be set or removed through this command. Setting --key to a --value it already holds among the user tags is a no-op: Changed is false and nothing is sent.
 
-Reads every tag on the resource, replaces its whole user tag list with the change, then reads it again to confirm: the PUT never includes a system tag, since it replaces only the user tag list. A mismatched or failed confirm read is error code NotSettled; the write already reached the server, so the CLI still prints the last tags a read returned on stdout, and the tags should be read again before writing once more, rather than repeating this command blind.
+Requires an explicit tag array with each key, value, and system-tag marker, and refuses missing fields, duplicate keys, and conflicting JSON before any PUT. Reads every tag, merges the requested change, and sends the full user tag list once, without system tags. Redirects, authentication failures, and server errors cannot replay the replacement. An uncertain send or a failed confirmation returns NotSettled with the last tags, Previous, and Changed=true. Changed records an attempt, not confirmed application. Read and reconcile tags before another write.
 
 Needs no --yes: the write's own Previous field names Key's value before the change (empty when it was absent), so the change can be undone with one more tag-resource or untag-resource call.
 
@@ -47,7 +47,7 @@ Kind: Write.
 
 Refuses, before any write, with error code SystemTag, when --key starts with vng. or already names an existing system tag on the resource: the platform's own tags (vng.zone, vng.region, and vng.createdBy, confirmed live on a virtual IP address) are never sent and can never be set or removed through this command. Removing a --key already absent from the user tags is a no-op: Changed is false and nothing is sent.
 
-Reads every tag on the resource, replaces its whole user tag list with the change, then reads it again to confirm: the PUT never includes a system tag, since it replaces only the user tag list. A mismatched or failed confirm read is error code NotSettled; the write already reached the server, so the CLI still prints the last tags a read returned on stdout, and the tags should be read again before writing once more, rather than repeating this command blind.
+Requires an explicit tag array with each key, value, and system-tag marker, and refuses missing fields, duplicate keys, and conflicting JSON before any PUT. Reads every tag, merges the requested change, and sends the full user tag list once, without system tags. Redirects, authentication failures, and server errors cannot replay the replacement. An uncertain send or a failed confirmation returns NotSettled with the last tags, Previous, and Changed=true. Changed records an attempt, not confirmed application. Read and reconcile tags before another write.
 
 Needs no --yes: the write's own Previous field names Key's value before the change (empty when it was absent), so the change can be undone with one more tag-resource or untag-resource call.
 

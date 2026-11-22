@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -358,7 +359,7 @@ func TestZoneWritesSerializeWithinOneClient(t *testing.T) {
 		switch r.Method {
 		case http.MethodGet:
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(zoneBody(StatusActive, "d", []string{"vpc-1"})))
+			_, _ = w.Write([]byte(strings.Replace(zoneBody(StatusActive, "d", []string{"vpc-1"}), "zone-1", r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:], 1)))
 		case http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		default:
@@ -557,7 +558,7 @@ func TestWriteLockRespectsCanceledContext(t *testing.T) {
 			gotGetOnce.Do(func() { close(gotGet) })
 			<-release
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(zoneBody(StatusActive, "d", []string{"vpc-1"})))
+			_, _ = w.Write([]byte(strings.Replace(zoneBody(StatusActive, "d", []string{"vpc-1"}), "zone-1", r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:], 1)))
 		case http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		default:

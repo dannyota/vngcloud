@@ -58,7 +58,7 @@ func (c *Client) guardUpdatePolicy(ctx context.Context, op, policyID string, new
 		return nil, err
 	}
 
-	got, err := c.GetPolicy(ctx, &GetPolicyInput{PolicyID: policyID})
+	got, err := c.getPolicySnapshot(ctx, &GetPolicyInput{PolicyID: policyID}, true)
 	if err != nil {
 		return nil, err
 	}

@@ -412,7 +412,7 @@ func privateGuardReads() []privateGuardRead {
 			_, err := c.guardUserGroups(ctx, "iam.privateGuard", "user-1", o)
 			return err
 		}},
-		{"group-attachments", "/policies-api/v1/groups/group-1", `{"mode":"iam","policies":[],"iamUsers":[]}`, func(ctx context.Context, c *Client, o userReadOptions) error {
+		{"group-attachments", "/policies-api/v1/groups/group-1", `{"id":"group-1","mode":"iam","policies":[],"iamUsers":[]}`, func(ctx context.Context, c *Client, o userReadOptions) error {
 			_, _, err := c.guardGetGroupAttachments(ctx, "iam.privateGuard", "group-1", o)
 			return err
 		}},

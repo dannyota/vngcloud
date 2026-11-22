@@ -127,7 +127,7 @@ func TestUserGuardRetainedCredentialOperands(t *testing.T) {
 					case groups:
 						body = tc.groupsBody
 					case policy, "/policies-api/v1/policies/future-bearer":
-						body = `{"statements":[{"effect":"deny","actions":["iam:CreatePolicy"]}]}`
+						body = `{"id":"policy-1","statements":[{"effect":"deny","actions":["iam:CreatePolicy"]}]}`
 					}
 					if r.URL.Path == tc.changeAfter {
 						tokens.changed.Store(true)

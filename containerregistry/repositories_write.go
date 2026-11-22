@@ -56,40 +56,8 @@ func isClientRejectionError(err error) bool {
 	return apiErr.StatusCode >= 400 && apiErr.StatusCode < 500
 }
 
-// repositoryListConfirmResponse is the shape repositoryFoundAfterServerError
-// decodes on its own, rather than through ListRepositories: TotalPage and
-// TotalItem are pointers so the confirm can tell "the response carried no
-// totals" (nil) apart from "the response said 0" (non-nil, pointing at 0).
-// The reference names the list key listData; a live capture has data
-// instead, so both are read, matching the two keys core.DecodeFlexibleList
-// itself reads for this endpoint.
-type repositoryListConfirmResponse struct {
-	ListData  []Repository `json:"listData"`
-	Data      []Repository `json:"data"`
-	TotalPage *int         `json:"totalPage"`
-	TotalItem *int         `json:"totalItem"`
-}
+type repositoryListConfirmResponse = registryPage[Repository]
 
-// items returns whichever of ListData or Data the response carried.
-func (r *repositoryListConfirmResponse) items() []Repository {
-	if r.ListData != nil {
-		return r.ListData
-	}
-	return r.Data
-}
-
-// repositoryFoundAfterServerError lists repositories once, asking for a
-// page large enough to hold the account's whole repository list, and
-// reports whether id is present, for GetRepository's list confirm after a
-// 5xx. Absence is conclusive only when the response actually carries
-// totals: TotalPage and TotalItem both non-nil, TotalPage at most 1 (so no
-// other page could hold id), and the returned item count equal to
-// TotalItem (so this page is not itself short). A response with no totals,
-// an unrecognized shape, more than one page, or an item count that does
-// not match TotalItem cannot settle the question. GetRepository treats any
-// error from this method as "fall back to the original 5xx," so it returns
-// an error instead of a bare false in every one of those cases, rather
-// than answering a question the read cannot actually settle.
 func (c *Client) repositoryFoundAfterServerError(ctx context.Context, id string) (bool, error) {
 	q := url.Values{}
 	q.Set("accessLevel", "ALL")
@@ -98,15 +66,24 @@ func (c *Client) repositoryFoundAfterServerError(ctx context.Context, id string)
 
 	var resp repositoryListConfirmResponse
 	if err := c.c.DoJSON(ctx, transport.Request{
-		Operation: "containerregistry.repositoryFoundAfterServerError",
-		Method:    http.MethodGet,
-		URL:       c.vcrURL([]string{"repository"}, q),
-		OK:        []int{200},
+		Operation:  "containerregistry.repositoryFoundAfterServerError",
+		Method:     http.MethodGet,
+		URL:        c.vcrURL([]string{"repository"}, q),
+		OK:         []int{200},
+		StrictJSON: true,
+		MaxBody:    4 << 20,
 	}, &resp); err != nil {
 		return false, err
 	}
 
 	items := resp.items()
+	seen := make(map[string]bool, len(items))
+	for _, repo := range items {
+		if core.CheckPathID("containerregistry.ListRepositories", "RepositoryID", repo.ID) != nil || seen[repo.ID] {
+			return false, errors.New("containerregistry: repository list has unproven identities")
+		}
+		seen[repo.ID] = true
+	}
 	for _, r := range items {
 		if r.ID == id {
 			return true, nil
@@ -160,6 +137,9 @@ func (c *Client) GetRepository(ctx context.Context, in *GetRepositoryInput) (*Ge
 		OK:        []int{200},
 	}, &repo)
 	if getErr == nil {
+		if repo.ID != in.RepositoryID {
+			return nil, fmt.Errorf("%s: repository identity is unproven", op)
+		}
 		return &GetRepositoryOutput{Repository: repo}, nil
 	}
 	if !isVCRServerError(getErr) {
@@ -289,7 +269,7 @@ func wrapAmbiguousRepositoryCreateErr(op string, err error) error {
 // whatever the create response itself produced.
 func (c *Client) waitRepositoryConfirmed(ctx context.Context, op, repositoryID string) (*Repository, error) {
 	var repo *Repository
-	err := poll(ctx, c.now, c.sleep, repoPollInterval, repoPollBound,
+	err := poll(ctx, c.now, c.sleep,
 		func(ctx context.Context) (bool, error) {
 			out, err := c.GetRepository(ctx, &GetRepositoryInput{RepositoryID: repositoryID})
 			if err != nil {
@@ -398,7 +378,7 @@ func (c *Client) DeleteRepository(ctx context.Context, in *DeleteRepositoryInput
 // check covers both signals. Any other read failure stops the wait and is
 // returned as is.
 func (c *Client) waitRepositoryAbsent(ctx context.Context, op, repositoryID string) error {
-	err := poll(ctx, c.now, c.sleep, repoPollInterval, repoPollBound,
+	err := poll(ctx, c.now, c.sleep,
 		func(ctx context.Context) (bool, error) {
 			_, err := c.GetRepository(ctx, &GetRepositoryInput{RepositoryID: repositoryID})
 			if err == nil {

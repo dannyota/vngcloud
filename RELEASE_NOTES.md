@@ -10,6 +10,20 @@
   searches, check concurrency, and waits. Reject ambiguous quote/alarm fields;
   preserve ordinary check data. Error redaction uses `[redacted]`. SDK fields
   and CLI flags stay compatible.
+- Harden IAM, registry, DNS, and tag mutation evidence and credential privacy.
+  Secret-only registry creates now retain the secret with `ErrUserNotFound`
+  and no cleanup ID; missing IAM create IDs retain secrets as uncertain
+  output. Paged IAM outputs add nullable `PageNumber`, `PageSize`,
+  `TotalItems`, and `TotalPages`; use keyed literals and update queries.
+  Unsupported DNS and registry continuation returns an explicit incomplete
+  result. Malformed snapshots fail, replacements send once, waits reject
+  late success, and TXT confirmation preserves payload case. CLI secret-file
+  recovery refuses name-based cleanup and protects issued values through
+  guarded cleanup, errors, and saved-file diagnostics; cleanup messages omit
+  IDs. For create cleanup use `CreateServiceAccountOutput.CleanupInput()`.
+  Use keyed SDK literals and compare public fields explicitly because equality
+  includes private state identity. Incomplete registry names refuse creates;
+  DNS operation timeouts retain `ErrZoneBusy`.
 
 ## v0.96.0 - Setup cost estimate
 

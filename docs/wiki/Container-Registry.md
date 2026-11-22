@@ -87,31 +87,50 @@ created, err := vcrClient.CreateUser(ctx, &containerregistry.CreateUserInput{
 		{RepositoryID: "<repository-id>", Actions: []string{"Pull Images"}},
 	},
 })
+if created != nil && created.SecretKey != "" {
+	saveSecret(created.SecretKey.Reveal())
+}
 if err != nil {
 	log.Fatal(err)
 }
-log.Println(created.SecretKey.Reveal())
 ```
 
-The response carries only a secret key, no user id, so `CreateUser` finds
-the new user with the same exact-name listing: a live capture shows the
-server applies no account prefix. One match fills `User`; zero or more
-than one returns an error wrapping `ErrUserNotFound`, naming `list-users
---name <name>` to check by hand, while `SecretKey` on the Output is still
-set either way, since the create itself already succeeded. Both this
-lookup and the pre-create check walk every page of the list and fail
-closed, returning an error rather than a guess, when a page's own totals
-do not add up. `SecretKey` is a `vngcloud.Secret`: printing, logging, or
-JSON-encoding the Output gives `[redacted]`, and `Reveal()` is the only way
-to read it back. `CreateUser` sends the create with `Once`: a followed
-redirect is refused, since it would resend the same create and its secret
-a second time. A 401 is not the same risk: the API gateway rejects a stale
-or invalid token before the request reaches the create logic, so a 401
-always creates nothing. A 5xx or a network error is still never resent,
-since either can mean the server already acted; a user found afterward by
-`list-users --name <name>` has already lost its secret and should be
-deleted before creating again. `DurationDays` left nil creates a user with
-no expiration; set one for a pull user meant to be temporary.
+The create response carries a secret key but no attributable user ID. An
+exact-name lookup can find a concurrently recreated account, so even one match
+proves no ownership. `CreateUser` keeps `User` empty, retains `SecretKey`, and
+returns `ErrUserNotFound` after an accepted secret-only response. This is a
+breaking change: inspect both output and error, and persist the secret before
+handling the error. The CLI writes the secret file and exits 1. It cannot
+automatically delete a candidate after a file failure. Reconcile ownership with
+other administrators before any cleanup.
+
+If a saved-file path contains the issued secret, that value is redacted in
+diagnostics and `SecretFile` output. Use the original `--secret-file`
+argument to locate the saved file.
+
+Both name lookups walk the established user `page` and `size` parameters.
+Missing or conflicting list envelopes, invalid or changing totals, repeated IDs,
+and exhausted page limits fail instead of proving absence. Dependent reads
+withhold captures and reject reflections of issued secrets and every credential
+sent during the operation. `SecretKey` remains a `vngcloud.Secret`; never log
+`Reveal()`.
+
+`CreateUser` sends once, including after redirects or authentication failure.
+After an uncertain create, inspect `list-users --name` and reconcile ownership
+before another create or delete. A name match alone never authorizes cleanup.
+`DurationDays` left nil creates a user with no expiration; set one for a
+temporary user.
+
+`ListRepositories` returns partial output with an explicit incomplete-list error
+when metadata reports more pages. Repository continuation parameters remain
+unverified, so the SDK adds none. Inspect both output and error; never treat
+that partial list as a complete inventory. User lists retain their established
+`Page` and `Size` inputs. A malformed list cannot turn a server error into
+`NotFound`.
+
+Repository confirmation requires the requested ID. Polling requests and sleeps
+share the earlier caller or operation deadline, and a response received after
+that deadline cannot confirm success.
 
 `DeleteUser` sends the delete directly: a user holds no data of its own,
 so there is no pre-delete guard.

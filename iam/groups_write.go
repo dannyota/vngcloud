@@ -148,7 +148,7 @@ func (c *Client) UpdateGroup(ctx context.Context, in *UpdateGroupInput) (*Update
 	if in.Name != nil {
 		name = *in.Name
 	} else {
-		got, err := c.GetGroup(ctx, &GetGroupInput{GroupID: in.GroupID})
+		got, err := c.getGroup(ctx, &GetGroupInput{GroupID: in.GroupID}, true)
 		if err != nil {
 			return nil, err
 		}

@@ -62,6 +62,11 @@ constants `dns.StatusCreating`, `dns.StatusActive`, `dns.StatusUpdating`, and
 `dns.StatusError` name them. `HostedZone.AssociatedVPCIDs` lists the zone's
 VPCs, and `AssocVPCMapRegion` pairs each one with its region.
 
+Hosted-zone lists support the existing `Page` and `Size` inputs. Record
+continuation parameters remain unverified: when a record response reports more
+pages, `ListRecords` returns its partial output and an explicit incomplete-list
+error. Inspect both and never use that partial output as a complete inventory.
+
 ## Private DNS on the VPC
 
 Every VPC a zone associates with needs Private DNS on. Check
@@ -110,12 +115,16 @@ or `vngcloud.ErrInvalidInput`, the zone may exist. Call `ListHostedZones`
 with `Name` and look for the domain before creating it again, rather than
 retrying blind.
 
-`UpdateHostedZone` changes a zone's `Description`, its `VPCIDs`, or both;
-at least one must be set, or the call fails with `vngcloud.ErrInvalidInput`
-and sends nothing. The API takes a full replacement body, so the SDK reads
-the zone first and resends whatever field the caller left `nil` unchanged:
-an unset `Description` keeps the current one, and an unset `VPCIDs` keeps
-the current VPCs.
+`UpdateHostedZone` changes a zone's `Description`, its `VPCIDs`, or both; at
+least one must be set, or the call fails with `vngcloud.ErrInvalidInput` and
+sends nothing. The API takes a full replacement body, so the SDK reads the zone
+first and resends whatever field the caller left `nil` unchanged: an unset
+`Description` keeps the current one, and an unset `VPCIDs` keeps the current
+VPCs. The snapshot must explicitly contain the requested zone ID, its status,
+description, and a non-null VPC list. Missing or conflicting fields refuse the
+PUT; an explicit empty list remains valid. The SDK sends this replacement once
+and returns partial output with `ErrNotSettled` after an uncertain send. Read
+and reconcile the zone before another write.
 
 `VPCIDs` pointing at a non-nil, empty slice is different from `VPCIDs` left
 `nil`: the empty slice sends an explicit `[]` and detaches every VPC from
@@ -239,19 +248,22 @@ after sending it:
 
 For `UpdateRecord`, a sent `SubDomain` is checked against the zone's
 `DomainName`, since the server returns `Record.SubDomain` as the full name
-rather than the label sent.
+rather than the label sent. TXT payloads compare exactly: `old` and `OLD` never
+confirm the same update. Only fields with recorded case-insensitive semantics
+are normalized.
 
-A wait polls every 2 seconds for up to 60 seconds of elapsed time. If the
-zone or the record reaches `StatusError`, the call returns an error
-wrapping `dns.ErrFailed`. Once the write itself has succeeded, every later
-failure, the bound running out, a read failing, or the wait's own sleep
-ending early, such as from a canceled `ctx`, returns an error wrapping
-`dns.ErrNotSettled`: the write may have landed and the SDK could not
-confirm it, so do not send it again. Every one of these outcomes still
-returns a non-nil Output: it holds the last resource a read returned, or,
-when no read after the write ever succeeded, the resource the write's own
-response or sent fields carried, so the caller keeps its id to check on it
-later:
+A wait polls every 2 seconds for up to 60 seconds of elapsed time. Polling
+requests and sleeps share the earlier caller or operation deadline. Late
+responses cannot confirm success, and every mutation confirmation must identify
+the requested zone and record. If the zone or the record reaches `StatusError`,
+the call returns an error wrapping `dns.ErrFailed`. Once the write itself has
+succeeded, every later failure, the bound running out, a read failing, or the
+wait's own sleep ending early, such as from a canceled `ctx`, returns an error
+wrapping `dns.ErrNotSettled`: the write may have landed and the SDK could not
+confirm it, so do not send it again. Every one of these outcomes still returns a
+non-nil Output: it holds the last resource a read returned, or, when no read
+after the write ever succeeded, the resource the write's own response or sent
+fields carried, so the caller keeps its id to check on it later:
 
 ```go
 created, err := client.CreateHostedZone(ctx, in)

@@ -2,13 +2,12 @@ package cli
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
 
-	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/containerregistry"
+	"danny.vn/vngcloud/internal/transport"
 )
 
 // containerRegistryOps is containerregistry's operation table. Repository and
@@ -73,88 +72,23 @@ func createUserOp() Op[containerregistry.Client] {
 	}
 }
 
-// callCreateUser runs the real create, then writes the new secret to
-// --secret-file, which guardSecretFilePath already checked before this call
-// ever ran. Per the vCR writes design's create-user section, the file gets
-// the secret as returned plus one trailing newline.
-//
-// CreateUser's own Output is non-nil both on a plain success and when the
-// create itself succeeded but the post-create list could not confirm the new
-// user (err wraps containerregistry.ErrUserNotFound): either way the secret
-// has already been issued and must still reach --secret-file, and the
-// original err, if any, is returned unchanged once that write is done. Any
-// other error leaves Output nil, so nothing was ever received to write, and
-// that error is returned as is.
 func callCreateUser(cmd *cobra.Command, client *containerregistry.Client, ctx context.Context, in any) (any, error) {
 	input := in.(*containerregistry.CreateUserInput)
 	out, err := client.CreateUser(ctx, input)
 	if out == nil {
 		return nil, err
 	}
-	// guardSecretFilePath ran before any request and already required this
-	// flag and checked its path, so the only new failure possible here is
-	// the actual write.
 	path, _ := cmd.Flags().GetString(secretFileFlagName)
 	secret := out.SecretKey.Reveal()
 	if !strings.HasSuffix(secret, "\n") {
 		secret += "\n"
 	}
 	if writeErr := writeSecretFile(path, []byte(secret)); writeErr != nil {
-		return nil, cleanUpAfterFailedUserSecretFile(ctx, client, input.Name, out.User.ID, writeErr)
+		return nil, newCreateUserCleanupFailed()
 	}
-	return &createUserOutput{CreateUserOutput: *out, SecretFile: path}, err
+	return &createUserOutput{CreateUserOutput: *out, SecretFile: transport.RedactErrorText(path, out.SecretKey.Reveal())}, err
 }
 
-// cleanUpAfterFailedUserSecretFile reports create-user's SecretFileFailed
-// case, per the vCR writes design's create-user section point 3: when
-// userID is known (a plain create success), it deletes the new user through
-// the SDK and, once that delete succeeds (a NotFound from it counts as
-// succeeding, since the user is gone either way), names the user by that id,
-// the same shape callCreateSSHKey (svc_compute.go) already reports for a
-// compute SSH key. Without a known id, after containerregistry.ErrUserNotFound
-// left User unfilled, the user cannot be deleted automatically, so the design
-// calls for naming it only by the --name the caller gave, so a person can
-// find and delete it by hand with list-users --name <name>
-// (newCreateUserCleanupFailed). When the id is known but the cleanup delete
-// itself also fails, the id is already in hand, so the message names it
-// directly and includes writeErr's and delErr's own text
-// (newCreateUserDeleteCleanupFailed): neither can hold the secret, which the
-// create response returns only once and which this function never passes to
-// either, so quoting them helps someone fix the write or the delete rather
-// than guess. The cleanup delete runs on a context detached from ctx
-// (context.WithoutCancel, with the same bound callCreateSSHKey's own cleanup
-// delete uses), so a canceled command still cleans up the orphaned user.
-func cleanUpAfterFailedUserSecretFile(ctx context.Context, client *containerregistry.Client, name, userID string, writeErr error) error {
-	if userID == "" {
-		return newCreateUserCleanupFailed(name)
-	}
-	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), secretFileCleanupDeleteTimeout)
-	defer cancel()
-	if _, delErr := client.DeleteUser(cleanupCtx, &containerregistry.DeleteUserInput{UserID: userID}); delErr != nil && !vngcloud.IsNotFound(delErr) {
-		return newCreateUserDeleteCleanupFailed(userID, writeErr, delErr)
-	}
-	return newSecretFileWriteFailed("user", userID, writeErr)
-}
-
-// newCreateUserCleanupFailed reports a create-user --secret-file write
-// failure whose orphaned user has no confirmed id to delete automatically,
-// after containerregistry.ErrUserNotFound left User unfilled. Per the vCR
-// writes design, this names the user only by the --name the caller gave, so
-// a person can find and delete it with list-users --name <name>.
-func newCreateUserCleanupFailed(name string) error {
-	return secretFileFailedError{msg: fmt.Sprintf(
-		"could not write --%s: user %q exists and must be deleted; check with list-users --name %q",
-		secretFileFlagName, name, name)}
-}
-
-// newCreateUserDeleteCleanupFailed reports a create-user --secret-file write
-// failure whose cleanup delete of the new user, already known by id, itself
-// also failed: unlike newCreateUserCleanupFailed's name-only message, the id
-// is already in hand here, so the message names it directly and includes
-// writeErr's and delErr's own text, never the secret, which neither error
-// can hold.
-func newCreateUserDeleteCleanupFailed(userID string, writeErr, delErr error) error {
-	return secretFileFailedError{msg: fmt.Sprintf(
-		"could not write --%s: %s; then could not delete orphaned user %s: %s; delete it manually",
-		secretFileFlagName, writeErr, userID, delErr)}
+func newCreateUserCleanupFailed() error {
+	return secretFileFailedError{msg: "could not write --secret-file; create ownership is unproven and no cleanup was attempted; reconcile ownership with list-users and other administrators before any deletion"}
 }

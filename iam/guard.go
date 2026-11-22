@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 
+	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/transport"
 )
 
@@ -456,6 +457,10 @@ func (c *Client) guardGetGroupAttachments(ctx context.Context, op, groupID strin
 	if err := guardCachedResponse(op, []any{*policyIDsPtr, *userIDsPtr}, options...); err != nil {
 		return nil, nil, err
 	}
+	var id string
+	if json.Unmarshal(raw["id"], &id) != nil || core.CheckPathID(op, "GroupID", id) != nil || !strings.EqualFold(id, groupID) {
+		return nil, nil, fmt.Errorf("%s: group identity is unproven", op)
+	}
 	return *policyIDsPtr, *userIDsPtr, nil
 }
 
@@ -486,25 +491,23 @@ func (c *Client) guardUserGroups(ctx context.Context, op, userID string, options
 	return groups, nil
 }
 
-// serviceAccountIsProtected reports whether serviceAccountID has a
-// privileged policy attached: a "Protected principal" is a service account
-// with a privileged policy attached, per the design's guard rules. seen
-// dedupes GetPolicy reads within one guard call; it is never shared across
-// calls.
-func (c *Client) serviceAccountIsProtected(ctx context.Context, op, serviceAccountID string, writeActionNames []string, seen map[string]*Policy) (bool, error) {
-	attached, err := c.guardServiceAccountPolicySummaries(ctx, op, serviceAccountID)
+func (c *Client) serviceAccountIsProtected(ctx context.Context, op, serviceAccountID string, writeActionNames []string, seen map[string]*Policy, options ...userReadOptions) (bool, error) {
+	attached, err := c.guardServiceAccountPolicySummaries(ctx, op, serviceAccountID, options...)
 	if err != nil {
 		return false, err
 	}
 	for _, summary := range attached {
 		policy, ok := seen[summary.ID]
 		if !ok {
-			got, err := c.GetPolicy(ctx, &GetPolicyInput{PolicyID: summary.ID})
+			got, err := c.getPolicy(ctx, &GetPolicyInput{PolicyID: summary.ID}, options...)
 			if err != nil {
 				return false, err
 			}
 			policy = &got.Policy
 			seen[summary.ID] = policy
+		}
+		if err := guardCachedResponse(op, policy, options...); err != nil {
+			return false, err
 		}
 		if policyIsPrivileged(policy, writeActionNames) {
 			return true, nil
@@ -528,23 +531,8 @@ func (c *Client) requireClassifiedCaller(ctx context.Context, op string, options
 	return caller, nil
 }
 
-// guardServiceAccountWrite refuses a write targeting serviceAccountID
-// before op builds any request: it returns ErrSelfChange when the caller is
-// a service account (see below), ErrPrivilegedChange when the caller's type
-// cannot be classified or the service account has a privileged policy
-// attached, and the first error any guard read itself fails with. A nil
-// return means op may proceed. No returned error names a statement, action,
-// or policy beyond the rule it violates.
-//
-// A caller whose type is user-sa or service-sa refuses every
-// service-account-targeted write, not only one against its own ID.
-// GetCallerIdentity's UserID for a service-account caller is not confirmed
-// to use the same ID form as a target service account's ID or its ClientID
-// (see the design's open questions), so comparing them could miss a real
-// self-change; refusing every case is the conservative choice until that is
-// verified live.
-func (c *Client) guardServiceAccountWrite(ctx context.Context, op, serviceAccountID string) error {
-	caller, err := c.requireClassifiedCaller(ctx, op)
+func (c *Client) guardServiceAccountWrite(ctx context.Context, op, serviceAccountID string, options ...userReadOptions) error {
+	caller, err := c.requireClassifiedCaller(ctx, op, options...)
 	if err != nil {
 		return err
 	}
@@ -552,11 +540,11 @@ func (c *Client) guardServiceAccountWrite(ctx context.Context, op, serviceAccoun
 		return fmt.Errorf("%w: %s: the caller is a service account", ErrSelfChange, op)
 	}
 
-	writeActionNames, err := c.guardWriteActionNames(ctx)
+	writeActionNames, err := c.guardWriteActionNames(ctx, options...)
 	if err != nil {
 		return err
 	}
-	protected, err := c.serviceAccountIsProtected(ctx, op, serviceAccountID, writeActionNames, map[string]*Policy{})
+	protected, err := c.serviceAccountIsProtected(ctx, op, serviceAccountID, writeActionNames, map[string]*Policy{}, options...)
 	if err != nil {
 		return err
 	}

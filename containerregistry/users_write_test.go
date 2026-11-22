@@ -74,10 +74,10 @@ func TestCreateUserRequestBodyAndLookup(t *testing.T) {
 		Name:        "app-ci",
 		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"Pull Images"}}},
 	})
-	if err != nil {
+	if !errors.Is(err, ErrUserNotFound) {
 		t.Fatalf("CreateUser() error = %v", err)
 	}
-	if out.User.ID != "ra-1" || out.User.Name != "app-ci" {
+	if out.User.ID != "" || out.User.Name != "" {
 		t.Fatalf("unexpected user: %+v", out.User)
 	}
 	if out.SecretKey.Reveal() != "<secret>" {
@@ -231,11 +231,14 @@ func TestCreateUserExactNameLookupWalksMultiplePages(t *testing.T) {
 		Name:        "app-ci",
 		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"Pull Images"}}},
 	})
-	if err != nil {
+	if !errors.Is(err, ErrUserNotFound) {
 		t.Fatalf("CreateUser() error = %v", err)
 	}
-	if out.User.ID != "ra-1" {
-		t.Fatalf("User.ID = %q, want ra-1: the match was on the lookup's second page", out.User.ID)
+	if out.User.ID != "" {
+		t.Fatalf("User.ID = %q, want no cleanup identity from the second-page candidate", out.User.ID)
+	}
+	if listCalls != 3 {
+		t.Fatalf("list calls = %d, want precheck plus both candidate pages", listCalls)
 	}
 }
 
@@ -269,11 +272,11 @@ func TestCreateUserLookupNumericUserID(t *testing.T) {
 		Name:        "app-ci",
 		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"Pull Images"}}},
 	})
-	if err != nil {
+	if !errors.Is(err, ErrUserNotFound) {
 		t.Fatalf("CreateUser() error = %v", err)
 	}
-	if out.User.UserID != "20260101" {
-		t.Fatalf("User.UserID = %q, want %q", out.User.UserID, "20260101")
+	if out.User.UserID != "" {
+		t.Fatalf("User.UserID = %q, want %q", out.User.UserID, "")
 	}
 }
 
@@ -332,7 +335,7 @@ func TestCreateUserSendsDurationWhenSet(t *testing.T) {
 		Name:         "app-ci",
 		DurationDays: vngcloud.Ptr(90),
 		Permissions:  []UserPermission{{RepositoryID: "repo-1", Actions: []string{"Pull Images"}}},
-	}); err != nil {
+	}); !errors.Is(err, ErrUserNotFound) {
 		t.Fatalf("CreateUser() error = %v", err)
 	}
 }
@@ -625,7 +628,7 @@ func TestCreateUserSecretRedaction(t *testing.T) {
 		Name:        "app-ci",
 		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"Pull Images"}}},
 	})
-	if err != nil {
+	if !errors.Is(err, ErrUserNotFound) {
 		t.Fatalf("CreateUser() error = %v", err)
 	}
 
@@ -699,7 +702,7 @@ func TestCreateUserNeverCaptured(t *testing.T) {
 	if _, err := c.CreateUser(context.Background(), &CreateUserInput{
 		Name:        "app-ci",
 		Permissions: []UserPermission{{RepositoryID: "repo-1", Actions: []string{"Pull Images"}}},
-	}); err != nil {
+	}); !errors.Is(err, ErrUserNotFound) {
 		t.Fatalf("CreateUser() error = %v", err)
 	}
 	for _, call := range captured {

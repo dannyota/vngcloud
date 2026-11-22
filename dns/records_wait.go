@@ -10,23 +10,24 @@ import (
 	"danny.vn/vngcloud/internal/transport"
 )
 
-// getRecord is GetRecord's request, reused by every record wait under the
-// calling write's own operation name, so a failure names the write it
-// happened inside rather than "dns.GetRecord". zoneID and recordID are
-// assumed already checked with core.CheckPathID.
 func (c *Client) getRecord(ctx context.Context, op, zoneID, recordID string) (*Record, error) {
 	var resp struct {
-		Data Record `json:"data"`
+		Data *Record `json:"data"`
 	}
 	if err := c.c.DoJSON(ctx, transport.Request{
-		Operation: op,
-		Method:    http.MethodGet,
-		URL:       c.url([]string{"dns", "hosted-zone", zoneID, "record", recordID}, nil),
-		OK:        []int{200},
+		Operation:  op,
+		Method:     http.MethodGet,
+		URL:        c.url([]string{"dns", "hosted-zone", zoneID, "record", recordID}, nil),
+		OK:         []int{200},
+		StrictJSON: true,
+		MaxBody:    256 << 10,
 	}, &resp); err != nil {
 		return nil, err
 	}
-	return &resp.Data, nil
+	if resp.Data == nil || resp.Data.ID != recordID || resp.Data.HostedZoneID != zoneID || resp.Data.Status == "" {
+		return nil, fmt.Errorf("%s: record identity or state is unproven", op)
+	}
+	return resp.Data, nil
 }
 
 // settleRecord is CreateRecord and UpdateRecord's post-write wait unless

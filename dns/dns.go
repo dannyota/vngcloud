@@ -3,6 +3,7 @@ package dns
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"time"
 
@@ -174,7 +175,11 @@ func (c *Client) ListRecords(ctx context.Context, in *ListRecordsInput) (*ListRe
 	}, &resp); err != nil {
 		return nil, err
 	}
-	return core.NewPagedList(resp.ListData, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem), nil
+	out := core.NewPagedList(resp.ListData, resp.Page, resp.PageSize, resp.TotalPage, resp.TotalItem)
+	if resp.TotalPage > 1 || resp.TotalItem > len(resp.ListData) {
+		return out, fmt.Errorf("%s: incomplete record list; continuation parameters are unverified", op)
+	}
+	return out, nil
 }
 
 // GetRecordInput identifies a record to read.

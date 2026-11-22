@@ -2,7 +2,9 @@ package iam
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"strings"
 
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/transport"
@@ -48,6 +50,10 @@ type GetGroupOutput struct {
 
 // GetGroup reads group.
 func (c *Client) GetGroup(ctx context.Context, in *GetGroupInput) (*GetGroupOutput, error) {
+	return c.getGroup(ctx, in, false)
+}
+
+func (c *Client) getGroup(ctx context.Context, in *GetGroupInput, requireName bool) (*GetGroupOutput, error) {
 	const op = "iam.GetGroup"
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
@@ -61,6 +67,7 @@ func (c *Client) GetGroup(ctx context.Context, in *GetGroupInput) (*GetGroupOutp
 	resp := struct {
 		Root      flexibleRoot `json:"root"`
 		CreatedAt epochMillis  `json:"createdAt"`
+		Name      *string      `json:"name"`
 		*fields
 	}{fields: &group}
 	req := transport.Request{
@@ -73,6 +80,12 @@ func (c *Client) GetGroup(ctx context.Context, in *GetGroupInput) (*GetGroupOutp
 	}
 	if err := c.c.DoJSON(ctx, req, &resp); err != nil {
 		return nil, err
+	}
+	if core.CheckPathID(op, "GroupID", group.ID) != nil || !strings.EqualFold(group.ID, in.GroupID) || requireName && resp.Name == nil {
+		return nil, fmt.Errorf("%s: group identity or required name is unproven", op)
+	}
+	if resp.Name != nil {
+		group.Name = *resp.Name
 	}
 	group.Root = string(resp.Root)
 	group.CreatedAt = int64(resp.CreatedAt)
@@ -90,8 +103,8 @@ type ListGroupPoliciesInput struct {
 	Size int
 }
 
-// ListGroupPoliciesOutput holds PolicySummary items.
-type ListGroupPoliciesOutput = core.List[PolicySummary]
+// ListGroupPoliciesOutput holds PolicySummary items and the returned nullable page metadata.
+type ListGroupPoliciesOutput = pageList[PolicySummary]
 
 // ListGroupPolicies reads group policies.
 func (c *Client) ListGroupPolicies(ctx context.Context, in *ListGroupPoliciesInput) (*ListGroupPoliciesOutput, error) {
@@ -103,9 +116,7 @@ func (c *Client) ListGroupPolicies(ctx context.Context, in *ListGroupPoliciesInp
 		return nil, err
 	}
 
-	var resp struct {
-		Data []PolicySummary `json:"data"`
-	}
+	var resp pageResponse[PolicySummary]
 	req := transport.Request{
 		Operation: op,
 		Method:    http.MethodGet,
@@ -115,5 +126,5 @@ func (c *Client) ListGroupPolicies(ctx context.Context, in *ListGroupPoliciesInp
 	if err := c.c.DoJSON(ctx, req, &resp); err != nil {
 		return nil, err
 	}
-	return &ListGroupPoliciesOutput{Items: resp.Data}, nil
+	return resp.output(), nil
 }

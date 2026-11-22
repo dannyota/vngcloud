@@ -36,39 +36,15 @@ type createServiceAccountBody struct {
 	Description string `json:"description"`
 }
 
-// createServiceAccountResponse decodes only the two fields CreateServiceAccount
-// needs from the create response, whose full shape the design leaves
-// undocumented: the new ID, to read the created service account back, and
-// the client secret, shown only this once.
 type createServiceAccountResponse struct {
 	ID           string `json:"id"`
 	ClientSecret string `json:"clientSecret"`
 }
 
-// CreateServiceAccount creates a service account and returns its client
-// secret alongside it, read back with GetServiceAccount after the create.
-//
-// CreateServiceAccount returns a non-nil Output whenever the create request
-// itself succeeded, even when it also returns an error, so a caller never
-// loses a real secret to a problem after the fact:
-//   - If the read-back fails, Output carries the create response's own ID
-//     (with every other ServiceAccount field left zero) and client secret,
-//     and the error wraps ErrCreateUnconfirmed.
-//   - If the create response carried no client secret, Output's
-//     ClientSecret is empty and the error wraps ErrNoSecret; the account
-//     was still created, and its ID is in Output.ServiceAccount.ID.
-//
-// The request sets transport.Request.Sensitive, so the response never
-// reaches the configured response-capture hook, and a decode failure never
-// quotes the response body either.
-//
-// It sets transport.Request.Once: a resend after a 401 or a followed
-// redirect would create a second service account, so the request is sent at
-// most once. After any error that is not a 4xx *core.APIError, the service
-// account may exist regardless, and the caller lists service accounts by
-// Name before creating it again, rather than retrying blind; a service
-// account found that way has already lost its client secret and should have
-// its secret reset.
+// CreateServiceAccount sends once and retains every issued ClientSecret in
+// partial output. ErrCreateUnconfirmed means confirmation or identity failed;
+// an empty ServiceAccount.ID grants no cleanup authority. Persist the secret
+// before handling the error. Dependent reads withhold credential reflections.
 func (c *Client) CreateServiceAccount(ctx context.Context, in *CreateServiceAccountInput) (*CreateServiceAccountOutput, error) {
 	const op = "iam.CreateServiceAccount"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -85,15 +61,30 @@ func (c *Client) CreateServiceAccount(ctx context.Context, in *CreateServiceAcco
 		Sensitive: true,
 		Once:      true,
 	}
+	var sent []string
+	defer func() { clear(sent) }()
+	req.SentCredentials = &sent
+	req.WithholdMessage = userWriteWithheld
+	req.ClassifyError = userWriteErrorCode
+	req.StrictJSON = true
+	req.MaxBody = guardObjectMaxBody
 	if _, err := c.c.DoJSONStatus(ctx, req, &resp); err != nil {
 		return nil, wrapAmbiguousServiceAccountCreateErr(op, in.Name, err)
 	}
-	if resp.ID == "" {
-		return nil, &core.APIError{Operation: op, Message: "create response had no id; a service account may exist, check with list-service-accounts --name"}
-	}
 	secret := vngcloud.Secret(resp.ClientSecret)
-
-	got, err := c.GetServiceAccount(ctx, &GetServiceAccountInput{ServiceAccountID: resp.ID})
+	opts := guardUserReadOptions(userReadOptions{Redact: []string{resp.ClientSecret}, SentCredentials: &sent})
+	if resp.ID == "" || core.CheckPathID(op, "ServiceAccountID", resp.ID) != nil || opts.containsCredential(resp.ID) {
+		out := &CreateServiceAccountOutput{ClientSecret: secret}
+		err := fmt.Errorf("%s: %w: create identity is unproven; retain the secret and reconcile with list-service-accounts before any cleanup", op, ErrCreateUnconfirmed)
+		if secret == "" {
+			err = fmt.Errorf("%w: %w", err, ErrNoSecret)
+		}
+		return out, err
+	}
+	got, err := c.getServiceAccount(ctx, &GetServiceAccountInput{ServiceAccountID: resp.ID}, opts)
+	if opts.containsCredential(resp.ID) {
+		return &CreateServiceAccountOutput{ClientSecret: secret}, fmt.Errorf("%s: %w: create identity is unsafe; reconcile ownership before cleanup", op, ErrCreateUnconfirmed)
+	}
 	if err != nil {
 		out := &CreateServiceAccountOutput{ServiceAccount: ServiceAccount{ID: resp.ID}, ClientSecret: secret}
 		return out, fmt.Errorf("%s: service account %s was created but the read to confirm it failed: %w: %w", op, resp.ID, ErrCreateUnconfirmed, err)
@@ -105,11 +96,6 @@ func (c *Client) CreateServiceAccount(ctx context.Context, in *CreateServiceAcco
 	return out, nil
 }
 
-// wrapAmbiguousServiceAccountCreateErr wraps err from CreateServiceAccount
-// when it failed ambiguously: a 5xx or a network error, where whether the
-// request reached the server is unknown. It is never called for a 4xx
-// *core.APIError, which means the request was rejected outright and nothing
-// was created. name is the exact value the call sent. A nil err stays nil.
 func wrapAmbiguousServiceAccountCreateErr(op, name string, err error) error {
 	if err == nil {
 		return nil
@@ -143,16 +129,9 @@ type updateServiceAccountBody struct {
 	AccessTokenLifeSpan *int    `json:"accessTokenLifeSpan,omitempty"`
 }
 
-// UpdateServiceAccount changes Description or AccessTokenLifeSpan, sending
-// only the fields the caller set, and reads the account back afterward to
-// build the Output.
-//
-// The guard runs first and sends nothing when it refuses: ErrSelfChange if
-// ServiceAccountID is the caller, or ErrPrivilegedChange if it holds a
-// privileged policy.
-//
-// The request sets Idempotent: it sends the update's full intended state,
-// so the transport's own retry after a 5xx is safe to repeat.
+// UpdateServiceAccount checks protection, updates the supplied fields, and
+// confirms the requested identity. An accepted update whose response handling
+// or confirmation fails retains a safe ID with ErrNotSettled.
 func (c *Client) UpdateServiceAccount(ctx context.Context, in *UpdateServiceAccountInput) (*UpdateServiceAccountOutput, error) {
 	const op = "iam.UpdateServiceAccount"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -161,25 +140,43 @@ func (c *Client) UpdateServiceAccount(ctx context.Context, in *UpdateServiceAcco
 	if err := core.CheckPathID(op, "ServiceAccountID", in.ServiceAccountID); err != nil {
 		return nil, err
 	}
-	if err := c.guardServiceAccountWrite(ctx, op, in.ServiceAccountID); err != nil {
+	var credentials []string
+	defer func() { clear(credentials) }()
+	opts := guardUserReadOptions(userReadOptions{SentCredentials: &credentials})
+	if err := c.guardServiceAccountWrite(ctx, op, in.ServiceAccountID, opts); err != nil {
 		return nil, err
 	}
 
+	if err := guardRequestOperands(op, []string{in.ServiceAccountID}, opts); err != nil {
+		return nil, err
+	}
+	var sent []string
+	defer func() { clear(sent) }()
+
+	notSent := false
 	req := transport.Request{
-		Operation:  op,
-		Method:     http.MethodPatch,
-		URL:        c.accountsURL([]string{"service-accounts", in.ServiceAccountID}, nil),
-		Body:       updateServiceAccountBody{Description: in.Description, AccessTokenLifeSpan: in.AccessTokenLifeSpan},
-		OK:         []int{200},
-		Idempotent: true,
+		NotSent:            &notSent,
+		KeepObservedStatus: true,
+		Operation:          op,
+		Method:             http.MethodPatch,
+		URL:                c.accountsURL([]string{"service-accounts", in.ServiceAccountID}, nil),
+		Body:               updateServiceAccountBody{Description: in.Description, AccessTokenLifeSpan: in.AccessTokenLifeSpan},
+		OK:                 []int{200},
+		Idempotent:         true,
 	}
-	if err := c.c.DoJSON(ctx, req, nil); err != nil {
+	status, err := c.c.DoJSONStatus(ctx, opts.request(req, &sent), nil)
+	opts.collect(sent)
+	if err != nil {
+		if !notSent && status == http.StatusOK {
+			return &UpdateServiceAccountOutput{ServiceAccount: serviceAccountFallback(in.ServiceAccountID, opts)}, fmt.Errorf("%s: %w: accepted update response failed: %w", op, ErrNotSettled, err)
+		}
 		return nil, err
 	}
 
-	got, err := c.GetServiceAccount(ctx, &GetServiceAccountInput{ServiceAccountID: in.ServiceAccountID})
+	got, err := c.getServiceAccount(ctx, &GetServiceAccountInput{ServiceAccountID: in.ServiceAccountID}, opts)
 	if err != nil {
-		return nil, fmt.Errorf("%s: service account %s was updated but the read to confirm it failed: %w", op, in.ServiceAccountID, err)
+		return &UpdateServiceAccountOutput{ServiceAccount: serviceAccountFallback(in.ServiceAccountID, opts)},
+			fmt.Errorf("%s: %w: service account update was accepted but confirmation failed: %w", op, ErrNotSettled, err)
 	}
 	return &UpdateServiceAccountOutput{ServiceAccount: got.ServiceAccount}, nil
 }
@@ -207,9 +204,18 @@ func (c *Client) DeleteServiceAccount(ctx context.Context, in *DeleteServiceAcco
 	if err := core.CheckPathID(op, "ServiceAccountID", in.ServiceAccountID); err != nil {
 		return nil, err
 	}
-	if err := c.guardServiceAccountWrite(ctx, op, in.ServiceAccountID); err != nil {
+	var credentials []string
+	defer func() { clear(credentials) }()
+	opts := guardUserReadOptions(userReadOptions{SentCredentials: &credentials})
+	if err := c.guardServiceAccountWrite(ctx, op, in.ServiceAccountID, opts); err != nil {
 		return nil, err
 	}
+
+	if err := guardRequestOperands(op, []string{in.ServiceAccountID}, opts); err != nil {
+		return nil, err
+	}
+	var sent []string
+	defer func() { clear(sent) }()
 
 	req := transport.Request{
 		Operation: op,
@@ -217,7 +223,9 @@ func (c *Client) DeleteServiceAccount(ctx context.Context, in *DeleteServiceAcco
 		URL:       c.accountsURL([]string{"service-accounts", in.ServiceAccountID}, nil),
 		OK:        []int{204},
 	}
-	if err := c.c.DoJSON(ctx, req, nil); err != nil {
+	err := c.c.DoJSON(ctx, opts.request(req, &sent), nil)
+	opts.collect(sent)
+	if err != nil {
 		return nil, err
 	}
 	return &DeleteServiceAccountOutput{}, nil
@@ -274,9 +282,18 @@ func (c *Client) ResetServiceAccountSecret(ctx context.Context, in *ResetService
 	if err := core.CheckPathID(op, "ServiceAccountID", in.ServiceAccountID); err != nil {
 		return nil, err
 	}
-	if err := c.guardServiceAccountWrite(ctx, op, in.ServiceAccountID); err != nil {
+	var credentials []string
+	defer func() { clear(credentials) }()
+	opts := guardUserReadOptions(userReadOptions{SentCredentials: &credentials})
+	if err := c.guardServiceAccountWrite(ctx, op, in.ServiceAccountID, opts); err != nil {
 		return nil, err
 	}
+
+	if err := guardRequestOperands(op, []string{in.ServiceAccountID}, opts); err != nil {
+		return nil, err
+	}
+	var sent []string
+	defer func() { clear(sent) }()
 
 	var resp resetServiceAccountSecretResponse
 	req := transport.Request{
@@ -287,8 +304,10 @@ func (c *Client) ResetServiceAccountSecret(ctx context.Context, in *ResetService
 		Sensitive: true,
 		Once:      true,
 	}
-	if _, err := c.c.DoJSONStatus(ctx, req, &resp); err != nil {
-		return nil, wrapAmbiguousResetSecretErr(op, in.ServiceAccountID, err)
+	_, err := c.c.DoJSONStatus(ctx, opts.request(req, &sent), &resp)
+	opts.collect(sent)
+	if err != nil {
+		return nil, wrapAmbiguousResetSecretErr(op, err)
 	}
 	if resp.ClientSecret == "" {
 		return &ResetServiceAccountSecretOutput{}, fmt.Errorf("%s: %w: the secret was probably rotated by this call but not returned; reset again to get a usable value", op, ErrNoSecret)
@@ -296,12 +315,7 @@ func (c *Client) ResetServiceAccountSecret(ctx context.Context, in *ResetService
 	return &ResetServiceAccountSecretOutput{ClientSecret: vngcloud.Secret(resp.ClientSecret)}, nil
 }
 
-// wrapAmbiguousResetSecretErr wraps err from ResetServiceAccountSecret when
-// it failed ambiguously: a 5xx or a network error, where whether the reset
-// reached the server is unknown. It is never called for a 4xx
-// *core.APIError, which means the request was rejected outright and the
-// secret was not changed. A nil err stays nil.
-func wrapAmbiguousResetSecretErr(op, serviceAccountID string, err error) error {
+func wrapAmbiguousResetSecretErr(op string, err error) error {
 	if err == nil {
 		return nil
 	}
@@ -309,5 +323,12 @@ func wrapAmbiguousResetSecretErr(op, serviceAccountID string, err error) error {
 	if errors.As(err, &apiErr) && apiErr.StatusCode >= 400 && apiErr.StatusCode < 500 {
 		return err
 	}
-	return fmt.Errorf("%s: reset may have already reached the server for service account %s; there is no read that shows whether the secret changed, so treat the previous secret as revoked: %w", op, serviceAccountID, err)
+	return fmt.Errorf("%s: reset may have reached the server; no read shows whether the secret changed, so treat the previous secret as revoked: %w", op, err)
+}
+
+func serviceAccountFallback(id string, opts userReadOptions) ServiceAccount {
+	if opts.containsCredential(id) {
+		return ServiceAccount{}
+	}
+	return ServiceAccount{ID: id}
 }

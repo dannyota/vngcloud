@@ -87,8 +87,8 @@ type ListUsersInput struct {
 	Name string
 }
 
-// ListUsersOutput holds User items.
-type ListUsersOutput = core.List[User]
+// ListUsersOutput holds User items and the returned nullable page metadata.
+type ListUsersOutput = pageList[User]
 
 // ListUsers lists one page of the account's IAM users. The server has been
 // observed to match Name as a case-insensitive substring.
@@ -111,9 +111,7 @@ func (c *Client) ListUsers(ctx context.Context, in *ListUsersInput) (*ListUsersO
 
 	var sent []string
 	defer func() { clear(sent) }()
-	var resp struct {
-		Data []User `json:"data"`
-	}
+	var resp pageResponse[User]
 	req := transport.Request{
 		Operation:       op,
 		Method:          http.MethodGet,
@@ -127,7 +125,7 @@ func (c *Client) ListUsers(ctx context.Context, in *ListUsersInput) (*ListUsersO
 		return nil, err
 	}
 	opts := userReadOptions{SentCredentials: &sent}
-	out := &ListUsersOutput{Items: resp.Data}
+	out := resp.output()
 	if opts.containsResponseCredential(out) {
 		return nil, fmt.Errorf("iam: %s: unsafe user identity", op)
 	}
