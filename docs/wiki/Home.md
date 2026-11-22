@@ -26,6 +26,8 @@ rename; the module keeps the `vngcloud` name.
   importing and creating them.
 - [Container Registry](Container-Registry.md): repositories and users,
   including writes and secret handling.
+- [Database](Database.md): vDB catalogs and instances, and the guarded create
+  and delete of a private MySQL 8.0 instance.
 - [DNS](DNS.md): hosted zones and records, including writes and waits.
 - [IAM](IAM.md): service account writes, and their self-change and
   privileged-change guards.
@@ -84,8 +86,8 @@ rename; the module keeps the `vngcloud` name.
   [CLI: Compute](CLI-Compute.md), [CLI: IAM](CLI-IAM.md),
   [CLI: Network](CLI-Network.md), [CLI: DNS](CLI-DNS.md),
   [CLI: CDN](CLI-CDN.md), [CLI: Monitor](CLI-Monitor.md),
-  [CLI: Storage](CLI-Storage.md), [CLI: VKS](CLI-VKS.md), and
-  [CLI: Backup](CLI-Backup.md): every operation, its flags, and an example.
+  [CLI: Storage](CLI-Storage.md), [CLI: VKS](CLI-VKS.md),
+  [CLI: Database](CLI-Database.md), and [CLI: Backup](CLI-Backup.md): every operation, its flags, and an example.
 
 ## Source
 

@@ -10,6 +10,7 @@ import (
 	"danny.vn/vngcloud/cdn"
 	"danny.vn/vngcloud/compute"
 	"danny.vn/vngcloud/containerregistry"
+	"danny.vn/vngcloud/database"
 	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/globalloadbalancer"
 	"danny.vn/vngcloud/iam"
@@ -268,7 +269,7 @@ func classify(err error) errorEnvelope {
 	if errors.Is(err, cdn.ErrUnexpectedStatus) {
 		return errorEnvelope{Code: "UnexpectedStatus", Message: err.Error()}
 	}
-	if errors.Is(err, globalloadbalancer.ErrNotSettled) {
+	if errors.Is(err, globalloadbalancer.ErrNotSettled) || errors.Is(err, database.ErrNotSettled) {
 		return errorEnvelope{Code: "NotSettled", Message: err.Error()}
 	}
 	if errors.Is(err, cdn.ErrNotSettled) {
@@ -315,7 +316,7 @@ func classify(err error) errorEnvelope {
 	// same WriteFailed class, as does loadbalancer.ErrFailed from every vLB
 	// write's post-write wait.
 	if errors.Is(err, dns.ErrFailed) || errors.Is(err, network.ErrFailed) || errors.Is(err, volume.ErrFailed) || errors.Is(err, compute.ErrFailed) ||
-		errors.Is(err, loadbalancer.ErrFailed) || errors.Is(err, storage.ErrFailed) || errors.Is(err, globalloadbalancer.ErrFailed) || errors.Is(err, vks.ErrFailed) {
+		errors.Is(err, loadbalancer.ErrFailed) || errors.Is(err, storage.ErrFailed) || errors.Is(err, globalloadbalancer.ErrFailed) || errors.Is(err, vks.ErrFailed) || errors.Is(err, database.ErrFailed) {
 		return errorEnvelope{Code: "WriteFailed", Message: err.Error()}
 	}
 	// compute.ErrNotSettled, containerregistry.ErrNotSettled,

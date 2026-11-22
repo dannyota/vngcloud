@@ -14,6 +14,7 @@ import (
 	"danny.vn/vngcloud/cdn"
 	"danny.vn/vngcloud/compute"
 	"danny.vn/vngcloud/containerregistry"
+	"danny.vn/vngcloud/database"
 	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/globalloadbalancer"
 	"danny.vn/vngcloud/iam"
@@ -649,7 +650,7 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 			errors.Is(callErr, tagging.ErrNotSettled) ||
 			errors.Is(callErr, volume.ErrFailed) || errors.Is(callErr, volume.ErrNotSettled) ||
 			errors.Is(callErr, loadbalancer.ErrFailed) || errors.Is(callErr, loadbalancer.ErrNotSettled) ||
-			errors.Is(callErr, storage.ErrNotSettled) || errors.Is(callErr, cdn.ErrNotSettled) || errors.Is(callErr, globalloadbalancer.ErrNotSettled) || errors.Is(callErr, globalloadbalancer.ErrFailed) || errors.Is(callErr, vks.ErrNotSettled) || errors.Is(callErr, vks.ErrFailed)) && !isNilOutput(out) {
+			errors.Is(callErr, storage.ErrNotSettled) || errors.Is(callErr, cdn.ErrNotSettled) || errors.Is(callErr, globalloadbalancer.ErrNotSettled) || errors.Is(callErr, globalloadbalancer.ErrFailed) || errors.Is(callErr, vks.ErrNotSettled) || errors.Is(callErr, vks.ErrFailed) || errors.Is(callErr, database.ErrNotSettled) || errors.Is(callErr, database.ErrFailed)) && !isNilOutput(out) {
 			_ = renderOutput(e.stdout, format, "", out, true)
 		}
 		return callErr

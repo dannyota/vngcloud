@@ -7,6 +7,8 @@ import (
 )
 
 var databaseOps = []Op[database.Client]{
+	databaseCreateOp(),
+	databaseDeleteOp(),
 	Read[database.Client, database.ListDatabaseEngineVersionsInput, database.ListDatabaseEngineVersionsOutput](kebab("ListDatabaseEngineVersions"), (*database.Client).ListDatabaseEngineVersions),
 	Read[database.Client, database.ListDatabaseZonesInput, database.ListDatabaseZonesOutput](kebab("ListDatabaseZones"), (*database.Client).ListDatabaseZones),
 	Read[database.Client, database.ListDatabaseFlavorsInput, database.ListDatabaseFlavorsOutput](kebab("ListDatabaseFlavors"), (*database.Client).ListDatabaseFlavors),

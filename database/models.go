@@ -26,6 +26,18 @@ type Flavor struct {
 	RAM          int32  `json:"ram"`
 	PackageSKU   string `json:"packageSku"`
 	LocateZoneID string `json:"locateZoneId"`
+	// MonthlyCost is a catalog estimate, not a quote.
+	MonthlyCost   float64 `json:"monthlyCost"`
+	PriceKey      string  `json:"priceKey"`
+	VolumeSize    int32   `json:"volumeSize"`
+	VolumeType    string  `json:"volumeType"`
+	BackupSize    int32   `json:"backupSize"`
+	Description   string  `json:"description"`
+	FamilyType    string  `json:"familyType"`
+	PlatformType  string  `json:"platformType"`
+	Bandwidth     int32   `json:"bandwidth"`
+	BandwidthUnit string  `json:"bandwidthUnit"`
+	ZoneUUID      string  `json:"zoneUUID"`
 }
 
 // StorageType is a documented database volume type catalog entry.

@@ -1,5 +1,9 @@
 # Release Notes
 
+## Unreleased
+
+- Add `database create-database-instance` and `delete-database-instance` for a private, single-node MySQL 8.0 instance with backups off, paid from credits with no price check (a flavor's `monthlyCost` is a catalog estimate). Create needs `--yes` and a `--password-file`; both writes send once and report `NotSettled` with the ID when unconfirmed.
+
 ## v0.100.0 - Private VKS cluster create
 
 - Add `vks create-cluster` and `delete-cluster` for a private cluster with

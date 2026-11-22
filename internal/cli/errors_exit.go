@@ -8,6 +8,7 @@ import (
 	"danny.vn/vngcloud/cdn"
 	"danny.vn/vngcloud/compute"
 	"danny.vn/vngcloud/containerregistry"
+	"danny.vn/vngcloud/database"
 	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/iam"
 	"danny.vn/vngcloud/loadbalancer"
@@ -87,6 +88,7 @@ func exitCode(err error) int {
 		errors.Is(err, volume.ErrFailed) || errors.Is(err, volume.ErrNotSettled) || errors.Is(err, volume.ErrVolumeInUse) ||
 		errors.Is(err, loadbalancer.ErrFailed) || errors.Is(err, loadbalancer.ErrNotSettled) ||
 		errors.Is(err, storage.ErrNotSettled) || errors.Is(err, storage.ErrFailed) ||
+		errors.Is(err, database.ErrNotSettled) || errors.Is(err, database.ErrFailed) ||
 		errors.Is(err, storage.ErrPaymentRequired) || errors.Is(err, storage.ErrProjectNotEmpty) {
 		return 1
 	}

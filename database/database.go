@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
@@ -20,16 +21,22 @@ import (
 )
 
 // Client shares the configuration's credentials and session.
-type Client struct{ c *core.Client }
+type Client struct {
+	c     *core.Client
+	sleep func(context.Context, time.Duration) error
+	now   func() time.Time
+}
 
 // New creates a database client.
-func New(cfg vngcloud.Config) *Client { return &Client{c: core.ClientOf(cfg)} }
+func New(cfg vngcloud.Config) *Client {
+	return &Client{c: core.ClientOf(cfg), sleep: contextSleep, now: time.Now}
+}
 
 func malformed(op string) error {
 	return &core.APIError{Operation: op, StatusCode: 200, Code: "InvalidResponse", Message: "invalid response; body withheld"}
 }
 
-func safeError(op string, err error) error {
+func safeError(op string, err error) *core.APIError {
 	e := &core.APIError{Operation: op, Message: "request failed; response withheld"}
 	var ae *core.APIError
 	if errors.As(err, &ae) {
@@ -139,7 +146,7 @@ func scanValue(d *json.Decoder, credentials []string) error {
 }
 
 func canonicalKey(key string) bool {
-	for _, known := range []string{"code", "data", "id", "name", "status", "type", "version", "versionName", "licenseName", "uuid", "zoneType", "flavorId", "vcpus", "ram", "packageSku", "locateZoneId", "minVolumeSize", "maxVolumeSize", "zoneId", "volumeTypeZoneId", "volumeTypeSku", "networkUuid", "displayName", "subnets", "datastoreType", "datastoreVersion", "projectId", "subnetId", "volumeType", "volumeSize", "quotaPackageId", "publicAccess", "backupAuto", "owner", "role", "replicaSourceId", "replicas", "deleted", "totalPages", "totalElements", "size", "number", "maxSize", "pageObject"} {
+	for _, known := range []string{"code", "data", "id", "name", "status", "type", "version", "versionName", "licenseName", "uuid", "zoneType", "flavorId", "vcpus", "ram", "packageSku", "locateZoneId", "minVolumeSize", "maxVolumeSize", "zoneId", "volumeTypeZoneId", "volumeTypeSku", "networkUuid", "displayName", "subnets", "datastoreType", "datastoreVersion", "projectId", "subnetId", "volumeType", "volumeSize", "quotaPackageId", "publicAccess", "backupAuto", "owner", "role", "replicaSourceId", "replicas", "deleted", "priceKey", "monthlyCost", "backupSize", "description", "familyType", "platformType", "bandwidth", "bandwidthUnit", "zoneUUID", "resourceId", "orderId", "orderUrl", "message", "errorMsg", "success", "action", "databaseInstances", "totalPages", "totalElements", "size", "number", "maxSize", "pageObject"} {
 		if strings.EqualFold(key, known) {
 			return key == known
 		}

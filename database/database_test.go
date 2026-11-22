@@ -184,3 +184,22 @@ func TestReadRoutes(t *testing.T) {
 		})
 	}
 }
+
+func TestFlavorCarriesPricingAndShape(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"code":200,"data":[{"id":211,"name":"small","flavorId":"f-1","vcpus":1,"ram":2,"packageSku":"sku","locateZoneId":"zone","priceKey":"pk-1","monthlyCost":123456.5,"volumeSize":20,"volumeType":"SSD","backupSize":10,"description":"d","familyType":"general","platformType":"x86","bandwidth":100,"bandwidthUnit":"Mbps","zoneUUID":"zone","zoneId":3}]}`)
+	}))
+	defer server.Close()
+	cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("hcm-3"), vngcloud.WithStaticToken("test-token"), vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{Database: server.URL}), vngcloud.WithRetry(0, time.Millisecond))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := New(cfg).ListDatabaseFlavors(context.Background(), &ListDatabaseFlavorsInput{Engine: "MySQL", EngineVersion: "8.0", ZoneID: "zone"})
+	if err != nil || len(out.Items) != 1 {
+		t.Fatalf("out=%v err=%v", out, err)
+	}
+	f := out.Items[0]
+	if f.MonthlyCost != 123456.5 || f.PriceKey != "pk-1" || f.VolumeSize != 20 || f.VolumeType != "SSD" || f.FamilyType != "general" || f.BackupSize != 10 || f.PlatformType != "x86" || f.Bandwidth != 100 || f.BandwidthUnit != "Mbps" || f.ZoneUUID != "zone" || f.Description != "d" {
+		t.Fatalf("flavor %#v", f)
+	}
+}
