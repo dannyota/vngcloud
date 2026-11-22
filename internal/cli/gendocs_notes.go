@@ -523,7 +523,7 @@ var docOpNotes = map[string]string{
 	"containerregistry list-repository-users": containerRegistryUserNameNote,
 	"containerregistry create-user":           containerRegistryCreateUserNote,
 	"containerregistry delete-user":           containerRegistryDeleteUserNote,
-	"globalloadbalancer create-load-balancer": "Requires --yes. Automated payment uses credits with a prepaid three-day hold; later connection and traffic charges apply. Delete does not promise a refund. On NotSettled inspect inventory and billing before another mutation.",
+	"globalloadbalancer create-load-balancer": "Requires --yes. Automated payment holds credits for a prepaid three-day forecast; a recorded GNLB_4000 create held 176,000 VND (billing get-balances CashHolding), and deleting the load balancer did not release the hold within minutes; later connection and traffic charges apply. Delete does not promise a refund. On NotSettled inspect inventory and billing before another mutation.",
 	"globalloadbalancer delete-load-balancer": "Requires --yes. Deletion is not a refund promise; later connection and traffic charges may apply. On NotSettled inspect inventory and billing before another mutation.",
 	"globalloadbalancer get-load-balancer":    globalLoadBalancerShapeUnverifiedNote,
 	"globalloadbalancer list-pools":           globalLoadBalancerShapeUnverifiedNote,

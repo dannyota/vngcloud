@@ -6,7 +6,7 @@
 
 Kind: Write.
 
-Requires --yes. Automated payment uses credits with a prepaid three-day hold; later connection and traffic charges apply. Delete does not promise a refund. On NotSettled inspect inventory and billing before another mutation.
+Requires --yes. Automated payment holds credits for a prepaid three-day forecast; a recorded GNLB_4000 create held 176,000 VND (billing get-balances CashHolding), and deleting the load balancer did not release the hold within minutes; later connection and traffic charges apply. Delete does not promise a refund. On NotSettled inspect inventory and billing before another mutation.
 
 | Flag | Type | Required |
 |-|-|-|

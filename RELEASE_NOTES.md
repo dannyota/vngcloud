@@ -1,8 +1,12 @@
 # Release Notes
 
-## Unreleased
+## v0.99.0 - Global Load Balancer create
 
-- Add global load balancer create and delete with confirmation waits.
+- Add `globalloadbalancer create-load-balancer` and `delete-load-balancer`
+  for a bare Layer 4 load balancer, paid from credits. Create holds a
+  three-day forecast of credits (176,000 VND for `GNLB_4000` in a recorded
+  run, shown as `CashHolding`); deleting did not release the hold within
+  minutes. Listener and pool creation follow in a later release.
 
 ## v0.98.0 - Core, storage, SDK input, and CLI hardening
 
