@@ -17,9 +17,10 @@ runs the live create and delete on disposable resources before landing. The
    servers and disks, and for a private cluster the managed load balancer
    and four service endpoints. Delete does not promise a refund. Add a
    quote command if the live run finds a price endpoint.
-4. Both public and private clusters are allowed. Public clusters require an
-   explicit `--whitelist-cidr`, never `0.0.0.0/0`. Private is the
-   documented default in help.
+4. The first release creates private clusters with private nodes only. The
+   public OpenAPI create body has no API allowlist field, so a public
+   control plane cannot be restricted at creation. Public clusters wait for
+   a proven allowlist field.
 5. No POC wallet, top-up, or payment-method operation. The sections below
    describe the stricter long-term design; where they conflict with these
    decisions, these decisions win.
