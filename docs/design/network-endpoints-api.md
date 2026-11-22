@@ -1,10 +1,11 @@
 # Private endpoint API evidence
 
-Endpoint reads exist in the repository. Bounded manager-run IAM-user GETs
-verify selected Hanoi catalogs and a VPC response shape. Public console
-assets reveal candidate lifecycle and billing requests, but no endpoint
-quote or mutation is verified. The [proposed contract](network-endpoints.md)
-remains gated.
+Endpoint inventory reads ship in the SDK and CLI. Bounded manager-run
+IAM-user GETs verify selected Hanoi catalogs and a VPC response shape.
+The hcm-3 IAM-user console verifies one monthly vStorage Standard quote and
+the outgoing create request with renewal on. No endpoint mutation response
+or billing effect is verified. The [hcm-3 write proposal](endpoint-create.md)
+and the [broader lifecycle proposal](network-endpoints.md) remain gated.
 
 ## Sources and confidence
 
@@ -78,6 +79,12 @@ contains subnet ID. The model's other fields are not proven by these
 fixtures. In particular, untyped package, price, domain, and nested fields
 cannot be treated as verified billing or DNS evidence.
 
+The public SDK has [general VPC and subnet reads](../../network/vpcs.go)
+and [regional discovery](../../network/network.go), but no endpoint-specific
+catalog or eligibility picker methods. General network reads do not prove
+endpoint service eligibility. The catalog GETs below are manager evidence,
+not shipped SDK methods.
+
 ## Frontend request builders
 
 The public service module constructs a base path
@@ -92,7 +99,7 @@ The following suffixes are relative to that base:
 |-|-|-|
 | List | `GET` collection | JSON `params`; optional `zoneUuid` |
 | Detail | `GET /{endpointUuid}` | None shown |
-| Direct create | `POST` collection | Order's `resourceInfo` |
+| Direct create | `POST` collection | Bundle passes `resourceInfo`; see captured body below |
 | Rename | `PUT /{endpointUuid}/name` | `newName` |
 | Delete | `DELETE /{endpointUuid}` | Identity fields below |
 | Categories | `GET /categories` | Catalog list |
@@ -108,32 +115,101 @@ List `params` carries `search`, `sort`, `page`, and `size`. VPC search uses
 check helper is empty; a VPC detail service method is present but does not
 establish how to check DNS support.
 
-The create component builds `resourceInfo` with `endpointName`,
-`categoryUuid`, `serviceUuid`, `packageUuid`, `vpcUuid`, `subnetUuid`,
-`regionUuid`, `projectUuid`, `enableAZ`, and `enableDnsName`. Its visible
-path sets `enableDnsName=false`. This is not evidence that the server
-supports private DNS creation, or that this field equals `enablePrivateDns`.
 The selected category's services GET succeeds in the
-[recorded catalog reads](#recorded-iam-user-catalog-reads). Stable identifiers
-and a general category-to-service mapping remain gates.
+[recorded Hanoi catalog reads](#recorded-iam-user-catalog-reads). Stable
+identifiers and a general category-to-service mapping remain gates.
 
 Delete's frontend body has `endpointUuid`, `vpcUuid`,
 `endpointServiceUuid`, `regionUuid`, and `projectUuid`. The service ID's
 different name does not establish equivalence with create's `serviceUuid`.
 Safe delete requires a verified mapping from the target's detail response.
 
-Billing uses `POST /vnetwork/billing/v1/{regionUuid}/{projectUuid}/price`
+Billing code builds `POST /vnetwork/billing/v1/{regionUuid}/{projectUuid}/price`
 and `/create-order` with the console order request. Module 1452's endpoint
-request constructor defaults `resourceInfo.isEnableAutoRenew=true`.
-The payment component's `createOrder()` adds `resourceInfo.period=1` and
-sets `isEnableAutoRenew=false` when the payment method is `POSTPAID`.
-Neither renewal off nor that period field is unconditional constructor
-behavior, and neither is established for direct create by this payment
-path. The component can navigate to `redirectUrl`.
-No inspected response establishes amount, currency, unit, term, tax,
-payment settlement, or renewal. A direct create method in the service
-module does not prove that it bypasses billing or succeeds for SDK IAM auth.
-The candidate one-month prepaid purchase is therefore still an open choice.
+constructor defaults `resourceInfo.isEnableAutoRenew=true`. The payment
+component's `createOrder()` adds `resourceInfo.period=1` and sets
+`isEnableAutoRenew=false` when the payment method is `POSTPAID`. This does
+not establish that direct create accepts the false flag or sets a one-month
+prepaid term. The payment component can navigate to `redirectUrl`; the
+observed endpoint flow below did not use the separate order route.
+
+## Recorded hcm-3 console quote and create request
+
+Source: manager-recorded IAM-user session at the [hcm-3 console][console],
+page `/endpoint/create`, with writes blocked. The UI showed HCM-1A and
+HCM-1B as `COMING SOON`; only HCM-1C was selectable. The pickers showed
+only VPCs and subnets in the signed-in account. A disposable VPC and its
+subnet in HCM03-1C were selectable. These observations do not establish
+picker schemas, API eligibility semantics, or an SDK auth contract.
+
+The quote POST was allowed, on the same origin at
+`/vnetwork-gateway/vnetwork/billing/v1/{regionUuid}/{projectUuid}/price`.
+The resolved region ID is 24 hex digits; `projectUuid` has `pro-<uuid>`
+form. No availability-zone ID appears in the path or body.
+
+```json
+{
+  "resourceType": "endpoint",
+  "action": "create",
+  "resourceInfo": {
+    "isBuyMorePoc": false,
+    "isPoc": false,
+    "isEnableAutoRenew": true,
+    "endpointName": "<name>",
+    "categoryUuid": "<24-hex>",
+    "serviceUuid": "<uuid>",
+    "packageUuid": "<uuid>",
+    "vpcUuid": "net-<uuid>",
+    "subnetUuid": "sub-<uuid>",
+    "regionUuid": "<24-hex>",
+    "projectUuid": "pro-<uuid>",
+    "enableAZ": true,
+    "enableDnsName": false
+  }
+}
+```
+
+HTTP 200 carried this quote envelope:
+
+```json
+{
+  "message": "Success",
+  "code": 0,
+  "success": true,
+  "data": {
+    "optimumPrice": 712400,
+    "discountPercent": 0.0,
+    "originalPrice": 712400,
+    "discountPrice": 0,
+    "propertiesPrice": [
+      {
+        "optimumPrice": 712400,
+        "monthlyPrice": 712400,
+        "currentPrice": null,
+        "discountPercent": 0.0,
+        "name": "Standard",
+        "description": "STANDARD"
+      }
+    ]
+  }
+}
+```
+
+The console summary showed `vstorage.hcm03 / Standard / 712,400 VND`
+with total 712,400 VND. This establishes VND from the console and the
+monthly quote from `propertiesPrice`, not a debit, prepaid term, tax,
+refund, or whether DNS and renewal flags take effect. The observed quote
+has no binding token; whether pricing can be locked remains unknown.
+
+Clicking CREATE ENDPOINT attempted a POST on the same origin at
+`/vnetwork-gateway/vnetwork/v1/{regionUuid}/{projectUuid}/endpoints`.
+The blocked request used the same envelope and `resourceInfo` as quote,
+plus top-level `"tagDetails": []`. It included neither `period` nor
+`paymentType`, and no separate `/create-order` request appeared. This
+records the outgoing request only. The create response and resource ID,
+created endpoint detail and states, delete request/response, and billing
+effect are not observed live. The verified quote used renewal on; the
+[write proposal](endpoint-create.md#quote-and-create) requires renewal off.
 
 ## Recorded IAM-user catalog reads
 
@@ -194,49 +270,26 @@ integer code unequal to 200. The code value and unknown field are withheld.
 This success-labelled response shape remains unresolved. It establishes no
 subnet rows, usable subnet catalog, subnet schema, or empty inventory.
 
-These partial observations establish no minimum permissions,
-service-account authorization, interpreted error envelopes, stable catalog
-IDs, public sanitized fixtures, quote schema, or write contract. No
-authoritative endpoint ownership discriminator is established by the
-inspected VKS documentation, provider, or API reference.
+The Hanoi reads establish no minimum permissions, service-account
+authorization, interpreted error envelopes, stable catalog IDs, or public
+sanitized fixtures. They do not verify the hcm-3 catalog joins or write
+access. No authoritative endpoint ownership discriminator is established
+by the inspected VKS documentation, provider, or API reference.
 
 ## Bounded evidence work
 
-The owner's request covers bounded catalog GET discovery. Only the manager
-performs those live reads with runtime credentials and private captures
-under the [live-data rules](../../instructions/live-data.md). That authority
-does not cover paid purchases or mutations. Public source inspection and
-catalog success establish no additional write authority or API contract.
+Only the manager performs live evidence runs with runtime credentials and
+private captures under the [live-data rules](../../instructions/live-data.md).
+Use the [hcm-3 probe gates](endpoint-create.md#probe-gates-and-release-order)
+for the vStorage Standard lifecycle. Verify the read-only gates before a
+paid run; a captured request does not authorize replay. Record sanitized
+schema and outcome evidence, not account values or raw captures.
 
-1. Resolve evidence beyond the recorded Hanoi subset: establish general
-   VPC paging, explain the subnet response, and verify general
-   project/region/zone mappings, catalog stability, category association,
-   and network eligibility. Establish required headers, minimum permissions,
-   and error envelopes. Service-account auth needs its own evidence; a
-   successful token exchange is insufficient. Preserve other-region gates.
-2. Read-only pricing: verify the exact quote body without creating an order.
-   Record populated amounts, currency, tax, unit, term, metered charges,
-   renewal meaning, and rejection envelopes. Establish which create fields
-   affect pricing and whether a quote token binds the later debit.
-3. Resolve DNS and lifecycle contracts from authoritative evidence. Identify
-   the correct DNS input, conflict scope, VPC DNS prerequisite, ready/failure
-   states, detail identity, deletion body, and charge termination condition.
-   Do not perform a DNS mutation to discover its meaning in a shared VPC.
-   Establish authoritative ownership and consumer fields that distinguish
-   user endpoints from VKS-managed or reused endpoints. Unknown provenance
-   blocks deletion; name prefixes and apparent idleness are insufficient.
-4. If the first three steps close the contract gates, request a named paid
-   run with account, region, disposable network resources, price cap, term,
-   renewal constraint, cleanup method, and maximum unresolved obligation.
-   No NAT-specific standing approval applies to endpoint purchases.
-5. In that authorized run, send one create, establish identity, payment,
-   readiness and renewal, then one authorized delete and confirm resource
-   and future-charge removal. Stop on ambiguity; do not create again or
-   follow a checkout URL. Record refunds separately from deletion success.
-
-Sanitize raw populated responses only after evidence exists. Synthetic test
-variants must be labelled synthetic and cannot close a schema or live gate.
-An unresolved paid or renewal model blocks create even if delete is known.
+The broader lifecycle still needs its own evidence: usable catalogs and
+eligibility across supported scopes; authorization for each additional
+auth mode or region; and DNS field mapping, readiness, and conflict rules
+before any DNS mutation. Synthetic variants cannot close a live gate. An
+unresolved payment or renewal model blocks create even if delete is known.
 
 ## Private data-plane gate
 
