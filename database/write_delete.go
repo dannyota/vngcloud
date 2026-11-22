@@ -54,8 +54,11 @@ func (c *Client) deletePreflight(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if inst.ProjectID == "" || inst.ProjectID != projectID {
+	if inst.ProjectID != "" && inst.ProjectID != projectID {
 		return refuse("the instance is not in the selected project")
+	}
+	if err := c.proveInProject(ctx, id, projectID); err != nil {
+		return err
 	}
 	zones, err := c.ListDatabaseZones(ctx, nil)
 	if err != nil {
@@ -170,4 +173,44 @@ func okStatuses2xx() []int {
 		codes[i] = 200 + i
 	}
 	return codes
+}
+
+const maxListPages = 50
+
+func (c *Client) proveInProject(ctx context.Context, id, projectID string) error {
+	var totalPages, totalElements int32
+	rows, matches := 0, 0
+	for page := int32(1); ; page++ {
+		if page > maxListPages {
+			return refuse("the instance list has too many pages to verify the project")
+		}
+		got, err := c.ListDatabaseInstances(ctx, &ListDatabaseInstancesInput{PageNumber: page})
+		if err != nil {
+			return err
+		}
+		if got.ProjectID != projectID {
+			return refuse("the instance list is not for the selected project")
+		}
+		p := got.Page
+		if p.Number != page || p.TotalPages < 0 || p.TotalElements < 0 || (page > 1 && (p.TotalPages != totalPages || p.TotalElements != totalElements)) {
+			return refuse("the instance list pages are inconsistent")
+		}
+		totalPages, totalElements = p.TotalPages, p.TotalElements
+		rows += len(got.Items)
+		for _, item := range got.Items {
+			if item.ID == id {
+				matches++
+			}
+		}
+		if page >= totalPages {
+			break
+		}
+	}
+	if rows != int(totalElements) {
+		return refuse("the instance list is incomplete")
+	}
+	if matches != 1 {
+		return refuse("the instance is not listed exactly once in the selected project")
+	}
+	return nil
 }

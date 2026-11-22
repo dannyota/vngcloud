@@ -89,7 +89,6 @@ func TestDeletePreflightRefusals(t *testing.T) {
 		{"backups malformed", detailBody("ACTIVE", nil), `{"code":200,"data":null}`, false},
 		{"detail missing", "404", "", false},
 		{"other project", detailBody("ACTIVE", map[string]any{"projectId": "project-2"}), "", true},
-		{"missing project", detailBody("ACTIVE", map[string]any{"projectId": nil}), "", true},
 		{"missing zone", detailBody("ACTIVE", map[string]any{"zoneId": nil}), "", true},
 		{"unknown zone", detailBody("ACTIVE", map[string]any{"zoneId": "zone-9"}), "", true},
 		{"redirect preflight", "302", "", false},
@@ -312,5 +311,86 @@ func TestDeleteDiscoversTheProjectOnlyWithDefaultEndpoints(t *testing.T) {
 	out, err := h.client.DeleteDatabaseInstance(context.Background(), &DeleteDatabaseInstanceInput{ID: "db-1"})
 	if err != nil || !out.Deleted || h.count("GET", "/vserver/iam-vserver-gateway/v1/projects") != 1 {
 		t.Fatalf("out=%v err=%v", out, err)
+	}
+}
+
+func TestDeleteProvesTheProjectFromTheList(t *testing.T) {
+	two := func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("pageNumber") == "2" {
+			writeJSON(w, 200, listPage("project-1", 2, 2, 2, "db-1"))
+			return
+		}
+		writeJSON(w, 200, listPage("project-1", 1, 2, 2, "db-0"))
+	}
+	fail := func(status int, body string) func(http.ResponseWriter, *http.Request) {
+		return func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, status, body) }
+	}
+	cases := []struct {
+		name    string
+		detail  map[string]any
+		list    func(http.ResponseWriter, *http.Request)
+		proceed bool
+		pages   int
+	}{
+		{"empty detail project proven by list", map[string]any{"projectId": nil}, nil, true, 1},
+		{"empty string detail project proven by list", map[string]any{"projectId": ""}, nil, true, 1},
+		{"two pages with the ID on page 2", map[string]any{"projectId": nil}, two, true, 2},
+		{"list project differs", nil, fail(200, listPage("project-2", 1, 1, 1, "db-1")), false, 1},
+		{"list project missing", nil, fail(200, listPage("", 1, 1, 1, "db-1")), false, 1},
+		{"ID absent", nil, fail(200, listPage("project-1", 1, 1, 1, "db-9")), false, 1},
+		{"empty list", nil, fail(200, listPage("project-1", 1, 0, 0)), false, 1},
+		{"duplicate ID", nil, fail(200, listPage("project-1", 1, 1, 2, "db-1", "db-1")), false, 1},
+		{"page set shorter than the total", nil, fail(200, listPage("project-1", 1, 1, 5, "db-1")), false, 1},
+		{"wrong page number", nil, fail(200, listPage("project-1", 3, 1, 1, "db-1")), false, 1},
+		{"list read fails", nil, fail(500, `{"message":"boom"}`), false, 1},
+		{"list redirects", nil, func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Location", "/elsewhere")
+			w.WriteHeader(302)
+		}, false, 1},
+		{"page 2 fails", nil, func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Query().Get("pageNumber") == "2" {
+				writeJSON(w, 500, `{}`)
+				return
+			}
+			writeJSON(w, 200, listPage("project-1", 1, 2, 2, "db-0"))
+		}, false, 2},
+		{"total pages change", nil, func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Query().Get("pageNumber") == "2" {
+				writeJSON(w, 200, listPage("project-1", 2, 3, 2, "db-1"))
+				return
+			}
+			writeJSON(w, 200, listPage("project-1", 1, 2, 2, "db-0"))
+		}, false, 2},
+		{"project changes between pages", nil, func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Query().Get("pageNumber") == "2" {
+				writeJSON(w, 200, listPage("project-2", 2, 2, 2, "db-1"))
+				return
+			}
+			writeJSON(w, 200, listPage("project-1", 1, 2, 2, "db-0"))
+		}, false, 2},
+		{"ID on both pages", nil, func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, 200, listPage("project-1", map[bool]int{true: 2, false: 1}[r.URL.Query().Get("pageNumber") == "2"], 2, 2, "db-1"))
+		}, false, 2},
+		{"detail project differs although the list matches", map[string]any{"projectId": "project-2"}, nil, false, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &script{list: tc.list, detail: []string{detailBody("ACTIVE", tc.detail), "404"}}
+			h := newHarness(t, s.handler())
+			out, err := h.client.DeleteDatabaseInstance(context.Background(), &DeleteDatabaseInstanceInput{ID: "db-1"})
+			if tc.proceed {
+				if err != nil || !out.Deleted || h.posts() != 1 {
+					t.Fatalf("out=%v err=%v", out, err)
+				}
+			} else if err == nil || h.posts() != 0 || errors.Is(err, ErrNotSettled) {
+				t.Fatalf("out=%v err=%v posts=%d", out, err, h.posts())
+			}
+			if got := h.count("GET", pathList); got != tc.pages {
+				t.Fatalf("list reads %d, want %d", got, tc.pages)
+			}
+			if h.count("GET", "/elsewhere") != 0 {
+				t.Fatal("followed a redirect")
+			}
+		})
 	}
 }

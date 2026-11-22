@@ -162,6 +162,7 @@ const (
 	pathNetworks = "/vdb-relational/v1/database-instances/networks/subnets"
 	pathCreate   = "/vdb-relational/v1/payment/database-instances"
 	pathDetail   = "/vdb-relational/v1/database-instances/id/db-1"
+	pathList     = "/vdb-relational/v1/database-instances"
 	pathBackups  = "/vdb-relational/v1/backups/insId/db-1"
 	pathDelete   = "/vdb-relational/v1/database-instances/db-1/delete"
 )
@@ -216,6 +217,7 @@ type script struct {
 	del           func(w http.ResponseWriter, r *http.Request)
 	backups       string
 	details       int
+	list          func(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *script) handler() func(http.ResponseWriter, *http.Request, *harness) {
@@ -236,6 +238,12 @@ func (s *script) handler() func(http.ResponseWriter, *http.Request, *harness) {
 				return
 			}
 			writeJSON(w, 200, `{"code":200,"data":[{"databaseInstances":"db-1","action":"delete","status":"DELETING","success":true,"code":200}]}`)
+		case r.URL.Path == pathList:
+			if s.list != nil {
+				s.list(w, r)
+				return
+			}
+			writeJSON(w, 200, listPage("project-1", 1, 1, 1, "db-1"))
 		case r.URL.Path == pathBackups:
 			if s.backups != "" {
 				writeJSON(w, 200, s.backups)
@@ -267,4 +275,13 @@ func (s *script) handler() func(http.ResponseWriter, *http.Request, *harness) {
 			w.WriteHeader(http.StatusTeapot)
 		}
 	}
+}
+
+func listPage(project string, number, totalPages, totalElements int, ids ...string) string {
+	rows := make([]map[string]any, 0, len(ids))
+	for _, id := range ids {
+		rows = append(rows, map[string]any{"id": id, "name": "n-" + id, "status": "ACTIVE"})
+	}
+	b, _ := json.Marshal(map[string]any{"code": 200, "data": map[string]any{"projectId": project, "data": rows, "pageObject": map[string]any{"number": number, "size": 100, "totalPages": totalPages, "totalElements": totalElements}}})
+	return string(b)
 }

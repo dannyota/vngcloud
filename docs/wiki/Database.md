@@ -90,8 +90,11 @@ out, err := client.DeleteDatabaseInstance(ctx, &database.DeleteDatabaseInstanceI
 The call reads the exact ID first and sends nothing, returning
 `database.ErrDeleteRefused`, unless the instance is an `ACTIVE` MySQL instance
 in the client's project, in a zone that `ListDatabaseZones` returns, not shared
-(`owner` is not false), with no replication and no backups. A missing or
-different project or zone is refused. It then sends one delete with no final
+(`owner` is not false), with no replication and no backups. The project is
+proven from the complete instance list: every page is read, the list's
+`projectId` must equal the client's project, and the ID must appear exactly
+once. A partial or inconsistent page set refuses. A detail `projectId`, when
+present, must match too. A different project or an unknown zone is refused. It then sends one delete with no final
 backup and no backup purge, accepts any 2xx reply except one echoing a
 credential or an explicit `success: false` row, and waits up to 30 minutes for
 a 404 or a `DELETED` state; redirects are never followed. `Deleted` is true only after that. A timeout or unknown state
