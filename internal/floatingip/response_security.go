@@ -70,9 +70,12 @@ func Reflects(raw []byte, values []string) bool {
 	}
 }
 
-// ResponseContext supplies credential protection to standalone group reads.
+//nolint:revive // Documentation lives in docs/design/vserver-floating-ips-checks.md.
 func ResponseContext(ctx context.Context) (context.Context, func([]byte) bool, context.CancelFunc) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	if observe, ok := ctx.Value(observerKey{}).(func(string) ([]string, error)); ok {
+		return ctx, func(raw []byte) bool { values, err := observe(""); return err != nil || Reflects(raw, values) }, cancel
+	}
 	var mu sync.Mutex
 	var values []string
 	exhausted := false

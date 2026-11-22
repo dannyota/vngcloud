@@ -359,8 +359,10 @@ func (c *Client) ListSecurityGroupRules(ctx context.Context, in *ListSecurityGro
 	return &ListSecurityGroupRulesOutput{Items: resp.Data}, nil
 }
 
-// ListAllSecurityGroupRules reads all security group rules.
+//nolint:revive // Documentation lives in docs/wiki/Network.md.
 func (c *Client) ListAllSecurityGroupRules(ctx context.Context, _ *ListAllSecurityGroupRulesInput) (*ListAllSecurityGroupRulesOutput, error) {
+	ctx, unsafe, cancel := floatingip.ResponseContext(ctx)
+	defer cancel()
 	secgroups, err := c.ListSecurityGroups(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -373,7 +375,12 @@ func (c *Client) ListAllSecurityGroupRules(ctx context.Context, _ *ListAllSecuri
 		}
 		items = append(items, rules.Items...)
 	}
-	return &ListAllSecurityGroupRulesOutput{Items: items}, nil
+	out := &ListAllSecurityGroupRulesOutput{Items: items}
+	raw, err := json.Marshal(out)
+	if err != nil || unsafe(raw) {
+		return nil, floatingip.InvalidResponse("network.ListAllSecurityGroupRules", err)
+	}
+	return out, nil
 }
 
 // ListRouteTableRoutes reads route table routes.

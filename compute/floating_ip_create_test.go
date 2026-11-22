@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -16,8 +18,85 @@ import (
 	"danny.vn/vngcloud/internal/testutil"
 )
 
-// These populated servers and rules are synthetic, not live responses.
 const floatingSafeRules = `{"data":[{"id":"rule-1","direction":"ingress","etherType":"IPv4","protocol":"TCP","portRangeMin":234,"portRangeMax":234,"remoteIpPrefix":"192.0.2.0/24","remoteGroupId":"sg-1","status":"ACTIVE","description":"","createdAt":""}]}`
+
+func newFloatingRegionClient(t *testing.T, region string, handler http.Handler) *Client {
+	t.Helper()
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+	cfg, err := vngcloud.NewConfig(vngcloud.WithRegion(region), vngcloud.WithProjectID("project-1"),
+		vngcloud.WithStaticToken("synthetic-token"), vngcloud.WithHTTPClient(srv.Client()),
+		vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{VServer: srv.URL, Portal: srv.URL}), vngcloud.WithRetry(0, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return New(cfg)
+}
+
+func floatingRegionQuote(t *testing.T, w http.ResponseWriter, r *http.Request) string {
+	t.Helper()
+	body := decodeComputeBody(t, r)
+	resource, _ := body["resourceType"].(string)
+	if body["action"] != "create" {
+		t.Errorf("quote action=%v", body["action"])
+	}
+	switch resource {
+	case "server":
+		_, _ = w.Write([]byte(quoteServerFixture))
+	case "elastic-ip":
+		want := map[string]any{"zoneId": "zone-1", "period": float64(1), "isPoc": false}
+		if !reflect.DeepEqual(body["resourceInfo"], want) {
+			t.Errorf("IP quote info=%v want=%v", body["resourceInfo"], want)
+		}
+		_, _ = w.Write([]byte(`{"optimumPrice":120000,"originalPrice":120000,"discountPrice":0,"discountPercent":0,"propertiesPrice":[]}`))
+	default:
+		t.Errorf("unexpected resource=%q", resource)
+	}
+	return resource
+}
+
+func TestFloatingCreateRegionPriceGuard(t *testing.T) {
+	for _, region := range []string{"han-1", "hcm-3", "other-region"} {
+		price, quotes := float64(347800), int64(1)
+		if region == "other-region" {
+			price, quotes = 467800, 2
+		}
+		for _, cap := range []float64{price - 1, price} {
+			t.Run(fmt.Sprintf("%s/cap=%.0f", region, cap), func(t *testing.T) {
+				var orders, count atomic.Int64
+				base := floatingCreateHandler(t, func() string { return floatingSafeRules }, func(w http.ResponseWriter, r *http.Request) {
+					orders.Add(1)
+					if body := decodeComputeBody(t, r); body["attachFloating"] != true {
+						t.Error("missing floating opt-in")
+					}
+					w.WriteHeader(202)
+					_, _ = w.Write([]byte(`{"data":{"uuid":"server-1"}}`))
+				}, nil)
+				c := newFloatingRegionClient(t, region, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.URL.Path == "/v1/price" {
+						count.Add(1)
+						floatingRegionQuote(t, w, r)
+						return
+					}
+					base.ServeHTTP(w, r)
+				}))
+				in := validCreateServerInput()
+				in.AttachFloatingIP, in.NoWait, in.MaxPrice = true, true, cap
+				out, err := c.CreateServer(context.Background(), in)
+				if cap < price {
+					if out != nil || !errors.Is(err, vngcloud.ErrPriceAboveMax) || orders.Load() != 0 {
+						t.Fatalf("refusal output=%v error=%v orders=%d", out, err, orders.Load())
+					}
+				} else if err != nil || out == nil || out.MonthlyPrice != price || orders.Load() != 1 {
+					t.Fatalf("output=%v error=%v orders=%d", out, err, orders.Load())
+				}
+				if count.Load() != quotes {
+					t.Fatalf("quotes=%d want=%d", count.Load(), quotes)
+				}
+			})
+		}
+	}
+}
 
 func floatingCreateHandler(t *testing.T, rules func() string, order func(http.ResponseWriter, *http.Request), get func(http.ResponseWriter, *http.Request)) http.Handler {
 	t.Helper()

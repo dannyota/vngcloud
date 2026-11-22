@@ -5,15 +5,142 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"reflect"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/testutil"
+	"danny.vn/vngcloud/pricing"
 )
+
+func TestQuoteCreateServerFloatingRegionScope(t *testing.T) {
+	for _, region := range []string{"han-1", "hcm-3", "other-region"} {
+		t.Run(region, func(t *testing.T) {
+			var resources []string
+			c := newFloatingRegionClient(t, region, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/v1/price" {
+					t.Errorf("unexpected read %s", r.URL.Path)
+				}
+				resources = append(resources, floatingRegionQuote(t, w, r))
+			}))
+			in := pricedServerInput()
+			in.AttachFloatingIP = true
+			out, err := c.QuoteCreateServer(context.Background(), in)
+			if err != nil || out == nil {
+				t.Fatalf("out=%v err=%v", out, err)
+			}
+			price, types := float64(347800), "server"
+			line := pricing.PriceProperty{Name: "FLOATING IP", Description: "Included in server order for the verified configuration"}
+			if region == "other-region" {
+				price, types = 467800, "server,elastic-ip"
+				line = pricing.PriceProperty{Name: "FLOATING IP", Description: "Conservative Elastic IP estimate; extra create charge unconfirmed", OptimumPrice: 120000, MonthlyPrice: 120000}
+			}
+			if strings.Join(resources, ",") != types || out.OptimumPrice != price || out.OriginalPrice != price || out.DiscountPrice != 0 || out.DiscountPercent != 0 {
+				t.Fatalf("resources=%v quote=%+v", resources, out)
+			}
+			if len(out.Properties) != 3 || !reflect.DeepEqual(out.Properties[2], line) {
+				t.Fatalf("properties=%+v want IP line=%+v", out.Properties, line)
+			}
+		})
+	}
+}
+
+func TestFloatingQuoteIPFailurePreventsOrder(t *testing.T) {
+	for _, status := range []int{200, 401, 500} {
+		for _, create := range []bool{false, true} {
+			t.Run(fmt.Sprint(status, create), func(t *testing.T) {
+				orders, quotes := 0, 0
+				base := floatingCreateHandler(t, func() string { return floatingSafeRules }, func(http.ResponseWriter, *http.Request) { orders++ }, nil)
+				c := newFloatingRegionClient(t, "other-region", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.URL.Path != "/v1/price" {
+						base.ServeHTTP(w, r)
+						return
+					}
+					quotes++
+					if quotes == 1 {
+						_, _ = w.Write([]byte(quoteServerFixture))
+						return
+					}
+					w.WriteHeader(status)
+					if status == 200 {
+						_, _ = w.Write([]byte(`{"optimumPrice":0,"originalPrice":0,"discountPrice":0,"discountPercent":0}`))
+					} else {
+						_, _ = w.Write([]byte(`{"code":"QuoteUnavailable","message":"synthetic failure"}`))
+					}
+				}))
+				in := validCreateServerInput()
+				in.AttachFloatingIP, in.NoWait, in.MaxPrice = true, true, 467800
+				if create {
+					out, err := c.CreateServer(context.Background(), in)
+					if out != nil || err == nil {
+						t.Fatalf("output=%v error=%v", out, err)
+					}
+					assertFloatingQuoteError(t, err, status)
+				} else {
+					out, err := c.QuoteCreateServer(context.Background(), in)
+					if out != nil || err == nil {
+						t.Fatalf("output=%v error=%v", out, err)
+					}
+					assertFloatingQuoteError(t, err, status)
+				}
+				wantQuotes := 2
+				if status == 401 {
+					wantQuotes++
+				}
+				if quotes != wantQuotes || orders != 0 {
+					t.Fatalf("quotes=%d orders=%d", quotes, orders)
+				}
+			})
+		}
+	}
+}
+
+func TestFloatingQuoteConservativeTotalsAndProperties(t *testing.T) {
+	for _, populated := range []bool{false, true} {
+		t.Run(strconv.FormatBool(populated), func(t *testing.T) {
+			calls := 0
+			c := newFloatingRegionClient(t, "other-region", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				if calls == 1 {
+					_, _ = w.Write([]byte(`{"optimumPrice":90,"originalPrice":100,"discountPrice":10,"discountPercent":10,"propertiesPrice":[{"name":"SERVER","description":"keep","optimumPrice":90,"monthlyPrice":100,"currentPrice":80,"discountPercent":10}]}`))
+					return
+				}
+				properties := `[]`
+				if populated {
+					properties = `[{"name":"Elastic IP","optimumPrice":160,"monthlyPrice":200,"currentPrice":150,"discountPercent":20}]`
+				}
+				_, _ = fmt.Fprintf(w, `{"optimumPrice":160,"originalPrice":200,"discountPrice":40,"discountPercent":20,"propertiesPrice":%s}`, properties)
+			}))
+			in := pricedServerInput()
+			in.AttachFloatingIP = true
+			out, err := c.QuoteCreateServer(context.Background(), in)
+			if err != nil || out == nil {
+				t.Fatalf("out=%v err=%v", out, err)
+			}
+			if calls != 2 || out.OptimumPrice != 250 || out.OriginalPrice != 300 || out.DiscountPrice != 50 || out.DiscountPercent != 100*(float64(50)/300) {
+				t.Fatalf("calls=%d quote=%+v", calls, out)
+			}
+			want := []pricing.PriceProperty{
+				{Name: "SERVER", Description: "keep", OptimumPrice: 90, MonthlyPrice: 100, CurrentPrice: vngcloud.Ptr(float64(80)), DiscountPercent: 10},
+				{Name: "FLOATING IP", Description: "Conservative Elastic IP estimate; extra create charge unconfirmed", OptimumPrice: 160, MonthlyPrice: 160, DiscountPercent: 20},
+			}
+			if populated {
+				want[1].Name = "FLOATING IP: Elastic IP"
+				want[1].MonthlyPrice = 200
+				want[1].CurrentPrice = vngcloud.Ptr(float64(150))
+			}
+			if !reflect.DeepEqual(out.Properties, want) {
+				t.Fatalf("properties=%+v want=%+v", out.Properties, want)
+			}
+		})
+	}
+}
 
 // pricedServerInput holds only the fields that change a server's price.
 func pricedServerInput() *CreateServerInput {

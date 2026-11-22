@@ -35,12 +35,19 @@ func TestFloatingIPCommandFlagsAndErrorMapping(t *testing.T) {
 func TestFloatingIPCLIQuoteAndGuard(t *testing.T) {
 	for _, tc := range []struct {
 		name                            string
+		region                          string
 		quote, open, override, readonly bool
 		cap                             string
 		code                            string
 		orders                          int
 	}{
 		{name: "quote", quote: true},
+		{name: "han quote", region: "han-1", quote: true},
+		{name: "han low cap", region: "han-1", cap: "347799", code: "PriceAboveMax"},
+		{name: "han exact cap", region: "han-1", cap: "347800", orders: 1},
+		{name: "conservative quote", region: "other-region", quote: true},
+		{name: "conservative low cap", region: "other-region", cap: "467799", code: "PriceAboveMax"},
+		{name: "conservative exact cap", region: "other-region", cap: "467800", orders: 1},
 		{name: "low cap", cap: "347799", code: "PriceAboveMax"},
 		{name: "exact cap", cap: "347800", orders: 1},
 		{name: "open login", open: true, cap: "347800", code: "OpenLogin"},
@@ -48,6 +55,16 @@ func TestFloatingIPCLIQuoteAndGuard(t *testing.T) {
 		{name: "readonly", readonly: true, cap: "347800", code: "ReadOnly"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			region := tc.region
+			if region == "" {
+				region = "hcm-3"
+			}
+			wantPrice, wantQuotes := float64(347800), 1
+			wantLine := pricing.PriceProperty{Name: "FLOATING IP", Description: "Included in server order for the verified configuration"}
+			if region == "other-region" {
+				wantPrice, wantQuotes = 467800, 2
+				wantLine = pricing.PriceProperty{Name: "FLOATING IP", Description: "Conservative Elastic IP estimate; extra create charge unconfirmed", OptimumPrice: 120000, MonthlyPrice: 120000}
+			}
 			orders, quotes, groups := 0, 0, 0
 			prefix := "192.0.2.0/24"
 			if tc.open {
@@ -77,6 +94,10 @@ func TestFloatingIPCLIQuoteAndGuard(t *testing.T) {
 						ResourceType string `json:"resourceType"`
 					}
 					_ = json.NewDecoder(r.Body).Decode(&body)
+					if body.ResourceType == "elastic-ip" {
+						_, _ = w.Write([]byte(`{"optimumPrice":120000,"originalPrice":120000,"discountPrice":0,"discountPercent":0,"propertiesPrice":[]}`))
+						return
+					}
 					if body.ResourceType != "server" {
 						t.Errorf("unexpected quote resource %q", body.ResourceType)
 					}
@@ -95,9 +116,9 @@ func TestFloatingIPCLIQuoteAndGuard(t *testing.T) {
 			}
 			fixture := newSvcFixture(routes)
 			root, stdout, stderr := newSvcRoot(t, fixture)
-			args := append([]string{"--region", "hcm-3", "--project-id", "proj-1"}, validCreateServerArgs...)
+			args := append([]string{"--region", region, "--project-id", "proj-1"}, validCreateServerArgs...)
 			if tc.quote {
-				args = append([]string{"--region", "hcm-3", "--project-id", "proj-1"}, validQuoteCreateServerArgs...)
+				args = append([]string{"--region", region, "--project-id", "proj-1"}, validQuoteCreateServerArgs...)
 			} else {
 				args = append(args, "--max-price", tc.cap, "--no-wait")
 			}
@@ -121,14 +142,14 @@ func TestFloatingIPCLIQuoteAndGuard(t *testing.T) {
 				t.Fatalf("orders=%d want=%d", orders, tc.orders)
 			}
 			if tc.quote {
-				if groups != 0 || quotes != 1 || !strings.Contains(stdout.String(), "347800") {
+				if groups != 0 || quotes != wantQuotes || !strings.Contains(stdout.String(), fmt.Sprint(wantPrice)) {
 					t.Fatalf("quote groups=%d quotes=%d stdout=%s", groups, quotes, stdout)
 				}
 				var out pricing.GetQuoteOutput
 				if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
 					t.Fatal(err)
 				}
-				if len(out.Properties) != 1 || out.Properties[0] != (pricing.PriceProperty{Name: "FLOATING IP", Description: "Included in server order for the verified configuration"}) {
+				if out.OptimumPrice != wantPrice || len(out.Properties) != 1 || out.Properties[0] != wantLine {
 					t.Fatalf("properties=%+v", out.Properties)
 				}
 			}
@@ -137,12 +158,15 @@ func TestFloatingIPCLIQuoteAndGuard(t *testing.T) {
 				if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
 					t.Fatal(err)
 				}
-				if quotes != 1 || out.MonthlyPrice != 347800 {
+				if quotes != wantQuotes || out.MonthlyPrice != wantPrice {
 					t.Fatalf("quotes=%d output=%+v", quotes, out)
 				}
 			}
 			if tc.readonly && fixture.requestCount() != 0 {
 				t.Fatal("read-only sent request")
+			}
+			if tc.code == "PriceAboveMax" && quotes != wantQuotes {
+				t.Fatalf("refusal quotes=%d want=%d", quotes, wantQuotes)
 			}
 		})
 	}
@@ -158,6 +182,13 @@ func TestGoldenComputeFloatingIP(t *testing.T) {
 	for _, format := range []string{"json", "text", "table"} {
 		checkGolden(t, "compute-quote-create-server-floating-ip."+format+".golden", format, "", quote)
 		checkGolden(t, "compute-create-server-floating-ip."+format+".golden", format, "", create)
+	}
+	quote.OptimumPrice, quote.OriginalPrice = 467800, 467800
+	quote.Properties[2] = pricing.PriceProperty{Name: "FLOATING IP", Description: "Conservative Elastic IP estimate; extra create charge unconfirmed", OptimumPrice: 120000, MonthlyPrice: 120000}
+	create.MonthlyPrice = 467800
+	for _, format := range []string{"json", "text", "table"} {
+		checkGolden(t, "compute-quote-create-server-floating-ip-conservative."+format+".golden", format, "", quote)
+		checkGolden(t, "compute-create-server-floating-ip-conservative."+format+".golden", format, "", create)
 	}
 	checkGolden(t, "compute-create-server-floating-ip-query.text.golden", "text", "Server.PublicIP", create)
 }

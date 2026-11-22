@@ -68,10 +68,11 @@ with `--query 'Items[].PublicIP'`; empty does not prove absence. See
 [Public address](Compute-Servers.md#public-address).
 
 Group and rule reads have 8 MiB response and 30 s limits, suppress captures,
-and reject credential reflections. `ListSecurityGroups` matches names by
-substring, so compare exact names yourself. `SecurityGroup.System` marks
-the default group, whose broad rules can trigger the public-create guard:
-[Floating IP create](Compute-Servers.md#floating-ip-create).
+and reject credential reflections. `ListAllSecurityGroupRules` shares a
+256-credential history and rechecks output within a 30 s aggregate limit.
+`ListSecurityGroups` matches names by substring; compare exact names yourself.
+`SecurityGroup.System` marks the default group. Its broad rules can trigger
+the [public-create guard](Compute-Servers.md#floating-ip-create).
 
 ## Creating, updating, and deleting groups
 

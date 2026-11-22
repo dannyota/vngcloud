@@ -118,13 +118,16 @@ redirects. `MonthlyPrice` is the guarded estimate, not a confirmed debit;
 its type stays unchanged. No user data reaches quotes. Shape validation
 precedes requests; exposure checks precede quotes and refresh before send.
 
-The manager accepted inclusion, so create with `AttachFloatingIP` sends no
-IP quote and removes its contribution from totals, `MaxPrice`, and
-`MonthlyPrice`. Keep a zero `FLOATING IP` line, nil current price, and
-`Included in server order for the verified configuration` description.
-This is an SDK annotation; preserve `ErrUnpriced`. The follow-up defines
-proven terms; others retain the conservative path. Separate charging keeps
-the sum with a confirmed-charge description; ambiguity blocks tagging.
+Proven terms are monthly creates in `han-1` and `hcm-3`, the regions with
+recorded inclusion: the paid run in `han-1` and a month of HCM ledger with
+create-attached IPs. There, create with `AttachFloatingIP` sends no IP quote
+and removes its contribution from totals, `MaxPrice`, and `MonthlyPrice`.
+Keep a zero `FLOATING IP` line, nil current price, and `Included in server
+order for the verified configuration` description. This is an SDK
+annotation; preserve `ErrUnpriced`. Other regions keep the conservative
+path, decided from the resolved region before any quote: quote the IP, add
+it to the sum, and label it a quoted, not confirmed, charge. Separate
+charging evidence keeps the sum; ambiguity blocks tagging.
 Update tests/help/wiki/generated docs together. No runtime ledger lookup or
 auto-switch; reservation/retention stays gated.
 

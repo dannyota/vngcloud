@@ -29,30 +29,61 @@ type Quote struct {
 	Properties      []Property
 }
 
-// QuoteCreate validates the server quote and annotates its included floating IP.
-func QuoteCreate(ctx context.Context, fetch func(context.Context) (*Quote, error)) (*Quote, error) {
+//nolint:revive // Documentation lives in docs/design/vserver-floating-ips.md.
+func QuoteCreate(ctx context.Context, included bool, fetch func(context.Context, bool) (*Quote, error)) (*Quote, error) {
 	ctx = context.WithValue(ctx, componentKey{}, true)
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	server, err := fetch(ctx)
+	server, err := fetch(ctx, false)
 	if err != nil {
 		return nil, err
 	}
 	if err := validateQuote(server); err != nil {
 		return nil, err
 	}
-	server.Properties = append(server.Properties, Property{
-		Name:        "FLOATING IP",
-		Description: "Included in server order for the verified configuration",
-	})
+	if included {
+		server.Properties = append(server.Properties, Property{
+			Name:        "FLOATING IP",
+			Description: "Included in server order for the verified configuration",
+		})
+		return server, nil
+	}
+	ip, err := fetch(ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateQuote(ip); err != nil {
+		return nil, err
+	}
+	server.OptimumPrice += ip.OptimumPrice
+	server.OriginalPrice += ip.OriginalPrice
+	server.DiscountPrice += ip.DiscountPrice
+	server.DiscountPercent = 0
+	if server.OriginalPrice > 0 {
+		server.DiscountPercent = 100 * ((server.OriginalPrice - server.OptimumPrice) / server.OriginalPrice)
+	}
+	const description = "Conservative Elastic IP estimate; extra create charge unconfirmed"
+	if len(ip.Properties) == 0 {
+		server.Properties = append(server.Properties, Property{
+			Name: "FLOATING IP", Description: description,
+			OptimumPrice: ip.OptimumPrice, MonthlyPrice: ip.OptimumPrice, DiscountPercent: ip.DiscountPercent,
+		})
+	} else {
+		for _, p := range ip.Properties {
+			p.Name = "FLOATING IP: " + p.Name
+			p.Description = description
+			server.Properties = append(server.Properties, p)
+		}
+	}
+	if err := validateQuote(server); err != nil {
+		return nil, err
+	}
 	return server, nil
 }
 
 func finite(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) && v >= 0 }
 
 func consistent(original, optimum, discount float64) bool {
-	// Allow only a few representable floating-point steps, not a percentage
-	// of the price that could hide a material discrepancy on a large quote.
 	tolerance := 4 * (original - math.Nextafter(original, 0))
 	return math.Abs((original-optimum)-discount) <= tolerance
 }

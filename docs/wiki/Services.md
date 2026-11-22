@@ -149,7 +149,9 @@ partial data. Empty values do not prove that no IP is allocated. See
 credential protection, and strict-output/unkeyed-literal compatibility.
 
 `CreateServerInput.AttachFloatingIP` opts into public create. The quote and
-guard use the server price with one included, zero-price `FLOATING IP` line.
+guard use the server price with one included, zero-price `FLOATING IP` line
+for monthly creates in `han-1` and `hcm-3`. Every other region uses the sum
+of server and Elastic IP quotes, with the IP charge labeled unconfirmed.
 The SDK sends `attachFloating:false` otherwise. The
 shared exposure sentinel is `compute.ErrOpenLogin` / `network.ErrOpenLogin`.
 See [Floating IP create](Compute-Servers.md#floating-ip-create) for guards,

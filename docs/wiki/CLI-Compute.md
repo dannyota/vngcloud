@@ -33,11 +33,16 @@ The command that finds each ID create-server takes is on [IDs for Create Server]
 
 If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it.
 
---attach-floating-ip uses only the server quote for MaxPrice and MonthlyPrice.
-It appends one FLOATING IP line priced at 0, with nil current price and
+--attach-floating-ip includes the IP only for monthly creates in han-1 and
+hcm-3, using the resolved region before quoting. There, MaxPrice and
+MonthlyPrice use one server quote and a FLOATING IP line priced at 0, with
+nil current price and
 description: Included in server order for the verified configuration.
 A 347800 VND server reference remains 347800 with the included IP.
-Verified terms: han-1, HAN01-1B, s2-general-1x2, 20 GB NVME root.
+Every other region quotes the server then the Elastic IP in the same zone.
+Their sum supplies totals, MaxPrice, and MonthlyPrice: 347800 + 120000 =
+467800 VND in the reference. IP lines describe a conservative quoted charge;
+an extra create charge is unconfirmed. No runtime ledger lookup occurs.
 The quote makes no exposure reads and has no override flag. The default
 create explicitly sends attachFloating false. Prices can change before send;
 MaxPrice cannot lock the final bill.
@@ -464,11 +469,16 @@ shows the volume type ID where the size belongs; the size is the
 
 The command that finds each ID create-server takes is on [IDs for Create Server](IDs-for-Create-Server.md).
 
---attach-floating-ip uses only the server quote for MaxPrice and MonthlyPrice.
-It appends one FLOATING IP line priced at 0, with nil current price and
+--attach-floating-ip includes the IP only for monthly creates in han-1 and
+hcm-3, using the resolved region before quoting. There, MaxPrice and
+MonthlyPrice use one server quote and a FLOATING IP line priced at 0, with
+nil current price and
 description: Included in server order for the verified configuration.
 A 347800 VND server reference remains 347800 with the included IP.
-Verified terms: han-1, HAN01-1B, s2-general-1x2, 20 GB NVME root.
+Every other region quotes the server then the Elastic IP in the same zone.
+Their sum supplies totals, MaxPrice, and MonthlyPrice: 347800 + 120000 =
+467800 VND in the reference. IP lines describe a conservative quoted charge;
+an extra create charge is unconfirmed. No runtime ledger lookup occurs.
 The quote makes no exposure reads and has no override flag. The default
 create explicitly sends attachFloating false. Prices can change before send;
 MaxPrice cannot lock the final bill.

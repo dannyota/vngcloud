@@ -12,12 +12,16 @@
   TCP 22, 234, 3389, or 3490 is open to `0.0.0.0/0` or `::/0`, or when a rule
   uses an encoding it cannot prove safe, such as ICMP or UDP; the message says
   which. `--allow-open-login` (SDK `AllowOpenLogin`) overrides only that check.
-- Pricing: a paid live run showed that an IP attached at create is included in
-  the server order, with no separate charge. `quote-create-server
-  --attach-floating-ip` therefore quotes the server only and adds one
-  `FLOATING IP` line at 0 VND; `OptimumPrice`, `--max-price`, and
-  `MonthlyPrice` use the server price. `pricing get-quote --resource-type
-  elastic-ip` is unchanged.
+- Pricing: monthly creates in `han-1` and `hcm-3` include the IP in the
+  server order. `quote-create-server --attach-floating-ip` uses one server
+  quote and a zero-price `FLOATING IP` line there. Every other region quotes
+  the server and Elastic IP and sums them for totals, `--max-price`, and
+  `MonthlyPrice`; the IP line labels a quoted charge with an unconfirmed
+  extra create debit. The resolved region selects the path before quoting,
+  without a runtime ledger lookup. Direct Elastic IP quotes are unchanged.
+- `network list-all-security-group-rules` shares a bounded credential history
+  across nested reads and checks retained output against the completed
+  history, withholding credential reflections across token refreshes.
 - Server create confirmation now checks the server ID on every read, so a
   failed wait never reports another server.
 - Compatibility: `CreateServerInput` gains `AttachFloatingIP` and

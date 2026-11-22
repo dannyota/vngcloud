@@ -250,21 +250,28 @@ and create to request a public address. The default remains false. A
 quote needs only priced fields and makes no exposure reads. It ignores
 `MaxPrice`, `NoWait`, and `AllowOpenLogin`, including guard-only values.
 
-The opted-in quote makes one server quote request, with a 1 MiB response
-and 30 s limit. Server totals, properties, and their order stay unchanged.
-It appends one `FLOATING IP` property with optimum and monthly price 0,
-discount percent 0, nil current price, and description
-`Included in server order for the verified configuration`.
-Invalid or incomplete server quotes return no partial output;
-nonpositive server prices remain `vngcloud.ErrUnpriced`.
+Monthly creates in `han-1` and `hcm-3` include the floating IP in the server
+order. The SDK checks the resolved region before quoting, without a runtime
+ledger lookup. In those regions, one server quote supplies totals,
+`MaxPrice`, and `MonthlyPrice`. Server properties retain their order, with
+one zero-price `FLOATING IP` property, discount percent 0, nil current price,
+and description `Included in server order for the verified configuration`.
+A 347,799 cap refuses the 347,800 VND reference order; 347,800 permits it.
 
-The floating IP is included in the server order for the verified terms:
-`han-1`, `HAN01-1B`, `s2-general-1x2`, and a 20 GB NVME root. The reference
-guarded total is the 347,800 VND server price plus a zero-price IP line.
-`MaxPrice` and `MonthlyPrice` equal the server quote. A 347,799 cap refuses
-this reference order; 347,800 permits it. Prices are read fresh and can
-change before send; the API cannot lock the final bill. Inclusion does
-not establish reservation, retention, delayed charges, or IP refunds.
+Every other region quotes the server then the Elastic IP in the same zone
+and sums their totals for the guard and `MonthlyPrice`. The reference is
+347,800 + 120,000 = 467,800 VND: a 467,799 cap refuses; 467,800 permits one
+order. IP properties follow server properties with names prefixed by
+`FLOATING IP: ` and description `Conservative Elastic IP estimate; extra
+create charge unconfirmed`. An empty IP property list gets one `FLOATING
+IP` line with its quoted optimum and monthly estimate. These are quoted
+charges; an extra create debit remains unconfirmed outside the two regions.
+
+Each quote retains its 1 MiB response and 30 s limit. Invalid or incomplete
+quotes return no partial output; nonpositive component prices remain
+`vngcloud.ErrUnpriced`. Prices can change before send; the API cannot lock
+the final bill. Inclusion does not establish reservation, retention,
+delayed charges, or IP refunds.
 
 Before quoting and again before sending, the SDK reads every named group
 and its complete rule list. It deduplicates 1 to 64 group IDs, permits at

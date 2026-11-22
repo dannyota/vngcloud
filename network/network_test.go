@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/compute"
@@ -551,6 +554,66 @@ func TestSecurityGroupErrorsWithholdNumericCredential(t *testing.T) {
 			}
 			if err == nil || strings.Contains(err.Error(), "401") || !errors.Is(err, vngcloud.ErrAuth) {
 				t.Fatalf("credential-bearing error or lost identity: %v", err)
+			}
+		})
+	}
+}
+
+type ruleRefreshCredentials struct{ refreshed atomic.Bool }
+
+func (p *ruleRefreshCredentials) Token(context.Context) (vngcloud.Token, error) {
+	token := "synthetic-before-refresh"
+	if p.refreshed.Load() {
+		token = "synthetic-after-refresh"
+	}
+	return vngcloud.Token{AccessToken: token, ExpiresAt: time.Unix(4102444800, 0)}, nil
+}
+
+func (p *ruleRefreshCredentials) Invalidate(string) { p.refreshed.Store(true) }
+
+func TestListAllSecurityGroupRulesCredentialHistory(t *testing.T) {
+	for _, earlier := range []bool{true, false} {
+		t.Run(fmt.Sprintf("earlier_credential=%v", earlier), func(t *testing.T) {
+			var refreshes, reads atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/v2/project-1/secgroups" {
+					_, _ = w.Write([]byte(`{"listData":[{"id":"sg-1"},{"id":"sg-2"}],"page":1,"pageSize":10000,"totalPage":1,"totalItem":2}`))
+					return
+				}
+				first := r.URL.Path == "/v2/project-1/secgroups/sg-1/secGroupRules"
+				if !first && r.URL.Path != "/v2/project-1/secgroups/sg-2/secGroupRules" {
+					t.Errorf("unexpected path %s", r.URL.Path)
+					w.WriteHeader(500)
+					return
+				}
+				if first == earlier && r.Header.Get("Authorization") == "Bearer synthetic-before-refresh" {
+					refreshes.Add(1)
+					w.WriteHeader(401)
+					return
+				}
+				reads.Add(1)
+				description := "safe"
+				if !first && earlier {
+					description = "synthetic-before-refresh"
+				} else if first && !earlier {
+					description = "synthetic-after-refresh"
+				}
+				_, _ = fmt.Fprintf(w, `{"data":[{"id":"rule-1","description":%q}]}`, description)
+			}))
+			defer srv.Close()
+			cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("hcm-3"), vngcloud.WithProjectID("project-1"),
+				vngcloud.WithCredentialsProvider(&ruleRefreshCredentials{}), vngcloud.WithHTTPClient(srv.Client()),
+				vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{VServer: srv.URL}), vngcloud.WithRetry(0, 0))
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, err := New(cfg).ListAllSecurityGroupRules(context.Background(), nil)
+			var api *vngcloud.APIError
+			if out != nil || !errors.As(err, &api) || api.Code != "InvalidResponse" {
+				t.Fatalf("credential reflection accepted: output present=%v error=%v", out != nil, err)
+			}
+			if strings.Contains(err.Error(), "synthetic-") || refreshes.Load() != 1 || reads.Load() != 2 {
+				t.Fatalf("unsafe error or wrong reads: refreshes=%d reads=%d", refreshes.Load(), reads.Load())
 			}
 		})
 	}
