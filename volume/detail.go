@@ -51,9 +51,10 @@ func (c *Client) readVolume(ctx context.Context, in *GetVolumeInput) (*GetVolume
 
 func knownDetachedVolume(raw json.RawMessage) bool {
 	var state struct {
-		ServerID     json.RawMessage `json:"serverId"`
-		ServerIDList *[]string       `json:"serverIdList"`
+		ServerID       json.RawMessage `json:"serverId"`
+		ServerIDList   *[]string       `json:"serverIdList"`
+		ServerNameList []string        `json:"serverNameList"`
 	}
 	var serverID string
-	return json.Unmarshal(raw, &state) == nil && len(state.ServerID) > 0 && json.Unmarshal(state.ServerID, &serverID) == nil && serverID == "" && state.ServerIDList != nil && len(*state.ServerIDList) == 0
+	return json.Unmarshal(raw, &state) == nil && len(state.ServerID) > 0 && json.Unmarshal(state.ServerID, &serverID) == nil && serverID == "" && state.ServerIDList != nil && len(*state.ServerIDList) == 0 && len(state.ServerNameList) == 0
 }

@@ -19,6 +19,9 @@ func TestDeleteVolumeRejectsUnknownOrSubstitutedState(t *testing.T) {
 		`{"data":{"uuid":"volume-1","status":"AVAILABLE","serverId":null}}`,
 		`{"data":{"uuid":"volume-1","status":"AVAILABLE","serverIdList":[]}}`,
 		`{"data":{"uuid":"volume-1","status":"AVAILABLE","serverId":null,"serverIdList":["server-1"]}}`,
+		`{"data":{"uuid":"volume-1","status":"AVAILABLE","serverId":null,"serverIdList":[],"serverNameList":["server-a"]}}`,
+		`{"data":{"uuid":"volume-1","status":"AVAILABLE","serverId":null,"serverIdList":[],"serverNameList":"invalid"}}`,
+		`{"data":{"uuid":"volume-1","status":"AVAILABLE","serverId":null,"serverIdList":[],"serverNameList":[null]}}`,
 		`{"data":{"uuid":"volume-1","status":"AVAILABLE","serverId":"server-1","serverIdList":[]}}`,
 		`{"data":{"uuid":"volume-1","status":"UNKNOWN","serverId":"","serverIdList":[]}}`,
 		`{"data":{"uuid":"volume-1","status":"IN-USE","STATUS":"AVAILABLE","serverId":"","serverIdList":[]}}`,
@@ -40,6 +43,22 @@ func TestDeleteVolumeRejectsUnknownOrSubstitutedState(t *testing.T) {
 				t.Fatalf("error = %v, deletes = %d", err, deletes.Load())
 			}
 		})
+	}
+}
+
+func TestDeleteVolumeAllowsNullServerNameList(t *testing.T) {
+	var deletes atomic.Int32
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			deletes.Add(1)
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":{"uuid":"volume-1","status":"AVAILABLE","serverId":null,"serverIdList":[],"serverNameList":null}}`))
+	}))
+	_, err := c.DeleteVolume(context.Background(), &DeleteVolumeInput{VolumeID: "volume-1", NoWait: true})
+	if err != nil || deletes.Load() != 1 {
+		t.Fatalf("error = %v, deletes = %d", err, deletes.Load())
 	}
 }
 

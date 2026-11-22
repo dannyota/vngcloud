@@ -222,8 +222,9 @@ returns at once with only the UUID and Name filled in.
 `DeleteVolume` destroys data; there is no undo. It reads the volume first
 and refuses `IN-USE` or any listed server with `volume.ErrVolumeInUse`:
 detach it first. The UUID must match, status must be `AVAILABLE` or `ERROR`,
-and `serverId` and `serverIdList` must be explicitly empty. Missing, null,
-conflicting, or unknown state sends no DELETE. The server's in-use refusal
+`serverId` must be null or empty, `serverIdList` present and empty, and
+`serverNameList` must list no server. A missing `serverId`, a missing or null
+`serverIdList`, or conflicting or unknown state sends no DELETE. The server's in-use refusal
 remains the final guard against a race. DELETE keeps normal retries; an
 already deleted volume returns `vngcloud.ErrNotFound`.
 

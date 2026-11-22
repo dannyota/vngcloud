@@ -1,8 +1,9 @@
 package cli
 
-const volumeDeleteEvidenceNote = "The detail UUID must match --volume-id. Deletion requires AVAILABLE " +
-	"or ERROR and explicit empty serverId and serverIdList fields. Missing, null, conflicting, or unknown " +
-	"state sends no DELETE. Polling requests and sleeps use the earlier caller or five-minute deadline; " +
+const volumeDeleteEvidenceNote = "The detail UUID must match --volume-id. Deletion requires AVAILABLE or ERROR, " +
+	"a null or empty serverId, a present empty serverIdList, and no listed serverNameList entries. " +
+	"A missing serverId, a missing or null serverIdList, conflicting, or unknown state sends no DELETE. " +
+	"Polling requests and sleeps use the earlier caller or five-minute deadline; " +
 	"late success cannot settle a write."
 
 const volumeSnapshotInventoryNote = "Reads every volume page and every snapshot page per volume, " +
