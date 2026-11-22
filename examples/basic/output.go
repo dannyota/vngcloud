@@ -122,30 +122,6 @@ var operationOutputPaths = map[string]string{
 	"storage.GetBucketEncryption":                "storage/bucket_encryption",
 }
 
-func uncapturedOutputReason(resource string) string {
-	switch resource {
-	case "monitor/channel":
-		return "channel list and detail lookup share an SDK operation"
-	case "vks/cluster", "vks/cluster_version", "vks/quota",
-		"backup/backends", "backup/policies", "billing/resources",
-		"iam/user", "iam/user_detail", "iam/user_filtered", "network/vpn_connection",
-		"monitor/synthetic_catalog", "monitor/quota_status", "monitor/quota_usage",
-		"monitor/notification_packages_email", "monitor/notification_packages_sms",
-		"monitor/email_quota", "monitor/email_quota_usage", "monitor/email_quota_quote",
-		"monitor/synthetic_quota", "monitor/synthetic_quota_usage",
-		"monitor/check_alarm", "monitor/check_alarm_history":
-		return "SDK suppresses response capture"
-	case "server/flavor_prices", "server/public_ip", "network/prices", "volume/discovery",
-		"storage/discovery", "storage/project_types", "storage/project_auto_renew", "monitor/channel_detail", "portal/quota_detail":
-		return "SDK result combines or projects other reads"
-	default:
-		if name, ok := strings.CutPrefix(resource, "storage/project_quote_"); ok && name != "" {
-			return "SDK result combines catalog and price reads"
-		}
-		return ""
-	}
-}
-
 type rawCaptureStore struct {
 	resources map[string]*rawResourceOutput
 }
@@ -182,7 +158,6 @@ type sdkRegionOutput struct {
 	Count           int    `json:"count"`
 	Items           any    `json:"items,omitempty"`
 	Error           string `json:"error,omitempty"`
-	SkippedParent   string `json:"skippedParent,omitempty"`
 }
 
 func newRawCaptureStore() *rawCaptureStore {
@@ -238,12 +213,6 @@ func newSDKOutputStore() *sdkOutputStore {
 
 func (s *sdkOutputStore) setConfig(config string) {
 	s.config = config
-}
-
-func (s *sdkOutputStore) addSkipped(path, parent string, cfg vngcloud.Config) {
-	s.record(path, cfg.Region(), false, "region", nil, nil)
-	resource := s.resources[path]
-	resource.Regions[len(resource.Regions)-1].SkippedParent = parent
 }
 
 func (s *sdkOutputStore) add(path string, cfg vngcloud.Config, items any, err error) {
