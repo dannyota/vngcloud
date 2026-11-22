@@ -187,6 +187,7 @@ func TestWritesRejectUntrustedConfigBeforeRequests(t *testing.T) {
 		name    string
 		options []vngcloud.LoadOption
 	}{
+		{"vserver", []vngcloud.LoadOption{vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{VServer: "https://invalid.example/"})}},
 		{"database", []vngcloud.LoadOption{vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{Database: "https://invalid.example/"})}},
 		{"signin", []vngcloud.LoadOption{vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{Signin: "https://invalid.example"})}},
 		{"token", []vngcloud.LoadOption{vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{Token: "https://invalid.example"})}},
@@ -420,6 +421,29 @@ func notSettled(t *testing.T, _ *harness, out *CreateDatabaseInstanceOutput, err
 	t.Helper()
 	if !errors.Is(err, ErrNotSettled) || errors.Is(err, ErrFailed) || out == nil || !reflect.DeepEqual(out.Instance, Instance{ID: "db-1"}) {
 		t.Fatalf("out=%v err=%v", out, err)
+	}
+}
+
+func TestCreateConfirmationNeverShowsCredentialsInDetail(t *testing.T) {
+	escaped := strings.Replace(testPassword, "C", "\\u0043", 1)
+	for name, patch := range map[string]string{
+		"bearer in name":           "x-bearer-synthetic-y",
+		"password in name":         "x" + testPassword,
+		"escaped password in name": "x" + escaped,
+	} {
+		t.Run(name, func(t *testing.T) {
+			body := strings.Replace(detailBody("ACTIVE", nil), `"demo-db"`, `"`+patch+`"`, 1)
+			if name == "escaped password in name" {
+				body = strings.Replace(detailBody("ACTIVE", nil), `"demo-db"`, `"x`+escaped+`"`, 1)
+			}
+			h := newHarness(t, (&script{detail: []string{body}}).handler())
+			out, err := h.client.CreateDatabaseInstance(context.Background(), validCreateInput())
+			notSettled(t, h, out, err)
+			text := fmt.Sprintf("%#v %v", out, err)
+			if strings.Contains(text, "bearer-synthetic") || strings.Contains(text, testPassword) || strings.Contains(text, "anarycanary") {
+				t.Fatalf("leak: %s", text)
+			}
+		})
 	}
 }
 

@@ -243,7 +243,7 @@ func (c *Client) CreateDatabaseInstance(ctx context.Context, in *CreateDatabaseI
 	}
 	out := &CreateDatabaseInstanceOutput{Instance: Instance{ID: id}}
 	err = c.poll(ctx, func(ctx context.Context) (bool, error) {
-		got, err := c.GetDatabaseInstance(ctx, &GetDatabaseInstanceInput{ID: id})
+		got, err := c.getInstance(ctx, &GetDatabaseInstanceInput{ID: id}, secrets)
 		if core.IsNotFound(err) {
 			return false, nil
 		}
@@ -251,9 +251,6 @@ func (c *Client) CreateDatabaseInstance(ctx context.Context, in *CreateDatabaseI
 			return true, fmt.Errorf("%w: create confirmation interrupted", ErrNotSettled)
 		}
 		inst := got.Instance
-		if reflects(inst, password) {
-			return true, fmt.Errorf("%w: create detail withheld", ErrNotSettled)
-		}
 		switch strings.ToUpper(inst.Status) {
 		case "ACTIVE":
 			if !createMatches(inst, body) {

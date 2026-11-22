@@ -61,7 +61,7 @@ func safeError(op string, err error) *core.APIError {
 	return e
 }
 
-func (c *Client) read(ctx context.Context, op string, parts []string, q url.Values, out any) error {
+func (c *Client) read(ctx context.Context, op string, parts []string, q url.Values, out any, extra ...string) error {
 	if c.c.Region() != "hcm-3" {
 		return fmt.Errorf("%w: database requires hcm-3", core.ErrInvalidConfig)
 	}
@@ -74,7 +74,7 @@ func (c *Client) read(ctx context.Context, op string, parts []string, q url.Valu
 		}
 		return safeError(op, err)
 	}
-	if !uniqueJSON(raw, credentials) {
+	if !uniqueJSON(raw, credentials) || leaksDecoded(raw, append(credentials, extra...)) {
 		return malformed(op)
 	}
 	var env struct {
@@ -312,11 +312,15 @@ func (c *Client) ListDatabaseInstances(ctx context.Context, in *ListDatabaseInst
 
 // GetDatabaseInstance reads one relational instance by its exact ID.
 func (c *Client) GetDatabaseInstance(ctx context.Context, in *GetDatabaseInstanceInput) (*GetDatabaseInstanceOutput, error) {
+	return c.getInstance(ctx, in, nil)
+}
+
+func (c *Client) getInstance(ctx context.Context, in *GetDatabaseInstanceInput, extra []string) (*GetDatabaseInstanceOutput, error) {
 	if in == nil || !validID(in.ID) {
 		return nil, invalid()
 	}
 	var row detailInstance
-	if err := c.read(ctx, "GetDatabaseInstance", []string{"database-instances", "id", in.ID}, nil, &row); err != nil {
+	if err := c.read(ctx, "GetDatabaseInstance", []string{"database-instances", "id", in.ID}, nil, &row, extra...); err != nil {
 		return nil, err
 	}
 	if row.ID != in.ID || row.Name == "" || row.Status == "" {

@@ -107,7 +107,7 @@ func iamConfig(t *testing.T, rt http.RoundTripper, extra ...vngcloud.LoadOption)
 		}
 		return w.Result(), nil
 	})
-	opts := []vngcloud.LoadOption{vngcloud.WithRegion("hcm-3"), vngcloud.WithIAMUser(&vngcloud.IAMUserAuth{RootEmail: "root", Username: "user", Password: "synthetic", HTTPClient: &http.Client{Transport: auth}}), vngcloud.WithTransport(rt), vngcloud.WithRetry(0, 0), vngcloud.WithProjectID("project-1")}
+	opts := []vngcloud.LoadOption{vngcloud.WithRegion("hcm-3"), vngcloud.WithIAMUser(&vngcloud.IAMUserAuth{RootEmail: "root", Username: "user", Password: "synthetic", HTTPClient: &http.Client{Transport: auth}}), vngcloud.WithTransport(rt), vngcloud.WithRetry(0, 0)}
 	cfg, err := vngcloud.NewConfig(append(opts, extra...)...)
 	if err != nil {
 		t.Fatal(err)
@@ -116,6 +116,11 @@ func iamConfig(t *testing.T, rt http.RoundTripper, extra ...vngcloud.LoadOption)
 }
 
 func newHarness(t *testing.T, handler func(w http.ResponseWriter, r *http.Request, h *harness), extra ...vngcloud.LoadOption) *harness {
+	t.Helper()
+	return newHarnessOpts(t, handler, true, extra...)
+}
+
+func newHarnessOpts(t *testing.T, handler func(w http.ResponseWriter, r *http.Request, h *harness), withProject bool, extra ...vngcloud.LoadOption) *harness {
 	t.Helper()
 	h := &harness{t: t, clock: &fakeClock{now: time.Unix(1000, 0)}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -140,6 +145,9 @@ func newHarness(t *testing.T, handler func(w http.ResponseWriter, r *http.Reques
 		clone.Host = target.Host
 		return server.Client().Transport.RoundTrip(clone)
 	})
+	if withProject {
+		extra = append(extra, vngcloud.WithProjectID("project-1"))
+	}
 	h.client = New(iamConfig(t, api, extra...))
 	h.client.now = h.clock.Now
 	h.client.sleep = h.clock.Sleep
@@ -234,6 +242,8 @@ func (s *script) handler() func(http.ResponseWriter, *http.Request, *harness) {
 				return
 			}
 			writeJSON(w, 200, `{"code":200,"data":[]}`)
+		case r.URL.Path == "/vserver/iam-vserver-gateway/v1/projects":
+			writeJSON(w, 200, `{"projects":[{"projectId":"project-1","region":"hcm-3"}]}`)
 		case r.URL.Path == "/elsewhere":
 			writeJSON(w, 404, `{"code":404}`)
 		case r.URL.Path == pathDetail:

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -284,5 +285,32 @@ func TestDeleteAllowsNullOrAbsentOwner(t *testing.T) {
 				t.Fatalf("out=%v err=%v", out, err)
 			}
 		})
+	}
+}
+
+func TestDeleteReadsNeverShowTheBearer(t *testing.T) {
+	leaky := strings.Replace(detailBody("ACTIVE", nil), `"demo-db"`, `"x-bearer-synthetic-y"`, 1)
+	t.Run("preflight", func(t *testing.T) {
+		h := newHarness(t, (&script{detail: []string{leaky}}).handler())
+		out, err := h.client.DeleteDatabaseInstance(context.Background(), &DeleteDatabaseInstanceInput{ID: "db-1"})
+		if out != nil || err == nil || errors.Is(err, ErrNotSettled) || h.posts() != 0 || strings.Contains(err.Error(), "bearer-synthetic") {
+			t.Fatalf("out=%v err=%v posts=%d", out, err, h.posts())
+		}
+	})
+	t.Run("wait", func(t *testing.T) {
+		h := newHarness(t, (&script{detail: []string{detailBody("ACTIVE", nil), leaky}}).handler())
+		out, err := h.client.DeleteDatabaseInstance(context.Background(), &DeleteDatabaseInstanceInput{ID: "db-1"})
+		if !errors.Is(err, ErrNotSettled) || out == nil || out.Deleted || strings.Contains(err.Error(), "bearer-synthetic") {
+			t.Fatalf("out=%v err=%v", out, err)
+		}
+	})
+}
+
+func TestDeleteDiscoversTheProjectOnlyWithDefaultEndpoints(t *testing.T) {
+	s := &script{detail: []string{detailBody("ACTIVE", nil), "404"}}
+	h := newHarnessOpts(t, s.handler(), false)
+	out, err := h.client.DeleteDatabaseInstance(context.Background(), &DeleteDatabaseInstanceInput{ID: "db-1"})
+	if err != nil || !out.Deleted || h.count("GET", "/vserver/iam-vserver-gateway/v1/projects") != 1 {
+		t.Fatalf("out=%v err=%v", out, err)
 	}
 }

@@ -119,7 +119,7 @@ func (c *Client) DeleteDatabaseInstance(ctx context.Context, in *DeleteDatabaseI
 		return out, fmt.Errorf("%w: delete response withheld", ErrNotSettled)
 	}
 	err = c.poll(ctx, func(ctx context.Context) (bool, error) {
-		got, err := c.GetDatabaseInstance(ctx, &GetDatabaseInstanceInput{ID: in.ID})
+		got, err := c.getInstance(ctx, &GetDatabaseInstanceInput{ID: in.ID}, credentials)
 		if core.IsNotFound(err) {
 			out.Deleted = true
 			return true, nil

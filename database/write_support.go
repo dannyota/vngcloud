@@ -19,7 +19,8 @@ import (
 
 func (c *Client) writeProvenance() error {
 	expected := endpoints.ResolveIAMUser(c.c.Region(), endpoints.Overrides{})
-	if c.c.Region() != "hcm-3" || !c.c.UsesIAMUserLogin() || !c.c.UsesDefaultAuthEndpoints() || c.c.Endpoint(routes.ProductDatabase) != expected.Database {
+	if c.c.Region() != "hcm-3" || !c.c.UsesIAMUserLogin() || !c.c.UsesDefaultAuthEndpoints() ||
+		c.c.Endpoint(routes.ProductDatabase) != expected.Database || c.c.Endpoint(routes.ProductVServer) != expected.VServer {
 		return fmt.Errorf("%w: database writes require hcm-3, SDK IAM-user login, and default endpoints", core.ErrInvalidConfig)
 	}
 	return nil
@@ -64,13 +65,6 @@ func settleWait(err error, what string) error {
 		return err
 	}
 	return fmt.Errorf("%w: %s confirmation interrupted", ErrNotSettled, what)
-}
-
-func reflects(inst Instance, password string) bool {
-	raw, _ := json.Marshal(inst)
-	escaped, _ := json.Marshal(password)
-	text := string(raw)
-	return strings.Contains(text, password) || strings.Contains(text, strings.Trim(string(escaped), `"`))
 }
 
 var requestFieldNames = map[string]string{

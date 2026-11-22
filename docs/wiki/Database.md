@@ -55,13 +55,15 @@ catalogs, before it sends anything.
   `backupAuto: false`, one logical database, and the master user.
 - The request is sent once and never resent after any failure, including a
   401, 429, 5xx, redirect, or lost connection.
-- Writes require SDK IAM-user login with default endpoints in `hcm-3`;
-  otherwise they return `vngcloud.ErrInvalidConfig` before any request.
+- Writes require SDK IAM-user login with the default IAM, database, and
+  VServer (project discovery) endpoints in `hcm-3`; otherwise they return `vngcloud.ErrInvalidConfig` before any request.
 - `Password` must be 8 to 32 characters of letters, digits, and `$ ^ _ < >`,
   starting with a letter and ending with a letter or digit; otherwise the call
   returns `vngcloud.ErrInvalidInput` naming `Password`, without the value, before
   any request. It is a `vngcloud.Secret`. It appears only in the create request
-  body, never in outputs, errors, logs, or captures.
+  body, never in outputs, errors, logs, or captures. Every database read used
+  to confirm a write is rejected as malformed when any decoded string contains
+  the password or the bearer token, including the one sent with the create.
 - A returned instance ID must match the path-safe ID pattern. The reply is
   rejected when any decoded string, including the ID, contains the password or
   the bearer token, even in a JSON-escaped form. Anything else returns
