@@ -19,9 +19,11 @@ probe's read-back before landing.
 4. Child creates ship without a quote, under an [ADR 0002][writes] rule 8
    exception that this decision extends from the bare GLB to its listener and
    pool. No quote route exists and the child requests carry no price, SKU or
-   payment field. Child usage accrues under the parent GLB's existing billing
-   mode, which the caller chose when creating that GLB; the SDK neither
-   proves nor changes that mode, and help says so. `--yes` records consent.
+   payment field. GreenNode bills child usage under the account's terms; the
+   SDK neither selects nor verifies the payment source, and help says so.
+   `--yes` records consent. Before the probe's first child POST the manager
+   confirms that the account is funded by credits only, as the owner
+   authorized; if that cannot be confirmed, the probe stops before the POST.
    The probe records cash and available balance privately immediately before
    and after each child POST and DELETE. Help and wiki name only a debit or
    hold attributable to a child resource, say "undetermined" when none can be
