@@ -43,6 +43,12 @@ catalogs, before it sends anything.
 - No price is checked. The service offers no usable quote API, so the call
   sends the create with IAM Auto Payment (`user-type: IAM_USER`, `poc: false`)
   and debits credits. The CLI requires `--yes`.
+- `Name` is 1 to 20 letters, digits, hyphens, or underscores, starting with a
+  letter or digit; a longer name returns `vngcloud.ErrInvalidInput` before any
+  request.
+- A 400 reply returns a sanitized `vngcloud.APIError` whose message lists up to
+  5 rejected field names from `fieldError`, each with its sanitized message
+  and never the rejected value, for example `in_valid: name: <message>`.
 - The request is a single node with `publicAccess: false` and
   `backupAuto: false`, one logical database, and the master user.
 - The request is sent once and never resent after any failure, including a

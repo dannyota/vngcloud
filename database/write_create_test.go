@@ -84,6 +84,8 @@ func TestCreateInputValidationSendsNothing(t *testing.T) {
 	}{
 		{"empty name", "Name", func(in *CreateDatabaseInstanceInput) { in.Name = "" }},
 		{"bad name", "Name", func(in *CreateDatabaseInstanceInput) { in.Name = "bad name!" }},
+		{"21 character name", "Name", func(in *CreateDatabaseInstanceInput) { in.Name = strings.Repeat("a", 21) }},
+		{"hyphen first name", "Name", func(in *CreateDatabaseInstanceInput) { in.Name = "-abc" }},
 		{"empty zone", "ZoneID", func(in *CreateDatabaseInstanceInput) { in.ZoneID = "" }},
 		{"bad zone", "ZoneID", func(in *CreateDatabaseInstanceInput) { in.ZoneID = "a/b" }},
 		{"zero flavor", "FlavorID", func(in *CreateDatabaseInstanceInput) { in.FlavorID = 0 }},
@@ -516,6 +518,17 @@ func TestCreatePasswordRule(t *testing.T) {
 	}
 }
 
+func TestCreateNameLengthLimit(t *testing.T) {
+	for _, name := range []string{"a", strings.Repeat("a", 9), strings.Repeat("a", 10), "a-" + strings.Repeat("b", 18)} {
+		h := newHarness(t, (&script{detail: []string{detailBody("ACTIVE", nil)}}).handler())
+		in := validCreateInput()
+		in.Name = name
+		if _, err := h.client.CreateDatabaseInstance(context.Background(), in); err != nil {
+			t.Fatalf("%d characters: %v", len(name), err)
+		}
+	}
+}
+
 func TestCreate400EchoingTheRequestNeverLeaksThePassword(t *testing.T) {
 	var logs bytes.Buffer
 	captured := 0
@@ -524,7 +537,13 @@ func TestCreate400EchoingTheRequestNeverLeaksThePassword(t *testing.T) {
 		body, _ := io.ReadAll(r.Body)
 		var req any
 		_ = json.Unmarshal(body, &req)
-		reply, _ := json.Marshal(map[string]any{"code": 400, "message": "in_valid", "fieldError": []any{map[string]any{"field": "password", "message": "This password must be right format", "rejectedValue": testPassword}}, "request": req, "raw": string(body)})
+		reply, _ := json.Marshal(map[string]any{"code": 400, "message": "in_valid", "fieldError": []any{
+			map[string]any{"field": "name", "message": "Name is too long", "rejectedValue": "demo-db"},
+			map[string]any{"field": "password", "message": "This password must be right format", "rejectedValue": testPassword},
+			map[string]any{"field": "databases[0].name", "message": "bad " + testPassword, "rejectedValue": testPassword},
+			map[string]any{"field": testPassword, "message": "x"},
+			map[string]any{"field": "a", "message": "1"}, map[string]any{"field": "b", "message": "2"}, map[string]any{"field": "c", "message": "3"}, map[string]any{"field": "d", "message": "4"},
+		}, "request": req, "raw": string(body)})
 		writeJSON(w, 400, string(reply))
 	}
 	h := newHarness(t, (&script{create: echo}).handler(), vngcloud.WithLogger(logger), vngcloud.WithResponseCapture(func(vngcloud.ResponseCapture) { captured++ }))
@@ -534,6 +553,14 @@ func TestCreate400EchoingTheRequestNeverLeaksThePassword(t *testing.T) {
 		t.Fatalf("out=%v err=%v", out, err)
 	}
 	assertNoSecret(t, "error", err, out, api)
+	for _, want := range []string{"in_valid", "name: Name is too long", "password: This password must be right format", "databases[0].name"} {
+		if !strings.Contains(api.Message, want) {
+			t.Fatalf("message %q lacks %q", api.Message, want)
+		}
+	}
+	if strings.Contains(api.Message, "bad ") || strings.Contains(api.Message, "rejectedValue") || strings.Contains(api.Message, "demo-db") || strings.Contains(api.Message, "d: 4") {
+		t.Fatalf("message %q carries echoed or excess values", api.Message)
+	}
 	if strings.Contains(logs.String(), testPassword) || captured != 0 {
 		t.Fatalf("logs=%s captured=%d", logs.String(), captured)
 	}

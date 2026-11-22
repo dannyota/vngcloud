@@ -27,7 +27,7 @@ const (
 )
 
 var (
-	instanceNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
+	instanceNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,19}$`)
 	identifierPattern   = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{0,63}$`)
 )
 
@@ -76,7 +76,7 @@ func validateCreate(in *CreateDatabaseInstanceInput) error {
 	}
 	switch {
 	case !instanceNamePattern.MatchString(in.Name):
-		return badField("Name", "must be 1 to 64 letters, digits, hyphens, or underscores, starting with a letter or digit")
+		return badField("Name", "must be 1 to 20 letters, digits, hyphens, or underscores, starting with a letter or digit")
 	case !validID(in.ZoneID):
 		return badField("ZoneID", "must contain only letters, digits, hyphens, and underscores")
 	case in.FlavorID <= 0 || in.FlavorID > math.MaxInt32:
@@ -219,6 +219,7 @@ func (c *Client) CreateDatabaseInstance(ctx context.Context, in *CreateDatabaseI
 	password := in.Password.Reveal()
 	var raw json.RawMessage
 	var credentials []string
+	var fields []fieldDetail
 	notSent := false
 	status, err := c.c.DoJSONStatus(ctx, transport.Request{
 		Operation: createOp, Method: http.MethodPost,
@@ -226,11 +227,12 @@ func (c *Client) CreateDatabaseInstance(ctx context.Context, in *CreateDatabaseI
 		Headers: map[string]string{"user-type": "IAM_USER"},
 		Body:    body, OK: []int{200}, Once: true, NoRedirect: true, Sensitive: true, KeepObservedStatus: true,
 		MaxBody: 1 << 20, NotSent: &notSent, SentCredentials: &credentials, Redact: []string{password},
+		ObserveErrorBody: func(_ int, body []byte) { fields = parseFieldErrors(body) },
 	}, &raw)
 	secrets := append(append([]string(nil), credentials...), password)
 	if err != nil {
 		if definitiveWriteError(err, notSent, status) {
-			return nil, writeError(createOp, err, secrets)
+			return nil, writeError(createOp, err, secrets, fields)
 		}
 		return nil, fmt.Errorf("%w: create request unconfirmed", ErrNotSettled)
 	}

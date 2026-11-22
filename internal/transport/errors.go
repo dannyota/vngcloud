@@ -116,6 +116,9 @@ func codeString(raw json.RawMessage) string {
 }
 
 func decodeError(req Request, status int, body []byte) error {
+	if req.ObserveErrorBody != nil {
+		req.ObserveErrorBody(status, body)
+	}
 	var eb errorBody
 	trimmed := bytes.TrimSpace(body)
 	if len(trimmed) > 0 {

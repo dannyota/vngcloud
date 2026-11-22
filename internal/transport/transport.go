@@ -198,6 +198,11 @@ type Request struct {
 	// shared or retained beyond that call's response redaction.
 	SentCredentials *[]string
 
+	// ObserveErrorBody receives the status and raw body of a failing response
+	// before the error is built, so a caller can extract fields the generic
+	// message omits. It must not retain or log the body.
+	ObserveErrorBody func(status int, body []byte)
+
 	// ClassifyError returns a fixed code before credential redaction. An empty
 	// result keeps the server code. Callers must not retain the raw message.
 	ClassifyError func(status int, message string) string

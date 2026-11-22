@@ -73,7 +73,59 @@ func reflects(inst Instance, password string) bool {
 
 var unsafeProviderMessage = regexp.MustCompile(`(?i)(\b(?:password|passwd|secret|(?:access|refresh)?token|authorization|bearer|credential|cookie|session|api[-_ ]?key)\b\s*(?:[:=]|\bis\b)\s*[^\s,;]+|\bbearer\s+[^\s,;]+|\b[a-z][a-z0-9]*-[a-z0-9]*[0-9][a-z0-9-]*\b|\b[0-9]{8,}\b|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[\w.+-]+@[\w.-]+\.[a-z]{2,}|[\x00-\x1f\x7f])`)
 
-func writeError(op string, err error, secrets []string) error {
+type fieldDetail struct{ Field, Message string }
+
+const maxFieldErrors = 5
+
+var fieldNamePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.\[\]]{0,63}$`)
+
+func parseFieldErrors(body []byte) []fieldDetail {
+	var env struct {
+		FieldError []struct {
+			Field   string `json:"field"`
+			Message string `json:"message"`
+		} `json:"fieldError"`
+	}
+	if json.Unmarshal(body, &env) != nil {
+		return nil
+	}
+	var out []fieldDetail
+	for _, e := range env.FieldError {
+		if len(out) == maxFieldErrors {
+			break
+		}
+		out = append(out, fieldDetail{Field: e.Field, Message: e.Message})
+	}
+	return out
+}
+
+func leaksSecret(text string, secrets []string) bool {
+	for _, secret := range secrets {
+		escaped, _ := json.Marshal(secret)
+		if secret != "" && (strings.Contains(text, secret) || strings.Contains(text, strings.Trim(string(escaped), `"`))) {
+			return true
+		}
+	}
+	return false
+}
+
+func describeFields(fields []fieldDetail, secrets []string) string {
+	var parts []string
+	for _, f := range fields {
+		if !fieldNamePattern.MatchString(f.Field) || leaksSecret(f.Field, secrets) {
+			continue
+		}
+		part := f.Field
+		m := strings.TrimSpace(f.Message)
+		if m != "" && len(m) <= 200 && !unsafeProviderMessage.MatchString(m) && !leaksSecret(m, secrets) {
+			part += ": " + transport.RedactErrorText(m, secrets...)
+		}
+		parts = append(parts, part)
+	}
+	return strings.Join(parts, "; ")
+}
+
+func writeError(op string, err error, secrets []string, fields []fieldDetail) error {
 	safe := safeError(op, err)
 	var provider *core.APIError
 	if !errors.As(err, &provider) || provider.Message == "" {
@@ -91,6 +143,9 @@ func writeError(op string, err error, secrets []string) error {
 		safe.Message = "provider response withheld"
 	} else {
 		safe.Message = transport.RedactErrorText(message, secrets...)
+	}
+	if detail := describeFields(fields, secrets); detail != "" {
+		safe.Message += ": " + detail
 	}
 	return safe
 }

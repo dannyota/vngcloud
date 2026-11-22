@@ -94,7 +94,7 @@ func (c *Client) DeleteDatabaseInstance(ctx context.Context, in *DeleteDatabaseI
 	}, &raw)
 	if err != nil {
 		if definitiveWriteError(err, notSent, status) {
-			return nil, writeError(deleteOp, err, credentials)
+			return nil, writeError(deleteOp, err, credentials, nil)
 		}
 		return out, fmt.Errorf("%w: delete request unconfirmed", ErrNotSettled)
 	}
