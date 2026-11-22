@@ -60,7 +60,7 @@ const (
 var (
 	// ErrAuth marks an authentication failure.
 	ErrAuth = core.ErrAuth
-	// ErrTokenCache marks a service-account token cache failure.
+	// ErrTokenCache marks a token cache or TOTP marker failure.
 	ErrTokenCache = core.ErrTokenCache
 	// ErrNotFound marks a missing resource.
 	ErrNotFound = core.ErrNotFound

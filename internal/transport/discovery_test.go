@@ -41,7 +41,7 @@ func TestDiscoveryReflectionBeforeRetryRefreshCapture(t *testing.T) {
 				source := &discoveryTokenSource{}
 				c := New(Config{HTTPClient: srv.Client(), TokenSource: source, RetryCount: 2, Capture: func(Capture) { captures.Add(1) }})
 				var out any
-				got, err := c.DoDiscoveryJSONStatus(context.Background(), Request{Operation: "test.Discovery", URL: srv.URL}, &out, nil)
+				got, err := c.DoProjectDiscoveryJSONStatus(context.Background(), Request{Operation: "test.Discovery", URL: srv.URL}, &out, nil)
 				var api *APIError
 				if !errors.As(err, &api) || api.Code != "InvalidResponse" || api.StatusCode != status || got != status || api.Retryable {
 					t.Fatalf("status=%d error=%+v", got, err)
@@ -217,13 +217,13 @@ func TestDiscoveryRetryStartsAndHTTP500Once(t *testing.T) {
 			c := New(Config{HTTPClient: srv.Client(), RetryCount: 2, RetryInterval: time.Nanosecond})
 			var starts int
 			before := func(ctx context.Context) error { starts++; return ctx.Err() }
-			actual, err := c.DoDiscoveryJSONStatus(context.Background(), Request{URL: srv.URL}, nil, before)
+			actual, err := c.DoProjectDiscoveryJSONStatus(context.Background(), Request{URL: srv.URL}, nil, before)
 			var api *APIError
 			want := int32(3)
 			if status == 500 {
 				want = 1
 			}
-			if !errors.As(err, &api) || api.Code != "OriginalFailure" || api.StatusCode != status || actual != status || calls.Load() != want || starts != int(want) {
+			if !errors.As(err, &api) || api.Code != "" || api.Message != http.StatusText(status) || api.StatusCode != status || actual != status || calls.Load() != want || starts != int(want) {
 				t.Fatalf("actual=%d err=%v calls=%d starts=%d", actual, err, calls.Load(), starts)
 			}
 		})
@@ -339,8 +339,18 @@ func TestDiscoveryScannerErrorsBeforeStatus(t *testing.T) {
 				defer srv.Close()
 				c := New(Config{HTTPClient: srv.Client(), TokenSource: source, RetryCount: 2, RetryInterval: time.Nanosecond})
 				var out json.RawMessage
-				got, err := c.DoDiscoveryJSONStatus(context.Background(), Request{URL: srv.URL}, &out, nil)
+				got, err := c.DoProjectDiscoveryJSONStatus(context.Background(), Request{URL: srv.URL}, &out, nil)
 				var api *APIError
+				if status != http.StatusOK && !strings.Contains(body, "canary") {
+					wantAttempts, wantTokens := int32(3), int32(1)
+					if status == http.StatusUnauthorized {
+						wantAttempts, wantTokens = 2, 2
+					}
+					if !errors.As(err, &api) || api.Code != "" || api.Message != http.StatusText(status) || got != status || attempts.Load() != wantAttempts || source.calls.Load() != wantTokens || len(out) != 0 {
+						t.Fatalf("status=%d err=%v attempts=%d tokens=%d", got, err, attempts.Load(), source.calls.Load())
+					}
+					return
+				}
 				if !errors.As(err, &api) || api.Code != "InvalidResponse" || api.StatusCode != status || got != status || api.Retryable || attempts.Load() != 1 || source.calls.Load() != 1 || len(out) != 0 {
 					t.Fatalf("status=%d err=%v attempts=%d tokens=%d", got, err, attempts.Load(), source.calls.Load())
 				}

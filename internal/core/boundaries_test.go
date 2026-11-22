@@ -66,7 +66,12 @@ func TestInvalidIAMTokenWaitsBeforeNextLogin(t *testing.T) {
 	}))
 	defer server.Close()
 	for _, disk := range []bool{false, true} {
-		auth := &IAMUserAuth{RootEmail: "root", Username: "user", Password: "password", SigninBaseURL: server.URL, TokenURL: server.URL + "/token", TOTP: TOTPFunc(func(context.Context) (string, error) { codes.Add(1); return "123456", nil })}
+		var steps []int64
+		auth := &IAMUserAuth{RootEmail: "root", Username: "user", Password: "password", SigninBaseURL: server.URL, TokenURL: server.URL + "/token", TOTP: TOTPFunc(func(context.Context) (string, error) {
+			codes.Add(1)
+			steps = append(steps, timeNow().Unix()/30)
+			return "123456", nil
+		})}
 		auth.waitTOTP = func(_ context.Context, delay time.Duration) error { setClock(timeNow().Add(delay)); return nil }
 		source := &iamTokenSource{auth: auth}
 		if disk {
@@ -78,8 +83,8 @@ func TestInvalidIAMTokenWaitsBeforeNextLogin(t *testing.T) {
 				t.Fatal("invalid lifespan did not fail authentication")
 			}
 		}
-		if codes.Load()-before != 2 {
-			t.Error("expected a new code after waiting")
+		if codes.Load()-before != 2 || len(steps) != 2 || steps[1] <= steps[0] {
+			t.Fatalf("expected distinct increasing TOTP steps, got %v", steps)
 		}
 	}
 	if exchanges.Load() != 4 {

@@ -3,15 +3,12 @@ package transport
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
-	"math/big"
 	"net"
 	"net/http"
-	"strconv"
 	"sync"
 	"time"
 )
@@ -103,8 +100,9 @@ type Request struct {
 
 	notSentState *bool
 
-	discovery     bool
-	beforeAttempt func(context.Context) error
+	discovery            bool
+	discoveryErrorStatus bool
+	beforeAttempt        func(context.Context) error
 
 	Operation string
 	Method    string
@@ -330,8 +328,16 @@ func (c *Client) doAuthenticated(ctx context.Context, req Request, client *http.
 		if err := c.invalidateAndRefresh(ctx, sent); err != nil {
 			return 0, "", nil, err
 		}
-		statusCode, contentType, body, _, err = c.send(ctx, req, client)
+		statusCode, contentType, body, sent, err = c.send(ctx, req, client)
 		if err != nil {
+			if statusCode == http.StatusUnauthorized {
+				if invalidateErr := c.invalidateOnceContext(ctx, sent); invalidateErr != nil {
+					if req.KeepObservedStatus {
+						return statusCode, "", nil, bodyFailure(req, statusCode, invalidateErr)
+					}
+					return 0, "", nil, invalidateErr
+				}
+			}
 			return statusCode, "", nil, err
 		}
 	}
@@ -375,31 +381,6 @@ func (c *Client) backoff(attempt int, retryAfter time.Duration) time.Duration {
 	}
 	half := d / 2
 	return half + jitter(half)
-}
-
-// jitter returns a uniform duration in [0, limit].
-func jitter(limit time.Duration) time.Duration {
-	n, err := rand.Int(rand.Reader, big.NewInt(int64(limit)+1))
-	if err != nil {
-		return limit
-	}
-	return time.Duration(n.Int64())
-}
-
-func retryAfterHint(h http.Header) time.Duration {
-	value := h.Get("Retry-After")
-	if value == "" {
-		return 0
-	}
-	if seconds, err := strconv.Atoi(value); err == nil && seconds > 0 {
-		return time.Duration(seconds) * time.Second
-	}
-	if when, err := http.ParseTime(value); err == nil {
-		if d := time.Until(when); d > 0 {
-			return d
-		}
-	}
-	return 0
 }
 
 // send sends req through client, retrying per the idempotency and status
@@ -540,6 +521,9 @@ func (c *Client) send(ctx context.Context, req Request, client *http.Client) (in
 				return 0, "", nil, sentToken, &APIError{Operation: req.Operation, Err: serr}
 			}
 			continue
+		}
+		if req.discoveryErrorStatus && !containsStatus(req.OK, resp.StatusCode) {
+			respBody = nil
 		}
 		c.captureResponse(req, resp.StatusCode, respBody)
 		return resp.StatusCode, resp.Header.Get("Content-Type"), respBody, sentToken, nil

@@ -43,12 +43,22 @@ func (t discoveryCredentialTransport) RoundTrip(req *http.Request) (*http.Respon
 // DoDiscoveryJSONStatus guards each physical exchange before interpreting it.
 // before runs after authentication and before every send, including retries.
 func (c *Client) DoDiscoveryJSONStatus(ctx context.Context, req Request, out any, before func(context.Context) error) (int, error) {
+	return c.doDiscoveryJSONStatus(ctx, req, out, before, false)
+}
+
+//nolint:revive // This method is an internal package boundary.
+func (c *Client) DoProjectDiscoveryJSONStatus(ctx context.Context, req Request, out any, before func(context.Context) error) (int, error) {
+	return c.doDiscoveryJSONStatus(ctx, req, out, before, true)
+}
+
+func (c *Client) doDiscoveryJSONStatus(ctx context.Context, req Request, out any, before func(context.Context) error, statusErrors bool) (int, error) {
 	credentials, ok := ctx.Value(discoveryCredentialsKey{}).(*discoveryCredentials)
 	if !ok {
 		ctx = NewDiscoveryContext(ctx)
 		credentials = ctx.Value(discoveryCredentialsKey{}).(*discoveryCredentials)
 	}
 	req.discovery = true
+	req.discoveryErrorStatus = statusErrors
 	req.beforeAttempt = before
 	if req.MaxBody <= 0 || req.MaxBody > DiscoveryMaxBody {
 		req.MaxBody = DiscoveryMaxBody
@@ -84,7 +94,7 @@ func guardDiscoveryResponse(req Request, sent *http.Request, status int, raw []b
 	}
 	credentials := sent.Context().Value(discoveryCredentialsKey{}).(*discoveryCredentials)
 	credentials.mu.Lock()
-	unsafe := unsafeDiscoveryResponse(raw, credentials.values)
+	unsafe := unsafeDiscoveryResponse(raw, credentials.values, !req.discoveryErrorStatus || containsStatus(req.OK, status))
 	credentials.mu.Unlock()
 	if unsafe {
 		return &APIError{Operation: req.Operation, StatusCode: status, Code: "InvalidResponse", Message: "invalid discovery response; body withheld"}
@@ -92,7 +102,7 @@ func guardDiscoveryResponse(req Request, sent *http.Request, status int, raw []b
 	return sent.Context().Err()
 }
 
-func unsafeDiscoveryResponse(raw []byte, credentials map[string]bool) bool {
+func unsafeDiscoveryResponse(raw []byte, credentials map[string]bool, validateJSON bool) bool {
 	for credential := range credentials {
 		if bytes.Contains(raw, []byte(credential)) {
 			return true
@@ -104,7 +114,7 @@ func unsafeDiscoveryResponse(raw []byte, credentials map[string]bool) bool {
 	for {
 		token, err := decoder.Token()
 		if err != nil {
-			return err != io.EOF || depth != 0
+			return validateJSON && (err != io.EOF || depth != 0)
 		}
 		if delimiter, ok := token.(json.Delim); ok {
 			switch delimiter {

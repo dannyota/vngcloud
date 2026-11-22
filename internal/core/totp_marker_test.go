@@ -118,7 +118,7 @@ func TestTOTPGuardMalformedMarkerAndCancellation(t *testing.T) {
 }
 
 func TestTOTPMarkerWriteFailureIsNotMemoized(t *testing.T) {
-	var submissions atomic.Int32
+	var submissions, loginSubmits atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet:
@@ -127,6 +127,7 @@ func TestTOTPMarkerWriteFailureIsNotMemoized(t *testing.T) {
 			submissions.Add(1)
 			w.WriteHeader(http.StatusOK)
 		default:
+			loginSubmits.Add(1)
 			http.Redirect(w, r, "/ap/auth/iam/google", http.StatusFound)
 		}
 	}))
@@ -148,18 +149,18 @@ func TestTOTPMarkerWriteFailureIsNotMemoized(t *testing.T) {
 	auth.waitTOTP = func(_ context.Context, delay time.Duration) error { now = now.Add(delay); return nil }
 	source := &iamTokenSource{auth: auth, cache: tokencache.New(dir, timeNow), cacheKey: key}
 	_, err := source.Token(context.Background())
-	if !errors.Is(err, ErrTokenCache) || submissions.Load() != 0 {
+	if !errors.Is(err, ErrTokenCache) || submissions.Load() != 0 || loginSubmits.Load() != 1 {
 		t.Fatalf("marker failure: %v, submissions %d", err, submissions.Load())
 	}
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
 	_, err = source.Token(context.Background())
-	if !errors.Is(err, ErrAuth) || submissions.Load() != 1 {
+	if !errors.Is(err, ErrAuth) || submissions.Load() != 1 || loginSubmits.Load() != 2 {
 		t.Fatalf("retry: %v, submissions %d", err, submissions.Load())
 	}
 	_, err = source.Token(context.Background())
-	if !errors.Is(err, ErrAuth) || submissions.Load() != 1 {
+	if !errors.Is(err, ErrAuth) || submissions.Load() != 1 || loginSubmits.Load() != 2 {
 		t.Fatalf("verdict memo: %v, submissions %d", err, submissions.Load())
 	}
 }

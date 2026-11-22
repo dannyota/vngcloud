@@ -39,8 +39,12 @@ The SDK caches the access token and refreshes it before it expires. An HTTP
 401 invalidates only the token sent, when at least 30 seconds old or obtained
 in the future. Ordinary requests retry once; a younger token is reused, so a
 second 401 returns `vngcloud.ErrAuth`. Requests marked to send once never
-resend. Concurrent refreshes reuse the winning token. A failed IAM login is
-held for 30 seconds within its session to avoid repeating a TOTP code.
+resend. Concurrent refreshes reuse the winning token. An IAM login the server
+rejects is held for 30 seconds within its session; cancellation and cache
+errors are not held. A TOTP code is never sent twice: a later login in the same
+30-second step waits for the next step, across processes that share the token
+cache. A TOTP marker that cannot be written refuses login with
+`vngcloud.ErrTokenCache`.
 Login pages and token replies have a 1 MiB decoded-body limit. Lifespans must
 fit a duration and leave more than 30 seconds from exchange request start.
 

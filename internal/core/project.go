@@ -41,7 +41,7 @@ func (c *Client) ListProjects(ctx context.Context, opts *ListProjectsOptions) ([
 	}
 
 	var raw json.RawMessage
-	status, err := c.DoDiscoveryJSONStatus(ctx, transport.Request{
+	status, err := c.transport.DoProjectDiscoveryJSONStatus(ctx, transport.Request{
 		Operation: "project.ListProjects",
 		Method:    "GET",
 		URL: c.RouteURL(routes.Route{
@@ -52,7 +52,7 @@ func (c *Client) ListProjects(ctx context.Context, opts *ListProjectsOptions) ([
 		OK: []int{200},
 	}, &raw, nil)
 	if err != nil {
-		return nil, err
+		return nil, wrapTransportErr(err)
 	}
 
 	items, err := decodeDiscoveryProjects("project.ListProjects", status, raw)
