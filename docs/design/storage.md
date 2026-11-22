@@ -177,6 +177,12 @@ counts object versions, and a delete marker adds nothing, so a bucket left
 with only delete markers reads as empty and deletes cleanly. No force flag:
 emptying is S3 client work.
 
+Because the server enforces no emptiness, the read only proves the bucket
+was empty at that moment: callers must stop every writer before deleting.
+The `DELETE` is sent once with no retry, token-refresh resend, or redirect;
+an ambiguous send returns an error that says the delete may have happened
+and that a read decides, never a second `DELETE`.
+
 The server deletes asynchronously: the `DELETE` answers 200 at once, and
 for about a second reads still show the bucket or fail. `DeleteBucket`
 accepts 200 and 204; a 204 has no body and counts as success. Unless
