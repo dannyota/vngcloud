@@ -19,14 +19,13 @@ probe's read-back before landing.
 4. Child creates ship without a quote, under an [ADR 0002][writes] rule 8
    exception that this decision extends from the bare GLB to its listener and
    pool. No quote route exists and the child requests carry no price, SKU or
-   payment field. The owner accepts credit-paid creates whose usage charges
-   follow the GLB pricing page; `--yes` records consent. Before either child
-   POST, the scoped GLB detail must show the prepaid credit payment flow that
-   the shipped bare create uses, with the field confirmed by the probe;
-   otherwise nothing is sent. The probe keeps balance records private. Help
-   and wiki name only a debit or hold attributable to a child resource, say
-   "undetermined" when none can be attributed, never "free", and state that
-   deletion promises no refund.
+   payment field. Child usage accrues under the parent GLB's existing billing
+   mode, which the caller chose when creating that GLB; the SDK neither
+   proves nor changes that mode, and help says so. `--yes` records consent.
+   The probe records cash and available balance privately immediately before
+   and after each child POST and DELETE. Help and wiki name only a debit or
+   hold attributable to a child resource, say "undetermined" when none can be
+   attributed, never "free", and state that deletion promises no refund.
 5. Ownership follows the shipped bare GLB delete: SDK-owned IAM-user login,
    default auth, GLB and vServer endpoints, and an exact scoped GLB detail
    read under that token. `BackendProjectID` must equal the client's resolved
@@ -347,9 +346,9 @@ Manager-only live plan under the [live-data rules][live]:
    before adding children.
 3. On that GLB, use one pool POST including its member, then one listener
    POST with the verified pool ID and a controlled source `/32`. Record
-   method, status, safe shape, IDs, transitions and chain evidence. Confirm
-   allowed and denied sources with one controlled TCP check each only if
-   approved. Do not send a second mutation to rescue missing evidence.
+   method, status, safe shape, IDs, transitions and chain evidence. One TCP
+   connection from the allowed `/32` must succeed; a denied-source check is
+   optional. Do not send a second mutation to rescue missing evidence.
 4. Use only recorded owned IDs. Re-read exclusive inventory, delete listener,
    group, pool, GLB, then server and any run-owned network resources in
    dependency order. Confirm absence and record billing and leftovers. Stop
