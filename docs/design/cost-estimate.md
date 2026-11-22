@@ -277,7 +277,7 @@ limits, and no observed term discount. Do not scrape or guess usage tariffs.
 Use one `internal/discovery.Session` across every auxiliary read and quote.
 Reuse its 500 default and 1..2000 request limit, 8 MiB bodies, 10000 collected
 rows, serial 500 ms attempt pacing, ten-minute child deadline, invocation cache,
-and [shared-wait exception](pricing-discovery.md#shared-waits-and-cancellation).
+and [cancellable shared waits](pricing-discovery.md#shared-waits-and-cancellation).
 No helper retry or resource wait exists. Preserve transport retry statuses,
 Retry-After, at most `2*(RetryCount+1)` attempts per logical call with one 401
 refresh, and one attempt for HTTP 500. Authentication is outside request counts.
@@ -395,5 +395,5 @@ owner approval and independent design, plan, and code review. Require the
    coverage, distinct processing/cost completeness, and exit 0 for deliberate
    unknowns. Automation must test `RequestedComplete` and inspect Coverage.
 6. Recommend discovery's bounds, fail-fast default, optional partial errors,
-   and shared-wait exception, with the new input limits above. Keep unknown
+   and cancellable shared waits, with the new input limits above. Keep unknown
    products unknown; any broader quote surface needs its own evidence and brief.

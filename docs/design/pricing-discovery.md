@@ -270,17 +270,19 @@ can send at most `2*(RetryCount+1)` attempts with one 401 refresh, excluding
 login. Refuse redirects on the new discovery call path so redirect replay does
 not evade its request scope. Apply limits through private per-invocation
 helpers, never mutate shared client settings. A ten-minute child deadline and
-earlier caller cancellation stop scheduling, sleeps, and requests, subject to
-the shared-wait exception below. No prompt-return deadline is promised.
+earlier caller cancellation stop scheduling, sleeps, and requests, and a
+waiter returns promptly at its own deadline.
 
 ### Shared waits and cancellation
 
-Discovery can wait behind another caller's in-flight project lookup or token
-refresh beyond its own deadline. No finite shared-wait bound is promised:
-HTTP timeouts bound individual requests, not queued operations or custom
-providers. Locks span network/token work at `internal/core/client.go:211`,
-`internal/core/project.go:68`, `internal/transport/discovery.go:125` and `:164`,
-and `internal/core/auth.go:70`.
+A caller waiting behind another caller's in-flight project lookup or token
+refresh returns its context error as soon as its own context ends. The shared
+work continues for its holder and is never cancelled by a waiter. Each
+coordination point (`internal/core/client.go:211`,
+`internal/core/project.go:68`, `internal/transport/discovery.go:125` and
+`:164`, `internal/core/auth.go:70`)
+waits on a result channel selected against the waiter's context, not on a
+blocking lock held across network or token work.
 
 After each acquisition, check context before cache changes, token invalidation,
 login, requests, or other work; return the context error if cancelled. Preserve
@@ -288,9 +290,9 @@ single-flight refresh, project ambiguity rules, and token identity. Cancellation
 must not clear another caller's token or invalidate a token the call never sent.
 
 Contention tests hold project lookup, initial refresh, and 401 refresh beyond
-the waiter's deadline, then release the holder. Require a context error after
-acquisition, no later work or token changes, and preserved token identity.
-Include shared IAM authentication; do not assert prompt return during a wait.
+the waiter's deadline. Require the waiter to return its context error before the
+holder is released, no later work or token changes, and preserved token
+identity; the holder still completes. Include shared IAM authentication.
 
 Cache catalogs and identical successful quotes within one invocation only.
 Existing token and project resolution caches stay intact.
@@ -398,10 +400,9 @@ fixtures. Implementation updates wiki and generated CLI pages. The manager runs
 5. Recommend the release order above, preserving fixture, compatibility, unit,
    and tariff gates. Use reviewed first-party notes without runtime scraping,
    eligibility reads, or automatic promotion application.
-6. Choose the shared-wait exception above (recommended), without prompt return
-   at the deadline, or require cancellable shared coordination as a separate
-   core change before release. The latter needs its own brief and independent
-   design/code review, with tests proving prompt cancellation under contention.
+6. Decided: shared coordination is cancellable per waiter, with prompt return
+   at the waiter's deadline, implemented as a separate core change with its own
+   review and contention tests.
 
 Open facts: [probe evidence](pricing-discovery-api.md#remaining-checks).
 Design approval establishes no API facts and grants no live-run authority.
