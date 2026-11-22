@@ -101,15 +101,3 @@
     "ExcludedGroups": null
   }
 }
-Usage:
-  estimate [flags]
-
-Examples:
-vngcloud pricing estimate --cli-input-json file://setup.json --allow-partial --max-requests 100 --output table
-
-Flags:
-      --allow-partial[=true|false]   
-      --cli-input-json string        a JSON object ('<json>' or file://path) supplying Input fields by their Go name
-  -h, --help[=true|false]            help for estimate
-      --max-requests int
-

@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"slices"
+	"strings"
 
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/discovery"
@@ -62,7 +64,44 @@ func (c *Client) exchangeDiscovery(k call) (*envelope, error) {
 	if k.regionID != "" {
 		req.Headers = pricecatalog.StorageHeaders(k.regionID)
 	}
-	return pricecatalog.StorageExchange(c.c, k.session, req, k.validate)
+	validate := func(raw json.RawMessage) error {
+		var env envelope
+		if json.Unmarshal(raw, &env) != nil {
+			return storageDiscoveryError(k.op, 200)
+		}
+		list := env.Datas
+		if len(list) == 0 {
+			list = env.Data
+		}
+		u, err := url.Parse(k.url)
+		if err != nil {
+			return err
+		}
+		var target any
+		switch {
+		case strings.HasSuffix(u.Path, "/regions"):
+			target = (*[]Region)(nil)
+		case strings.HasSuffix(u.Path, "/billing/project_types"):
+			target = (*[]struct {
+				ProjectType
+				StorageClass struct {
+					StoragePolicy string `json:"storagePolicy"`
+				} `json:"storageClass"`
+			})(nil)
+		case strings.HasSuffix(u.Path, "/billing/purchase_types"):
+			target = (*[]projectPurchaseType)(nil)
+		}
+		if target != nil {
+			if err := pricecatalog.ValidateFields(list, target); err != nil {
+				return err
+			}
+		}
+		if k.validate != nil {
+			return k.validate(raw)
+		}
+		return nil
+	}
+	return pricecatalog.StorageExchange(c.c, k.session, req, validate)
 }
 
 func (c *Client) discoveryRegion(s *discovery.Session, name string) (string, string, error) {
@@ -270,7 +309,7 @@ func validateStorageDiscoveryCatalog(catalog *projectCatalog) error {
 
 func (c *Client) decodeStorageDiscoveryPrice(op string, status int, raw json.RawMessage) (pricing.DiscoveryPrice, error) {
 	var env envelope
-	if json.Unmarshal(raw, &env) != nil || env.Success == nil {
+	if pricecatalog.ValidateFields(raw, &pricecatalog.EnvelopeFields{}) != nil || json.Unmarshal(raw, &env) != nil || env.Success == nil {
 		return pricing.DiscoveryPrice{}, storageDiscoveryError(op, status)
 	}
 	if !*env.Success {

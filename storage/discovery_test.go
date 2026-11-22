@@ -329,3 +329,42 @@ func TestStoragePrivateDecoderAdapterOutput(t *testing.T) {
 		t.Fatalf("adapter %s helper %s", actual, expected)
 	}
 }
+
+func TestStorageDiscoveryQuoteRejectsEnvelopeAliases(t *testing.T) {
+	for _, body := range []string{`{"success":true,"Data":{"optimumPrice":10}}`, `{"Success":true,"data":{"optimumPrice":10}}`, `{"success":true,"data":{"optimumPrice":10},"HasMore":false}`} {
+		t.Run(body, func(t *testing.T) {
+			c := newTestClient(t, storageDiscoveryHandler(t, func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }))
+			out, err := c.ListStoragePrices(discoveryTestContext(), &ListStoragePricesInput{Type: "Gold"})
+			var api *vngcloud.APIError
+			if out != nil || !errors.As(err, &api) || api.Code != "InvalidResponse" || api.StatusCode != 200 {
+				t.Fatalf("output_nil=%t error %v", out == nil, err)
+			}
+		})
+	}
+}
+
+func TestStorageDiscoveryCatalogRejectsFieldAliases(t *testing.T) {
+	for _, tc := range []struct{ name, path, body string }{
+		{"region metadata", "/internal/v1/regions", `{"success":true,"datas":[{"regionId":"region-2","regionName":"HCM04","Status":1}]}`},
+		{"type metadata", "/internal/v1/billing/project_types", `{"success":true,"datas":[{"id":1,"name":"Gold","status":1,"allowPeriod":[1],"DescriptionEn":"x","billableResources":[{"purchaseTypeId":4,"projectTypeId":1}]}]}`},
+		{"class metadata", "/internal/v1/billing/project_types", `{"success":true,"datas":[{"id":1,"name":"Gold","status":1,"allowPeriod":[1],"storageClass":{"StoragePolicy":"Gold"},"billableResources":[{"purchaseTypeId":4,"projectTypeId":1}]}]}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			base := storageDiscoveryHandler(t, func(w http.ResponseWriter, _ *http.Request) {
+				testutil.WriteFixture(t, w, fixtures+"discovery_quote_gold.json")
+			})
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == tc.path {
+					_, _ = w.Write([]byte(tc.body))
+					return
+				}
+				base.ServeHTTP(w, r)
+			}))
+			out, err := c.ListStoragePrices(discoveryTestContext(), &ListStoragePricesInput{Type: "Gold"})
+			var api *vngcloud.APIError
+			if out != nil || !errors.As(err, &api) || api.Code != "InvalidResponse" || api.StatusCode != 200 {
+				t.Fatalf("output_nil=%t error %v", out == nil, err)
+			}
+		})
+	}
+}

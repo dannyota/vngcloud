@@ -497,3 +497,48 @@ func TestVolumePrivateDecoderAdapterOutput(t *testing.T) {
 		t.Fatalf("adapter %s helper %s", actual, expected)
 	}
 }
+
+func TestVolumeDiscoveryValidationOperationCompatibility(t *testing.T) {
+	for _, tc := range []struct{ name, path, body string }{
+		{"parent schema", "/v1/project-1/volume_type_zones", `{"volumeTypeZones":[{}]}`},
+		{"parent decode", "/v1/project-1/volume_type_zones", `{"volumeTypeZones":null}`},
+		{"encryption schema", "/v1/project-1/volumes/encryption_types", `[{"key":"none"}]`},
+		{"encryption decode", "/v1/project-1/volumes/encryption_types", `{}`},
+		{"type schema", "/v1/project-1/fz-82/volume_types", `{"volumeTypes":[{}]}`},
+		{"type decode", "/v1/project-1/fz-82/volume_types", `{"volumeTypes":null}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newTestClient(t, volumeDiscoveryHandler(t, map[string]string{tc.path: tc.body}, func(http.ResponseWriter, *http.Request) { t.Error("unexpected quote") }))
+			_, err := c.ListVolumePrices(discoveryTestContext(), nil)
+			var api *vngcloud.APIError
+			if !errors.As(err, &api) || api.Operation != "volume.ListVolumePrices" || api.StatusCode != 200 || api.Code != "InvalidResponse" {
+				t.Fatalf("error %+v", api)
+			}
+		})
+	}
+}
+
+func TestVolumeDiscoveryRequestOperationCompatibility(t *testing.T) {
+	for _, tc := range []struct{ path, operation string }{
+		{"/v1/project-1/volume_type_zones", "volume.ListVolumeTypeZones"},
+		{"/v1/project-1/volumes/encryption_types", "volume.ListEncryptionTypes"},
+		{"/v1/project-1/fz-82/volume_types", "volume.ListVolumeTypes"},
+	} {
+		t.Run(tc.operation, func(t *testing.T) {
+			base := volumeDiscoveryHandler(t, nil, func(http.ResponseWriter, *http.Request) { t.Error("unexpected quote") })
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == tc.path {
+					w.WriteHeader(400)
+					_, _ = w.Write([]byte(`{}`))
+					return
+				}
+				base.ServeHTTP(w, r)
+			}))
+			_, err := c.ListVolumePrices(discoveryTestContext(), nil)
+			var api *vngcloud.APIError
+			if !errors.As(err, &api) || api.Operation != tc.operation || api.StatusCode != 400 {
+				t.Fatalf("error %v", err)
+			}
+		})
+	}
+}

@@ -89,11 +89,11 @@ func (c *Client) ListVolumePrices(ctx context.Context, in *ListVolumePricesInput
 	if in.ZoneID != "" && !slices.ContainsFunc(zones, func(z pricecatalog.Zone) bool { return z.ID == in.ZoneID }) {
 		return nil, fmt.Errorf("%w: unknown ZoneID", core.ErrInvalidInput)
 	}
-	parents, err := pricecatalog.VolumeParents(c.c, s, project)
+	parents, err := pricecatalog.VolumeParents(c.c, s, project, op)
 	if err != nil {
 		return nil, err
 	}
-	encryptions, err := pricecatalog.Encryptions(c.c, s, project)
+	encryptions, err := pricecatalog.Encryptions(c.c, s, project, op)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +107,7 @@ func (c *Client) ListVolumePrices(ctx context.Context, in *ListVolumePricesInput
 		}
 	}
 	for _, p := range parents {
-		values, readErr := pricecatalog.VolumeTypes(c.c, s, project, p.ID, true)
+		values, readErr := pricecatalog.VolumeTypes(c.c, s, project, p.ID, pricecatalog.VolumeTypeOptions{RequireDetails: true, ValidationOperation: op})
 		err = readErr
 		types := make([]VolumeType, 0, len(values))
 		for _, v := range values {

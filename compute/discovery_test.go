@@ -370,3 +370,13 @@ func TestFlavorPrivateDecoderAdapterOutput(t *testing.T) {
 		t.Fatalf("adapter %s helper %s", actual, expected)
 	}
 }
+
+func TestFlavorCatalogRejectsFieldAliases(t *testing.T) {
+	body := `[{"flavorId":"f-1","flavorZoneId":"fz-1","Name":"x","cpu":1,"memory":2,"remainingVms":1,"isSoldOut":false}]`
+	c := newTestClient(t, flavorDiscoveryHandler(t, map[string]string{"/v1/project-1/flavors/families/general-purpose/platforms/code-s2": body}, func(http.ResponseWriter, *http.Request) { t.Error("unexpected quote") }))
+	out, err := c.ListFlavorPrices(flavorDiscoveryContext(), &ListFlavorPricesInput{ZoneID: "HCM03-1C", Family: "general-purpose", Platform: "code-s2"})
+	var api *vngcloud.APIError
+	if out != nil || !errors.As(err, &api) || api.Code != "InvalidResponse" || api.StatusCode != 200 {
+		t.Fatalf("output_nil=%t error %v", out == nil, err)
+	}
+}

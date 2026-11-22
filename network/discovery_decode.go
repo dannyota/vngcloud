@@ -5,6 +5,7 @@ import (
 	"math"
 
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/pricequote"
 	"danny.vn/vngcloud/pricing"
 )
 
@@ -13,6 +14,9 @@ func invalidNetworkDiscovery(op string, status int) error {
 }
 
 func decodeNetworkDiscoveryPrice(op string, status int, raw json.RawMessage) (pricing.DiscoveryPrice, error) {
+	if err := pricequote.ValidateResponse(op, status, raw); err != nil {
+		return pricing.DiscoveryPrice{}, err
+	}
 	var value struct {
 		Optimum  *float64 `json:"optimumPrice"`
 		Original *float64 `json:"originalPrice"`
@@ -27,7 +31,6 @@ func decodeNetworkDiscoveryPrice(op string, status int, raw json.RawMessage) (pr
 			return pricing.DiscoveryPrice{}, invalidNetworkDiscovery(op, status)
 		}
 	}
-	// No evidenced free-entry catalog exists for these quote types.
 	if *value.Optimum == 0 {
 		return pricing.DiscoveryPrice{}, invalidNetworkDiscovery(op, status)
 	}

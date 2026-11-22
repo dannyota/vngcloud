@@ -5,15 +5,3 @@ ROOT DISK	VND	web	as-returned	20.00
 CES\n\t\x1b	VND	web	as-returned	unknown
 Known monthly subtotal	200.25 VND	monthly, VAT as returned, account-scoped estimate; not a commitment
 Requested monthly total (specified components only)	unknown VND	monthly, VAT as returned, account-scoped estimate; not a commitment
-Usage:
-  estimate [flags]
-
-Examples:
-vngcloud pricing estimate --cli-input-json file://setup.json --allow-partial --max-requests 100 --output table
-
-Flags:
-      --allow-partial[=true|false]   
-      --cli-input-json string        a JSON object ('<json>' or file://path) supplying Input fields by their Go name
-  -h, --help[=true|false]            help for estimate
-      --max-requests int
-

@@ -4,11 +4,9 @@ package pricequote
 import (
 	"encoding/json"
 	"math"
-	"strings"
 
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/discovery"
-	"danny.vn/vngcloud/internal/jsonresponse"
 	"danny.vn/vngcloud/internal/pricecatalog"
 	"danny.vn/vngcloud/internal/transport"
 )
@@ -34,6 +32,9 @@ func invalid(op string, status int) error {
 }
 
 func DecodeMonthly(op string, status int, raw json.RawMessage) (Price, error) {
+	if err := ValidateResponse(op, status, raw); err != nil {
+		return Price{}, err
+	}
 	var value struct {
 		Optimum  *float64 `json:"optimumPrice"`
 		Original *float64 `json:"originalPrice"`
@@ -59,6 +60,9 @@ func DecodeMonthly(op string, status int, raw json.RawMessage) (Price, error) {
 }
 
 func DecodeInstance(op string, status int, raw json.RawMessage) (Price, error) {
+	if err := ValidateResponse(op, status, raw); err != nil {
+		return Price{}, err
+	}
 	if err := validateEnvelope(op, status, raw); err != nil {
 		return Price{}, err
 	}
@@ -119,6 +123,7 @@ func validateEnvelope(op string, status int, raw json.RawMessage) error {
 }
 
 type estimateFields struct {
+	pricecatalog.EnvelopeFields
 	Optimum    *float64        `json:"optimumPrice"`
 	Original   *float64        `json:"originalPrice"`
 	Discount   *float64        `json:"discountPrice"`
@@ -127,14 +132,18 @@ type estimateFields struct {
 	Success    *bool           `json:"success"`
 	Data       *estimateFields `json:"data"`
 	Properties []struct {
-		Name    string   `json:"name"`
-		Monthly *float64 `json:"monthlyPrice"`
+		Name        string          `json:"name"`
+		Monthly     *float64        `json:"monthlyPrice"`
+		Optimum     json.RawMessage `json:"optimumPrice"`
+		Current     json.RawMessage `json:"currentPrice"`
+		Percent     json.RawMessage `json:"discountPercent"`
+		Description json.RawMessage `json:"description"`
 	} `json:"propertiesPrice"`
 }
 
 func DecodeEstimate(op string, status int, raw json.RawMessage, storage bool) (Result, error) {
 	fail := func() (Result, error) { return Result{}, invalid(op, status) }
-	if jsonresponse.ValidateStrict(raw, &estimateFields{}) != nil {
+	if pricecatalog.ValidateFields(raw, &estimateFields{}) != nil {
 		return fail()
 	}
 	if storage {
@@ -168,10 +177,7 @@ func DecodeEstimate(op string, status int, raw json.RawMessage, storage bool) (R
 	if json.Unmarshal(raw, &fields) != nil {
 		return fail()
 	}
-	for key, currency := range fields {
-		if !strings.EqualFold(key, "currency") {
-			continue
-		}
+	if currency, ok := fields["currency"]; ok {
 		var value string
 		if json.Unmarshal(currency, &value) != nil || value != "VND" {
 			return fail()
@@ -210,7 +216,7 @@ func Quote(c *core.Client, s *discovery.Session, req transport.Request, storage 
 	_, err := s.DoJSON(c, req, nil, func(status int, raw json.RawMessage) error {
 		if storage {
 			var env pricecatalog.StorageEnvelope
-			if jsonresponse.Validate(raw) != nil || json.Unmarshal(raw, &env) != nil || env.Success == nil {
+			if pricecatalog.ValidateFields(raw, &estimateFields{}) != nil || json.Unmarshal(raw, &env) != nil || env.Success == nil {
 				return invalid(req.Operation, status)
 			}
 			if !*env.Success {
@@ -228,4 +234,11 @@ func Quote(c *core.Client, s *discovery.Session, req transport.Request, storage 
 		return Result{}, err
 	}
 	return result, nil
+}
+
+func ValidateResponse(op string, status int, raw json.RawMessage) error {
+	if pricecatalog.ValidateFields(raw, &estimateFields{}) != nil {
+		return invalid(op, status)
+	}
+	return nil
 }

@@ -49,6 +49,9 @@ func ValidateImages(op string, status int, images []Image) error {
 }
 
 func (image *Image) UnmarshalJSON(raw []byte) error {
+	if err := ValidateFields(raw, (*Image)(nil)); err != nil {
+		return err
+	}
 	type identity struct {
 		ID           string                     `json:"id"`
 		ImageType    string                     `json:"imageType"`

@@ -70,7 +70,7 @@ func StorageExchange(c *core.Client, s *discovery.Session, req transport.Request
 	var env StorageEnvelope
 	_, err := s.DoJSON(c, req, nil, func(status int, raw json.RawMessage) error {
 		var fields map[string]json.RawMessage
-		if json.Unmarshal(raw, &fields) != nil || fields == nil || json.Unmarshal(raw, &env) != nil || env.Success == nil {
+		if ValidateFields(raw, &EnvelopeFields{}) != nil || json.Unmarshal(raw, &fields) != nil || fields == nil || json.Unmarshal(raw, &env) != nil || env.Success == nil {
 			return Invalid(req.Operation, status)
 		}
 		for _, key := range []string{"page", "paging", "pagination", "pageSize", "totalPage", "totalPages", "totalItem", "next", "nextPage", "hasMore", "continuationToken"} {
@@ -86,6 +86,15 @@ func StorageExchange(c *core.Client, s *discovery.Session, req transport.Request
 				return SafeStorageRefusal(c, req.Operation, status, &env)
 			}
 			return StorageRefusal(c, req.Operation, status, &env)
+		}
+		if req.Method == http.MethodGet {
+			rawList := env.Datas
+			if len(rawList) == 0 {
+				rawList = env.Data
+			}
+			if err := validateStorageList(req.URL, rawList); err != nil {
+				return Invalid(req.Operation, status)
+			}
 		}
 		if validate != nil {
 			if err := validate(raw); err != nil {
@@ -380,7 +389,7 @@ func storageList[T any](env StorageEnvelope) ([]T, error) {
 		raw = env.Data
 	}
 	var items []T
-	if json.Unmarshal(raw, &items) != nil || items == nil {
+	if ValidateFields(raw, &items) != nil || json.Unmarshal(raw, &items) != nil || items == nil {
 		return nil, errors.New("invalid storage catalog")
 	}
 	return items, nil
@@ -401,7 +410,7 @@ func ReadStorage(c *core.Client, s *discovery.Session, op, id string) (*StorageC
 			if len(list) == 0 {
 				list = env.Data
 			}
-			if json.Unmarshal(list, target) != nil {
+			if ValidateFields(list, target) != nil || json.Unmarshal(list, target) != nil {
 				return Invalid(op, 200)
 			}
 			return nil
@@ -475,4 +484,26 @@ func ValidateStorageRegion(op, configured, name string) error {
 		return fmt.Errorf("%w: %s: unknown vStorage region %q", core.ErrInvalidInput, op, name)
 	}
 	return nil
+}
+
+func validateStorageList(rawURL string, raw json.RawMessage) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return err
+	}
+	switch {
+	case strings.HasSuffix(u.Path, "/billing/project_types"):
+		return ValidateFields(raw, (*[]StorageType)(nil))
+	case strings.HasSuffix(u.Path, "/billing/purchase_types"):
+		return ValidateFields(raw, (*[]StoragePurchase)(nil))
+	case strings.HasSuffix(u.Path, "/regions"):
+		return ValidateFields(raw, (*[]StorageRegion)(nil))
+	case strings.HasSuffix(u.Path, "/configurations"):
+		return ValidateFields(raw, (*[]struct {
+			Key   string  `json:"key"`
+			Value *string `json:"value"`
+		})(nil))
+	default:
+		return nil
+	}
 }

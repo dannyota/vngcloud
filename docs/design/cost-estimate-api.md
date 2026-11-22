@@ -1,9 +1,10 @@
 # Setup estimate: evidence and checks
 
-This file records the evidence delta for [setup estimates](cost-estimate.md).
-It adds no live observation. Existing sources below establish bounded observed
-behavior, not universal account, region, image, discount, or purchase support.
-All estimate paths are proposed and unimplemented.
+This file records the evidence delta for [setup estimates](cost-estimate.md),
+now implemented in the SDK and CLI. Existing sources below and the
+[estimate fixtures](../../testdata/pricing/estimate-provenance.md) establish
+bounded observed behavior, not universal account, region, image, discount, or
+purchase support.
 
 ## Request and response contracts
 
@@ -116,8 +117,10 @@ the repository; no website or live API was contacted for this design.
    omits type keys. Established for recorded configurations by
    [paid quote evidence](vserver-paid-writes-api.md#quote-requests) and
    [encrypted live results](encrypted-volumes.md#live-results). No universal
-   CES percentage or type-independent tariff is assumed. Raw estimate decoder
-   fixtures for bundled/encrypted server responses remain missing.
+   CES percentage or type-independent tariff is assumed. Sanitized raw
+   bundled-data, encrypted-root, and encrypted-data server quotes back the
+   decoder; [estimate fixtures](../../testdata/pricing/estimate-provenance.md)
+   record them.
 4. Standalone volume quotes accept an optional encryption key. Tested encrypted
    prices equal plain, but do not include server CES. Established by
    [volume observations][volume-evidence] and encrypted live results. Existing
@@ -280,9 +283,6 @@ stdout output. A bounded watchdog must fail a blocking-open regression; do not
 open a writer to make the call pass. Also test regular files, directories, size
 boundaries, and descriptor-based validation without reopening the path.
 The manager runs `make check`, generated-doc freshness and SDK dependency
-boundary checks before landing. No dependency is proposed, so no dependency
-approval or new dependency scan is required by this design. Existing release
-security and vulnerability checks still apply.
-
-Not checked here: runtime tests, live behavior, manager-private raw captures,
-independent review, or implementation correctness of the proposed paths.
+boundary checks before landing. The feature adds no dependency, so no
+dependency approval or new dependency scan applies. Existing release security
+and vulnerability checks still apply. Estimates make no live call in tests.

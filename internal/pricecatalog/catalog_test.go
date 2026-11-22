@@ -75,7 +75,7 @@ func TestGuardedRegionalCatalogsShareSession(t *testing.T) {
 }
 
 func TestCatalogRejectionBeforeMemoization(t *testing.T) {
-	for _, body := range []string{`{}`, `{"data":null}`, `{"data":[{"uuid":"z-1"}]}`, `{"data":[{"uuid":"z-1","isEnabled":true},{"uuid":"z-1","isEnabled":false}]}`, `{"data":[],"isNext":false}`} {
+	for _, body := range []string{`{}`, `{"data":null}`, `{"data":[{"uuid":"z-1"}]}`, `{"data":[{"uuid":"z-1","isEnabled":true},{"uuid":"z-1","isEnabled":false}]}`, `{"data":[],"isNext":false}`, `{"data":[{"uuid":"z-1","isEnabled":false,"isEnabled":true}]}`, `{"data":[{"uuid":"z-1","IsEnabled":true}]}`} {
 		t.Run(body, func(t *testing.T) {
 			calls := 0
 			c := core.ClientOf(testutil.NewConfig(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { calls++; _, _ = w.Write([]byte(body)) })))
@@ -238,5 +238,21 @@ func TestStorageRegionValidation(t *testing.T) {
 		if (err == nil) != tc.valid || (err != nil && !errors.Is(err, core.ErrInvalidInput)) {
 			t.Fatalf("region %s %s error %v", tc.configured, tc.name, err)
 		}
+	}
+}
+
+func TestImageDecoderRejectsAmbiguousFields(t *testing.T) {
+	for _, body := range []string{
+		`{"id":"i-1","licence":true,"licence":false}`,
+		`{"id":"i-1","Licence":false}`,
+		`{"id":"i-1","packageLimit":{"DiskSize":20}}`,
+		`{"id":"i-1","packageLimit":{"diskSize":40,"diskSize":20}}`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			var image Image
+			if err := json.Unmarshal([]byte(body), &image); err == nil {
+				t.Fatal("accepted ambiguous image fields")
+			}
+		})
 	}
 }

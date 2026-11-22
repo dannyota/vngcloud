@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -50,7 +51,18 @@ func estimateTestOutput(state string) *pricing.EstimateOutput {
 
 func estimateTestCommand(t *testing.T, stdout, stderr io.Writer, format, query string, out *pricing.EstimateOutput, callErr error) *cobra.Command {
 	t.Helper()
-	newSvcRoot(t, newSvcFixture(nil))
+	root, _, _ := newSvcRoot(t, newSvcFixture(nil))
+	root.SetOut(stdout)
+	root.SetErr(stderr)
+	parent, _, err := root.Find([]string{"pricing"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, cmd := range parent.Commands() {
+		if cmd.Name() == "estimate" {
+			parent.RemoveCommand(cmd)
+		}
+	}
 	for _, op := range pricingOps {
 		if op.name != "estimate" {
 			continue
@@ -60,8 +72,9 @@ func estimateTestCommand(t *testing.T, stdout, stderr io.Writer, format, query s
 		cmd := newOpCmd(e, "pricing", pricing.New, op)
 		cmd.SetOut(stdout)
 		cmd.SetErr(stderr)
-		cmd.SetArgs([]string{"--cli-input-json", unknownEstimateSpec})
-		return cmd
+		parent.AddCommand(cmd)
+		root.SetArgs([]string{"pricing", "estimate", "--cli-input-json", unknownEstimateSpec})
+		return root
 	}
 	t.Fatal("pricing estimate is not registered")
 	return nil
@@ -84,6 +97,9 @@ func TestGoldenEstimate(t *testing.T) {
 				if format != "json" && (!strings.Contains(stderr.String(), "usage-not-priced") || !strings.Contains(stderr.String(), "not a commitment")) {
 					t.Fatalf("missing coverage/caveat: %s", &stderr)
 				}
+				if format == "json" && !json.Valid(stdout.Bytes()) {
+					t.Fatalf("invalid JSON stdout: %s", &stdout)
+				}
 				name := "pricing-estimate"
 				if state != "full" {
 					name += "-" + state
@@ -98,6 +114,9 @@ func TestGoldenEstimate(t *testing.T) {
 				want, err := os.ReadFile(path)
 				if err != nil {
 					t.Fatal(err)
+				}
+				if format == "json" && !json.Valid(want) {
+					t.Fatalf("invalid JSON golden: %s", path)
 				}
 				if !bytes.Equal(want, stdout.Bytes()) {
 					t.Fatalf("golden mismatch %s:\n%s", path, &stdout)

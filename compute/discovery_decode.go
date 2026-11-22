@@ -44,6 +44,17 @@ func decodeDiscoveryFlavors(op string, status int, raw json.RawMessage, key stri
 	if err != nil {
 		return nil, err
 	}
+	records := raw
+	if key != "" {
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(raw, &fields) != nil {
+			return nil, invalidFlavorDiscovery(op, status)
+		}
+		records = fields[key]
+	}
+	if pricecatalog.ValidateFields(records, (*[]Flavor)(nil)) != nil {
+		return nil, invalidFlavorDiscovery(op, status)
+	}
 	values := make([]Flavor, 0, len(entries))
 	for _, entry := range entries {
 		if entry == nil {

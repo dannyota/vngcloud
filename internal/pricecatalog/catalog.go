@@ -17,6 +17,9 @@ func Invalid(op string, status int) error {
 }
 
 func Array[T any](op string, status int, raw json.RawMessage, key string) ([]T, error) {
+	if ValidateFields(raw, &EnvelopeFields{}) != nil {
+		return nil, Invalid(op, status)
+	}
 	if key != "" {
 		var fields map[string]json.RawMessage
 		if json.Unmarshal(raw, &fields) != nil || fields == nil {
@@ -33,7 +36,7 @@ func Array[T any](op string, status int, raw json.RawMessage, key string) ([]T, 
 		raw = fields[key]
 	}
 	var values []T
-	if len(raw) == 0 || json.Unmarshal(raw, &values) != nil || values == nil {
+	if len(raw) == 0 || ValidateFields(raw, &values) != nil || json.Unmarshal(raw, &values) != nil || values == nil {
 		return nil, Invalid(op, status)
 	}
 	return values, nil
