@@ -45,6 +45,9 @@
   DNS `--vpc-ids`, monitor `--locations`, `--in-alarm`, and `--ok` accept
   repeatable values that override JSON. To set an explicit empty list, use
   `--cli-input-json`.
+- Serialize config and credentials edits with per-file locks so a concurrent
+  edit cannot clear a read-only profile, and write nothing when configure
+  input or a lock wait is canceled.
 
 ## v0.97.0 - Pre-1.0 hardening
 

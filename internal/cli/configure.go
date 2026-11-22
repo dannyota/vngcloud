@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -86,8 +87,8 @@ func newConfigureCmd(e *env) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:  "configure",
 		Args: noArgs,
-		RunE: func(*cobra.Command, []string) error {
-			return runConfigureInteractive(e)
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runConfigureInteractive(cmd.Context(), e)
 		},
 	}
 	cmd.AddCommand(newConfigureSetCmd(e))
@@ -100,8 +101,8 @@ func newConfigureSetCmd(e *env) *cobra.Command {
 	return &cobra.Command{
 		Use:  "set <key> <value>",
 		Args: exactArgs(2),
-		RunE: func(_ *cobra.Command, args []string) error {
-			return runConfigureSet(e, args[0], args[1])
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runConfigureSet(cmd.Context(), e, args[0], args[1])
 		},
 	}
 }
@@ -180,25 +181,7 @@ func validateProfileName(name string) error {
 	return nil
 }
 
-// checkReadOnlyNotTurnedOff refuses newValue when it would turn read_only
-// off for a profile that currently has it on, per the CLI design's
-// "Configure under read-only". A current value the CLI cannot parse is
-// treated as off here; LoadConfig itself would separately refuse the file
-// as invalid.
-func checkReadOnlyNotTurnedOff(envVar, defaultName, section, newValue string) error {
-	current, err := currentConfigureValue(envVar, defaultName, section, "read_only")
-	if err != nil {
-		return err
-	}
-	curOn, _ := parseOnOff(current)
-	newOn, _ := parseOnOff(newValue)
-	if curOn && !newOn {
-		return newUsageError("read_only is on for this profile; edit the file by hand to turn it off")
-	}
-	return nil
-}
-
-func runConfigureSet(e *env, key, value string) error {
+func runConfigureSet(ctx context.Context, e *env, key, value string) error {
 	if on, source, err := readOnlyPreConfig(e.flags); err != nil {
 		return err
 	} else if on {
@@ -221,7 +204,7 @@ func runConfigureSet(e *env, key, value string) error {
 		if isTerminal(e.stdin) {
 			return newUsageError("configure set %s - refuses a terminal on stdin; use configure instead", key)
 		}
-		read, err := readStdinValue(e.stdin)
+		read, err := cancelableInput(ctx, func() (string, error) { return readStdinValue(e.stdin) }, nil)
 		if err != nil {
 			return err
 		}
@@ -239,15 +222,7 @@ func runConfigureSet(e *env, key, value string) error {
 	if err := validateProfileName(profile); err != nil {
 		return err
 	}
-	envVar, defaultName := fileFor(key)
-	section := sectionFor(key, profile)
-
-	if key == "read_only" {
-		if err := checkReadOnlyNotTurnedOff(envVar, defaultName, section, value); err != nil {
-			return err
-		}
-	}
-	return setConfigureValue(envVar, defaultName, section, key, value)
+	return applyConfigureValues(ctx, e.flags, map[string]string{key: value})
 }
 
 func runConfigureGet(e *env, key string) error {
@@ -340,7 +315,7 @@ func readStdinValue(r io.Reader) (string, error) {
 	}
 }
 
-func runConfigureInteractive(e *env) error {
+func runConfigureInteractive(ctx context.Context, e *env) error {
 	if on, source, err := readOnlyPreConfig(e.flags); err != nil {
 		return err
 	} else if on {
@@ -359,6 +334,7 @@ func runConfigureInteractive(e *env) error {
 		return err
 	}
 	in := bufio.NewReader(e.stdin)
+	values := make(map[string]string)
 
 	for _, key := range configureKeyOrder {
 		envVar, defaultName := fileFor(key)
@@ -370,9 +346,9 @@ func runConfigureInteractive(e *env) error {
 
 		var value string
 		if configureKeys[key].secret {
-			value, err = promptSecret(e, configureLabels[key], current != "")
+			value, err = promptSecretContext(ctx, e, configureLabels[key], current != "")
 		} else {
-			value, err = promptLine(e, in, configureLabels[key], current)
+			value, err = cancelableInput(ctx, func() (string, error) { return promptLine(e, in, configureLabels[key], current) }, nil)
 		}
 		if err != nil {
 			return err
@@ -383,16 +359,57 @@ func runConfigureInteractive(e *env) error {
 		if err := validateConfigureValue(key, value); err != nil {
 			return err
 		}
-		if key == "read_only" {
-			if err := checkReadOnlyNotTurnedOff(envVar, defaultName, section, value); err != nil {
-				return err
-			}
-		}
-		if err := setConfigureValue(envVar, defaultName, section, key, value); err != nil {
-			return err
-		}
+		values[key] = value
 	}
-	return nil
+	if len(values) == 0 {
+		return ctx.Err()
+	}
+	return applyConfigureValues(ctx, e.flags, values)
+}
+
+func cancelableInput(ctx context.Context, read func() (string, error), cancel func()) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	type result struct {
+		value string
+		err   error
+	}
+	done := make(chan result, 1)
+	go func() { value, err := read(); done <- result{value, err} }()
+	select {
+	case <-ctx.Done():
+		if cancel != nil {
+			cancel()
+		}
+		return "", ctx.Err()
+	case r := <-done:
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		return r.value, r.err
+	}
+}
+
+func promptSecretContext(ctx context.Context, e *env, label string, hasCurrent bool) (string, error) {
+	var restore func()
+	if f, ok := e.stdin.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
+		state, err := term.GetState(int(f.Fd()))
+		if err != nil {
+			return "", err
+		}
+		restore = func() { _ = term.Restore(int(f.Fd()), state) }
+	}
+	value, err := cancelableInput(ctx, func() (string, error) {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		return promptSecret(e, label, hasCurrent)
+	}, restore)
+	if ctx.Err() != nil && restore != nil {
+		restore()
+	}
+	return value, err
 }
 
 func promptLine(e *env, in *bufio.Reader, label, current string) (string, error) {

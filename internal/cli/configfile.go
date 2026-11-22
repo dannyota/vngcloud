@@ -2,11 +2,13 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"danny.vn/vngcloud"
@@ -155,7 +157,7 @@ func readAllLimited(f *os.File, limit int64) ([]byte, error) {
 // (renamePath is already the resolved target, never the symlink itself), and
 // a crash leaves either the old or the new content, never a partial file.
 // The temp file is removed on every failure path.
-func writeAtomic(target writeTarget, content []byte) error {
+func writeAtomic(target writeTarget, content []byte, beforeRename func() error) error {
 	tmp, err := os.CreateTemp(target.dir, ".vngcloud-configure-*")
 	if err != nil {
 		return fmt.Errorf("%w: %s: %w", vngcloud.ErrInvalidConfig, target.dir, err)
@@ -181,6 +183,9 @@ func writeAtomic(target writeTarget, content []byte) error {
 	}
 	if err := os.Chmod(name, 0o600); err != nil {
 		return fmt.Errorf("%w: %s: %w", vngcloud.ErrInvalidConfig, target.renamePath, err)
+	}
+	if err := beforeRename(); err != nil {
+		return err
 	}
 	if err := os.Rename(name, target.renamePath); err != nil {
 		return fmt.Errorf("%w: %s: %w", vngcloud.ErrInvalidConfig, target.renamePath, err)
@@ -355,32 +360,97 @@ func readINIValue(content []byte, section, key string) string {
 	return value
 }
 
-// setConfigureValue resolves path, prepares its directory and any symlink,
-// edits key in section to value, and writes the result back atomically. kind
-// names the file for error messages ("config" or "credentials").
-//
-// It refuses, before touching anything, a value holding a newline: the INI
-// format has no quoting, so an embedded newline would let a value inject a
-// new key or a whole new section into the file. This is checked here, the
-// single path every caller (configure set and the interactive configure
-// prompt) writes through, rather than in each caller.
-func setConfigureValue(envVar, defaultName, section, key, value string) error {
-	if strings.ContainsAny(value, "\r\n") {
-		return newUsageError("%s cannot contain a newline", key)
-	}
+func configureLockPath(envVar, defaultName string) (string, error) {
 	path, explicit, err := resolveConfigureFilePath(envVar, defaultName)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if err := ensureParentDir(path, explicit); err != nil {
-		return err
+		return "", err
 	}
 	target, err := loadForEdit(path)
 	if err != nil {
+		return "", err
+	}
+	dir, err := filepath.EvalSymlinks(filepath.Dir(target.renamePath))
+	if err != nil {
+		return "", err
+	}
+	return filepath.Abs(filepath.Join(dir, filepath.Base(target.renamePath)) + ".lock")
+}
+
+func applyConfigureValues(ctx context.Context, flags *globalFlags, values map[string]string) error {
+	for key, value := range values {
+		if strings.ContainsAny(value, "\r\n") {
+			return newUsageError("%s cannot contain a newline", key)
+		}
+	}
+	configLock, err := configureLockPath(envConfigFileVar, defaultConfigName)
+	if err != nil {
 		return err
 	}
-	newContent := setINIValue(target.content, section, key, value)
-	return writeAtomic(target, newContent)
+	locks := []string{configLock}
+	for key := range values {
+		if configureKeys[key].inCredentials {
+			credentialsLock, err := configureLockPath(envCredsFileVar, defaultCredsName)
+			if err != nil {
+				return err
+			}
+			if credentialsLock != configLock {
+				locks = append(locks, credentialsLock)
+			}
+			break
+		}
+	}
+	sort.Strings(locks)
+	for _, path := range locks {
+		unlock, err := acquireConfigLock(ctx, path)
+		if err != nil {
+			return err
+		}
+		defer unlock()
+	}
+	check := func() error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return refuseConfigureProfileWrite(flags)
+	}
+	if err := check(); err != nil {
+		return err
+	}
+	profile := resolvedProfileName(flags)
+	for _, creds := range []bool{true, false} {
+		var keys []string
+		for key := range values {
+			if configureKeys[key].inCredentials == creds {
+				keys = append(keys, key)
+			}
+		}
+		if len(keys) == 0 {
+			continue
+		}
+		envVar, defaultName := fileFor(keys[0])
+		file, explicit, err := resolveConfigureFilePath(envVar, defaultName)
+		if err != nil {
+			return err
+		}
+		if err := ensureParentDir(file, explicit); err != nil {
+			return err
+		}
+		target, err := loadForEdit(file)
+		if err != nil {
+			return err
+		}
+		content := target.content
+		for _, key := range keys {
+			content = setINIValue(content, sectionFor(key, profile), key, values[key])
+		}
+		if err := writeAtomic(target, content, check); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // currentConfigureValue reads key's current value from section without
