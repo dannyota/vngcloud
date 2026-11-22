@@ -73,10 +73,10 @@ These are console contracts, not live API results.
   Absent or null `data`, an absent or null `encryption`, and a non-boolean
   value give `*APIError` code `InvalidResponse`. Never decode missing
   encryption state as false.
-- `PutBucketEncryptionInput` has the same identifiers plus `Enabled bool`.
-  This is a complete target state, not a partial update: false means
-  disable. Send `enable` even when false. Unlike versioning's `*bool`, the
-  SDK cannot distinguish an omitted field from false; document that rule.
+- `PutBucketEncryptionInput` has the same identifiers plus a required
+  `Enabled *bool`. It is a complete target state: false disables, true
+  enables, and a nil value is refused before any request so an omitted
+  field can never disable encryption. Send `enable` even when false.
 - `PutBucketEncryptionOutput` is `{}`. After a successful PUT envelope,
   call `GetBucketEncryption` once under the caller's context. Return
   success only when `Enabled` matches the requested state. No polling or

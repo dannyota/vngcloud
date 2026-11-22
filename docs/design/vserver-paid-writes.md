@@ -94,8 +94,9 @@ The paid write runs these steps, in order, and stops at the first failure:
 6. Wait, unless `NoWait` is set.
 
 `MaxPrice` is VND for the quoted operation: monthly for creates, the
-quoted adjustment for resizes. `MonthlyPrice` retains its existing name
-and holds that quote, not the charged or refunded amount. The order has
+quoted adjustment for resizes. Resize outputs name it `QuotedAdjustment`:
+the signed remaining-term quote, not the charged or refunded amount. The
+order has
 no price condition; see [race
 limits](vserver-paid-writes-resize.md#evidence).
 
@@ -135,7 +136,7 @@ All methods live in `compute`. "(r)" marks `vngcloud:"required"`.
 | `StopServer` | `ServerID` (r), `NoWait` | `{Server; Changed}` |
 | `RebootServer` | `ServerID` (r), `NoWait` | `{Server}` |
 | `QuoteResizeServer` | `*ResizeServerInput` | `pricing.GetQuoteOutput` |
-| `ResizeServer` | `ServerID` (r), `FlavorID` (r), `MaxPrice`, `NoWait` | `{Server; MonthlyPrice}` |
+| `ResizeServer` | `ServerID` (r), `FlavorID` (r), `MaxPrice`, `NoWait` | `{Server; QuotedAdjustment}` |
 | `RenameServer` | `ServerID` (r), `Name` (r) | `{Server}` |
 
 ### Create
@@ -222,7 +223,7 @@ All methods live in `volume`.
 | `CreateVolume` | `Name` (r), `ZoneID` (r), `Size` (r), `VolumeTypeID` (r), `AutoRenew`, `MaxPrice`, `NoWait` | `{Volume; MonthlyPrice}` |
 | `DeleteVolume` | `VolumeID` (r), `NoWait` | `{}` |
 | `QuoteResizeVolume` | `*ResizeVolumeInput` | `pricing.GetQuoteOutput` |
-| `ResizeVolume` | `VolumeID` (r), `Size` (r), `MaxPrice`, `NoWait` | `{Volume; MonthlyPrice}` |
+| `ResizeVolume` | `VolumeID` (r), `Size` (r), `MaxPrice`, `NoWait` | `{Volume; QuotedAdjustment}` |
 | `AttachVolume` | `VolumeID` (r), `ServerID` (r), `NoWait` | `{Volume; Changed}` |
 | `DetachVolume` | `VolumeID` (r), `ServerID` (r), `AllowRunning`, `NoWait` | `{Volume; Changed}` |
 
@@ -410,7 +411,8 @@ results and the quote-to-charge race. No new dependency or CLI bypass is needed.
     resize quote reader report credits. A server-only opt-in would leave
     the generic and load balancer quote readers inconsistent.
 20. Credit presentation and guard. Decided: keep signed `OptimumPrice`
-    and `MonthlyPrice`, with no new credit field, and let a credit pass
+    and the resize output's signed `QuotedAdjustment` (renamed from
+    `MonthlyPrice` before v1), with no new credit field, and let a credit pass
     `ResizeServer` at every valid `MaxPrice`; zero stays `ErrUnpriced`.
     The residual race is accepted explicitly: a concurrent change can
     turn a quoted credit into a charge at `MaxPrice` 0, because the write
