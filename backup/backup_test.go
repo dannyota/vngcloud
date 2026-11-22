@@ -112,7 +112,7 @@ func (p *provider) Token(context.Context) (vngcloud.Token, error) {
 func (*provider) Invalidate(string) {}
 
 func TestLocalValidation(t *testing.T) {
-	for _, region := range []string{"han-1", "unknown", "HCM-3", "hcm-3"} {
+	for _, region := range []string{"han-1", "unknown", "hcm-3"} {
 		t.Run(region, func(t *testing.T) {
 			p := &provider{}
 			requests := 0

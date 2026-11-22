@@ -430,14 +430,14 @@ func TestTokenSourceRestoresRejectedAfterCacheGetFails(t *testing.T) {
 		cache:     tokencache.New(dir, time.Now),
 		cacheKey:  key,
 	}
-	source.rejected = "tok-old"
+	source.rejected = newServiceAccountSecret("tok-old")
 
 	canceledCtx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, err := source.Token(canceledCtx); err == nil {
 		t.Fatal("expected an error from a canceled login attempt")
 	}
-	if source.rejected != "tok-old" {
+	if privateSecretValue(source.rejected) != "tok-old" {
 		t.Fatalf("rejected = %q, want tok-old restored after the failed Get", source.rejected)
 	}
 

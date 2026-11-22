@@ -1,5 +1,12 @@
 # Configuration
 
+Regions must be lowercase DNS labels of at most 63 bytes. Invalid labels fail
+before authentication or endpoint construction, including with explicit
+endpoint overrides. Ordinary API responses have an 8 MiB decompressed limit
+unless the operation selects an explicit limit. An overflow returns no partial
+body and never reaches response capture. These are SDK safety limits, not
+verified API maxima.
+
 ## LoadConfig
 
 `vngcloud.LoadConfig(ctx, opts...)` resolves a `Config` from options,
@@ -383,7 +390,10 @@ stores neither the client secret nor Basic authorization headers. Old
 entries and issued tokens can remain after rotation.
 
 The cache directory is created with mode 0700, and each token file with mode
-0600; a pre-existing directory that group or others can access is refused.
+0600. Both authentication methods refuse symlink directories and token or
+lock entries, nonregular files, mismatched opened inodes, and group/other
+access. Token reads stop at 64 KiB; oversized IAM entries fail closed.
+Windows retains its mode-bit exception.
 
 One locked operation per credential set reads the cached token, logs in only
 if it is missing, expiring within 30 seconds, or was rejected by the server
@@ -391,8 +401,8 @@ at least 30 seconds ago, and writes the result back, so two processes
 sharing one profile never log in with the same TOTP code. The lock is tried
 without blocking, then retried with backoff until the call's context ends;
 a lock file is never deleted, and a failed cache write after a successful
-IAM login still returns the fresh token. Service-account cache directory,
-read, and lock failures return `vngcloud.ErrTokenCache`, without falling
+IAM login still returns the fresh token. Unsafe IAM cache entries and
+service-account cache directory, read, and lock failures return `vngcloud.ErrTokenCache`, without falling
 back to an uncached exchange. A cache write failure after a successful
 exchange still returns the fresh token. On Linux, macOS, and the BSDs the lock
 uses `flock`; on Windows it opens the lock file with an exclusive share

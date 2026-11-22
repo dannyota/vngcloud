@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"sync"
 	"time"
 
 	"danny.vn/vngcloud/internal/iamuser"
+	"danny.vn/vngcloud/internal/transport"
 )
 
 // timeNow is overridden in tests to control the 30-second freshness window
@@ -19,21 +19,31 @@ var timeNow = time.Now
 
 // IAMUserAuth holds IAM User credentials for GreenNode console authentication.
 type IAMUserAuth struct {
+	// RootEmail identifies the root account.
 	RootEmail string
-	Username  string
-	Password  string
-	TOTP      TOTPProvider
+	// Username identifies the IAM user.
+	Username string
+	// Password supplies the IAM login password.
+	Password Secret
+	// TOTP supplies one-time codes when required.
+	TOTP TOTPProvider
 
-	// Advanced test hooks. Leave empty for normal SDK use.
+	// SigninBaseURL overrides the IAM sign-in endpoint.
 	SigninBaseURL string
-	TokenURL      string
-	DashboardURI  string
-	HTTPClient    *http.Client
+	// TokenURL overrides the IAM token endpoint.
+	TokenURL string
+	// DashboardURI overrides the login redirect URI.
+	DashboardURI string
+	// HTTPClient sends IAM login requests when set.
+	HTTPClient *http.Client
 
-	mu          sync.Mutex
-	cachedToken string
-	expiresAt   time.Time
-	obtainedAt  time.Time
+	mu           transport.Gate
+	cachedToken  *serviceAccountSecret
+	expiresAt    time.Time
+	obtainedAt   time.Time
+	loginMu      transport.Gate
+	failedAt     time.Time
+	loginFailure error
 }
 
 type loginEndpoints struct {
@@ -58,23 +68,17 @@ func (a *IAMUserAuth) validate() error {
 	return nil
 }
 
-// token returns a token for ep, reusing the in-memory cache when it is
-// fresh and otherwise performing one login while holding mu, so concurrent
-// callers sharing this IAMUserAuth (whether from one Config or several)
-// never log in more than once for the same request. This is the path used
-// when no token cache directory is configured; with one configured,
-// iamTokenSource instead calls cachedIfFresh, doLogin, and remember
-// directly, so the cross-process disk lock (not this mutex) is what
-// serializes the actual login.
 func (a *IAMUserAuth) token(ctx context.Context, ep loginEndpoints, logger *slog.Logger) (string, time.Time, error) {
-	a.mu.Lock()
+	if err := a.mu.LockContext(ctx); err != nil {
+		return "", time.Time{}, err
+	}
 	defer a.mu.Unlock()
 	if err := ctx.Err(); err != nil {
 		return "", time.Time{}, err
 	}
 
-	if a.cachedToken != "" && time.Until(a.expiresAt) > 30*time.Second {
-		return a.cachedToken, a.expiresAt, nil
+	if a.cachedToken != nil && time.Until(a.expiresAt) > 30*time.Second {
+		return string(*a.cachedToken), a.expiresAt, nil
 	}
 
 	token, expiresAt, err := a.doLogin(ctx, ep, logger)
@@ -85,18 +89,36 @@ func (a *IAMUserAuth) token(ctx context.Context, ep loginEndpoints, logger *slog
 	if err := ctx.Err(); err != nil {
 		return "", time.Time{}, err
 	}
-	a.cachedToken = token
+	a.cachedToken = newServiceAccountSecret(token)
 	a.expiresAt = expiresAt
 	a.obtainedAt = obtainedAt
-	return a.cachedToken, a.expiresAt, nil
+	return string(*a.cachedToken), a.expiresAt, nil
 }
 
-// doLogin performs one physical login against ep. It touches no cache,
-// in-memory or on disk: callers decide separately whether to record the
-// result. logger, when non-nil, gets exactly "login started" before the
-// attempt and "login finished" with its outcome after; iamuser's own HTTP
-// requests are never logged.
-func (a *IAMUserAuth) doLogin(ctx context.Context, ep loginEndpoints, logger *slog.Logger) (string, time.Time, error) {
+func (a *IAMUserAuth) doLogin(ctx context.Context, ep loginEndpoints, logger *slog.Logger) (token string, expiresAt time.Time, err error) {
+	if err := a.loginMu.LockContext(ctx); err != nil {
+		return "", time.Time{}, err
+	}
+	defer a.loginMu.Unlock()
+	age := timeNow().Sub(a.failedAt)
+	if a.loginFailure != nil && age >= 0 && age < 30*time.Second {
+		return "", time.Time{}, a.loginFailure
+	}
+	if err := ctx.Err(); err != nil {
+		return "", time.Time{}, err
+	}
+	defer func() {
+		if err == nil {
+			a.loginFailure = nil
+			return
+		}
+		a.failedAt = timeNow()
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			a.loginFailure = &LoginError{Err: ErrAuth, Reason: "login failed"}
+		} else {
+			a.loginFailure = err
+		}
+	}()
 	if err := ctx.Err(); err != nil {
 		return "", time.Time{}, err
 	}
@@ -104,7 +126,7 @@ func (a *IAMUserAuth) doLogin(ctx context.Context, ep loginEndpoints, logger *sl
 	req := iamuser.LoginRequest{
 		RootEmail:     a.RootEmail,
 		Username:      a.Username,
-		Password:      a.Password,
+		Password:      a.Password.Reveal(),
 		TOTP:          a.TOTP,
 		SigninBaseURL: firstNonEmpty(a.SigninBaseURL, ep.signin),
 		TokenURL:      firstNonEmpty(a.TokenURL, ep.token),
@@ -191,12 +213,14 @@ func (a *IAMUserAuth) Invalidate(sent string) {
 }
 
 func (a *IAMUserAuth) invalidateContext(ctx context.Context, sent string) error {
-	a.mu.Lock()
+	if err := a.mu.LockContext(ctx); err != nil {
+		return err
+	}
 	defer a.mu.Unlock()
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if sent == "" || a.cachedToken != sent {
+	if sent == "" || a.cachedToken == nil || string(*a.cachedToken) != sent {
 		return nil
 	}
 	age := timeNow().Sub(a.obtainedAt)
@@ -204,7 +228,7 @@ func (a *IAMUserAuth) invalidateContext(ctx context.Context, sent string) error 
 		return err
 	}
 	if age < 0 || age >= 30*time.Second {
-		a.cachedToken = ""
+		a.cachedToken = nil
 		a.expiresAt = time.Time{}
 	}
 	return nil
@@ -221,24 +245,28 @@ func firstNonEmpty(values ...string) string {
 
 // cachedIfFresh checks context after acquiring the shared IAM lock.
 func (a *IAMUserAuth) cachedIfFresh(ctx context.Context) (string, time.Time, bool, error) {
-	a.mu.Lock()
+	if err := a.mu.LockContext(ctx); err != nil {
+		return "", time.Time{}, false, err
+	}
 	defer a.mu.Unlock()
 	if err := ctx.Err(); err != nil {
 		return "", time.Time{}, false, err
 	}
-	if a.cachedToken != "" && time.Until(a.expiresAt) > 30*time.Second {
-		return a.cachedToken, a.expiresAt, true, nil
+	if a.cachedToken != nil && time.Until(a.expiresAt) > 30*time.Second {
+		return string(*a.cachedToken), a.expiresAt, true, nil
 	}
 	return "", time.Time{}, false, nil
 }
 
 // remember retains the disk token's original obtain time for 401 recovery.
 func (a *IAMUserAuth) remember(ctx context.Context, token string, expiresAt, obtainedAt time.Time) error {
-	a.mu.Lock()
+	if err := a.mu.LockContext(ctx); err != nil {
+		return err
+	}
 	defer a.mu.Unlock()
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	a.cachedToken, a.expiresAt, a.obtainedAt = token, expiresAt, obtainedAt
+	a.cachedToken, a.expiresAt, a.obtainedAt = newServiceAccountSecret(token), expiresAt, obtainedAt
 	return nil
 }

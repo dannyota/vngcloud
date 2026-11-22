@@ -217,10 +217,8 @@ func TestEstimateSharedIAMWaiterDeadline(t *testing.T) {
 	}))
 	defer api.Close()
 	auth := &vngcloud.IAMUserAuth{RootEmail: "root@example.test", Username: "synthetic-user", Password: "synthetic-password", SigninBaseURL: signin.URL, TokenURL: token.URL, DashboardURI: token.URL + "/"}
-	build := func() *Client {
-		return New(estimateHTTPConfig(t, api.URL, vngcloud.WithStaticToken(""), vngcloud.WithIAMUser(auth)))
-	}
-	holderClient, waiterClient := build(), build()
+	cfg := estimateHTTPConfig(t, api.URL, vngcloud.WithStaticToken(""), vngcloud.WithIAMUser(auth))
+	holderClient, waiterClient := New(cfg), New(cfg)
 	in := &EstimateInput{PublicIPs: []EstimatePublicIP{{Key: "ip", Kind: "public-vip", Type: "public", Quantity: 1}}}
 	holder := make(chan error, 1)
 	go func() { _, err := holderClient.Estimate(estimateContext(), in); holder <- err }()
@@ -230,12 +228,19 @@ func TestEstimateSharedIAMWaiterDeadline(t *testing.T) {
 	waiter := make(chan error, 1)
 	go func() { _, err := waiterClient.Estimate(ctx, in); waiter <- err }()
 	<-ctx.Done()
+	select {
+	case err := <-waiter:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			close(release)
+			t.Fatalf("waiter %v", err)
+		}
+	case <-time.After(time.Second):
+		close(release)
+		t.Fatal("waiter did not return before holder release")
+	}
 	close(release)
 	if err := <-holder; err != nil {
 		t.Fatal(err)
-	}
-	if err := <-waiter; !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("waiter %v", err)
 	}
 	if _, err := waiterClient.Estimate(estimateContext(), in); err != nil {
 		t.Fatal(err)

@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"danny.vn/vngcloud/internal/discovery"
+	"danny.vn/vngcloud/internal/jsonresponse"
 	"danny.vn/vngcloud/internal/routes"
 	"danny.vn/vngcloud/internal/transport"
 )
@@ -28,7 +29,9 @@ func (c *Client) RequireDiscoveryProjectID(s *discovery.Session) (string, error)
 		return "", c.err
 	}
 	ctx := s.Context()
-	c.projectMu.Lock()
+	if err := c.projectMu.LockContext(ctx); err != nil {
+		return "", err
+	}
 	defer c.projectMu.Unlock()
 	if err := ctx.Err(); err != nil {
 		return "", err
@@ -74,6 +77,9 @@ func (c *Client) RequireDiscoveryProjectID(s *discovery.Session) (string, error)
 }
 
 func decodeDiscoveryProjects(op string, status int, raw json.RawMessage) ([]Project, error) {
+	if jsonresponse.ValidateStrict(raw, &listProjectsResponse{}) != nil {
+		return nil, discoverySchemaError(op, status)
+	}
 	var envelope map[string]json.RawMessage
 	if json.Unmarshal(raw, &envelope) != nil {
 		return nil, discoverySchemaError(op, status)

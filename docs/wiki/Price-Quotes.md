@@ -196,6 +196,10 @@ price belongs to the account and uses VND with tax as returned. Discovery
 metadata records the region, logical request count, completion coverage, safe
 failures, and pricing notes. `QuotedAt` is UTC completion time, not an atomic
 snapshot. Unread excluded catalogs have a nil `ExcludedGroups` count.
+A discovery invocation retains at most 32 MiB of successful response bodies.
+Exceeding that safety limit stops further scheduling with an incomplete result;
+the overflowing response is neither decoded into output nor cached. The limit
+is an SDK choice, not a verified API maximum.
 
 `pricing.PricingNote` distinguishes published, observed, conflicting, and
 unverified evidence. `pricing.DiscoveryNotes()` returns reviewed source notes

@@ -29,13 +29,14 @@ func (f TOTPFunc) GetCode(ctx context.Context) (string, error) {
 
 // SecretTOTP generates a code from its configured secret.
 type SecretTOTP struct {
-	Secret string
+	// Secret supplies a base32 seed or otpauth URI.
+	Secret Secret
 }
 
 // GetCode generates the current six-digit code.
 func (s *SecretTOTP) GetCode(context.Context) (string, error) {
 	key, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(
-		normalizeTOTPSecret(s.Secret),
+		normalizeTOTPSecret(s.Secret.Reveal()),
 	)
 	if err != nil {
 		return "", fmt.Errorf("decode TOTP secret: %w", err)

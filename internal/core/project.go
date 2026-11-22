@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -39,8 +40,8 @@ func (c *Client) ListProjects(ctx context.Context, opts *ListProjectsOptions) ([
 		region = opts.Region
 	}
 
-	var resp listProjectsResponse
-	err := c.DoJSON(ctx, transport.Request{
+	var raw json.RawMessage
+	status, err := c.DoJSONStatus(ctx, transport.Request{
 		Operation: "project.ListProjects",
 		Method:    "GET",
 		URL: c.RouteURL(routes.Route{
@@ -49,13 +50,17 @@ func (c *Client) ListProjects(ctx context.Context, opts *ListProjectsOptions) ([
 			Parts:   []string{"projects"},
 		}),
 		OK: []int{200},
-	}, &resp)
+	}, &raw)
 	if err != nil {
 		return nil, err
 	}
 
-	projects := make([]Project, 0, len(resp.Projects))
-	for _, project := range resp.Projects {
+	items, err := decodeDiscoveryProjects("project.ListProjects", status, raw)
+	if err != nil {
+		return nil, err
+	}
+	projects := make([]Project, 0, len(items))
+	for _, project := range items {
 		if project.Region == "" {
 			project.Region = region
 		}

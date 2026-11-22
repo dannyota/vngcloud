@@ -205,7 +205,7 @@ func iamUserGoogleGates(write, user, google string) bool {
 func newIAMUserGoogle(cfg vngcloud.Config) *iamUserGoogle {
 	return &iamUserGoogle{c: core.ClientOf(cfg), now: time.Now, wait: iamUserGoogleWait,
 		code: func(ctx context.Context, seed string) (string, error) {
-			return (&vngcloud.SecretTOTP{Secret: seed}).GetCode(ctx)
+			return (&vngcloud.SecretTOTP{Secret: vngcloud.Secret(seed)}).GetCode(ctx)
 		}}
 }
 

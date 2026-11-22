@@ -177,7 +177,8 @@ cause, or decoder cause enters the error or its unwrap chain. Invalid
 selected credentials fail before requests with `ErrInvalidConfig`.
 
 `vngcloud.ErrTokenCache` has the fixed text `vngcloud: token cache unavailable`.
-It identifies service-account cache directory, read, and lock failures and
+It identifies unsafe IAM cache entries and service-account cache directory,
+read, and lock failures and
 matches neither `ErrAuth` nor `ErrInvalidConfig`. The SDK returns the
 sentinel alone, without a path, hash, credential, or filesystem cause in
 its text or unwrap chain. An ended caller context takes precedence and

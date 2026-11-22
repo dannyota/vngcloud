@@ -19,6 +19,16 @@
   discovery waiters to cancel independently. Key recovery requires proven
   ownership. Reject explicit null pagination and retain definite bucket
   refusals, including NotFound exit 4. SDK fields and CLI flags stay compatible.
+- Breaking: `IAMUserAuth.Password` and `SecretTOTP.Secret` now use
+  `vngcloud.Secret`; wrap string variables with `vngcloud.Secret(value)`.
+  IAM options snapshot credentials and known TOTP seeds; rebuild configs to
+  change identities. Unsafe regions, cache entries, malformed inventories,
+  and invalid token lifespans fail closed. Ordinary responses default to
+  8 MiB, IAM login replies to 1 MiB, and retained discovery bodies to 32 MiB.
+  Shared auth and project waiters cancel independently without changing the
+  holder's state. No TOTP step is sent twice: a later login in the same
+  30-second step waits for the next one, and only server-rejected logins are
+  held for 30 seconds.
 
 ## v0.97.0 - Pre-1.0 hardening
 

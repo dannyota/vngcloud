@@ -41,7 +41,7 @@ type Client struct {
 	// call fails with ErrInvalidConfig instead of a nil-pointer panic.
 	err error
 
-	projectMu     sync.Mutex
+	projectMu     transport.Gate
 	projectID     string
 	projectUserID int
 
@@ -84,8 +84,8 @@ func newClient(opts ...Option) (*Client, error) {
 // variables, and profile files, so those resolved values are set once, not
 // overridden by re-applying the caller's original options afterward.
 func buildClient(settings clientConfig) (*Client, error) {
-	if settings.region == "" {
-		return nil, fmt.Errorf("%w: Region is required", ErrInvalidConfig)
+	if !endpoints.ValidRegion(settings.region) {
+		return nil, fmt.Errorf("%w: Region must be a lowercase DNS label of at most 63 bytes", ErrInvalidConfig)
 	}
 	if settings.credentials == nil && settings.staticToken == "" {
 		if settings.serviceAccount != nil {
@@ -110,7 +110,7 @@ func buildClient(settings clientConfig) (*Client, error) {
 	case settings.credentials != nil:
 		ts = settings.credentials
 	case settings.staticToken != "":
-		ts = staticTokenSource(settings.staticToken)
+		ts = staticTokenSource{token: newServiceAccountSecret(settings.staticToken)}
 	case settings.serviceAccount != nil:
 		source := newServiceAccountTokenSource(settings.serviceAccount, settings.timeout, logger, settings.serviceAccountTransport, settings.serviceAccountClock)
 		if settings.tokenCacheDir != "" {
@@ -189,13 +189,13 @@ func (c *Client) Authenticate(ctx context.Context) error {
 	return wrapTransportErr(c.transport.EnsureToken(ctx))
 }
 
-type staticTokenSource string
+type staticTokenSource struct{ token *serviceAccountSecret }
 
 // Token returns the static token with a rolling 24-hour expiry window.
 // NeedsRefresh will periodically re-invoke this source, which simply
 // re-issues the same unchanging token; a static token never truly refreshes.
 func (s staticTokenSource) Token(context.Context) (transport.Token, error) {
-	return transport.Token{AccessToken: string(s), ExpiresAt: time.Now().Add(24 * time.Hour)}, nil
+	return transport.Token{AccessToken: privateSecretValue(s.token), ExpiresAt: time.Now().Add(24 * time.Hour)}, nil
 }
 
 // Invalidate is a no-op: a static token is supplied by the caller and the
@@ -226,7 +226,9 @@ func (c *Client) RequireProjectID(ctx context.Context) (string, error) {
 	if c.err != nil {
 		return "", c.err
 	}
-	c.projectMu.Lock()
+	if err := c.projectMu.LockContext(ctx); err != nil {
+		return "", err
+	}
 	defer c.projectMu.Unlock()
 	if err := ctx.Err(); err != nil {
 		return "", err
@@ -249,7 +251,9 @@ func (c *Client) RequireProject(ctx context.Context) (Project, error) {
 	if err != nil {
 		return Project{}, err
 	}
-	c.projectMu.Lock()
+	if err := c.projectMu.LockContext(ctx); err != nil {
+		return Project{}, err
+	}
 	defer c.projectMu.Unlock()
 	if err := ctx.Err(); err != nil {
 		return Project{}, err
@@ -421,7 +425,7 @@ type iamTokenSource struct {
 	cacheKey  tokencache.Key
 
 	mu       sync.Mutex
-	rejected string
+	rejected *serviceAccountSecret
 }
 
 func (s *iamTokenSource) Token(ctx context.Context) (transport.Token, error) {
@@ -446,8 +450,8 @@ func (s *iamTokenSource) Token(ctx context.Context) (transport.Token, error) {
 		s.mu.Unlock()
 		return transport.Token{}, err
 	}
-	rejected := s.rejected
-	s.rejected = ""
+	rejected := privateSecretValue(s.rejected)
+	s.rejected = nil
 	s.mu.Unlock()
 
 	cached, err := s.cache.Get(ctx, s.cacheKey, rejected, func(ctx context.Context) (tokencache.Token, error) {
@@ -464,8 +468,11 @@ func (s *iamTokenSource) Token(ctx context.Context) (transport.Token, error) {
 		// silently reusing it because the rejection was lost here.
 		if rejected != "" {
 			s.mu.Lock()
-			s.rejected = rejected
+			s.rejected = newServiceAccountSecret(rejected)
 			s.mu.Unlock()
+		}
+		if errors.Is(err, tokencache.ErrUnavailable) {
+			return transport.Token{}, ErrTokenCache
 		}
 		return transport.Token{}, err
 	}
@@ -494,7 +501,7 @@ func (s *iamTokenSource) InvalidateContext(ctx context.Context, sent string) err
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		s.rejected = sent
+		s.rejected = newServiceAccountSecret(sent)
 	}
 	return nil
 }

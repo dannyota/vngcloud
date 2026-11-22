@@ -24,7 +24,7 @@ func volumeQuoteJSON(optimumPrice float64) string {
 // volumeEmptyListJSON is one empty ListVolumes page: no volume matches,
 // the shape create-volume's own pre-order duplicate-name check gets for a
 // name nothing already uses.
-const volumeEmptyListJSON = `{"listData":[],"page":0,"pageSize":10000,"totalPage":0,"totalItem":0}`
+const volumeEmptyListJSON = `{"listData":[],"page":1,"pageSize":10000,"totalPage":0,"totalItem":0}`
 
 // TestGoldenVolumeCreateVolume checks create-volume's exact output shape:
 // the created volume plus the quoted MonthlyPrice.

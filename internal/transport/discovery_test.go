@@ -105,7 +105,7 @@ func TestDiscoveryRefreshContention(t *testing.T) {
 			source := &heldDiscoverySource{entered: make(chan struct{}), release: make(chan struct{})}
 			c := New(Config{TokenSource: source})
 			if unauthorized {
-				c.token = Token{AccessToken: "sent-token", ExpiresAt: time.Now().Add(time.Hour)}
+				c.token = &Token{AccessToken: "sent-token", ExpiresAt: time.Now().Add(time.Hour)}
 			}
 			holder := make(chan error, 1)
 			go func() {
@@ -266,7 +266,7 @@ func TestDiscoveryRefreshWaiterDeadline(t *testing.T) {
 			source := &heldDiscoverySource{entered: make(chan struct{}), release: make(chan struct{})}
 			c := New(Config{TokenSource: source})
 			if unauthorized {
-				c.token = Token{AccessToken: "sent-token", ExpiresAt: time.Now().Add(time.Hour)}
+				c.token = &Token{AccessToken: "sent-token", ExpiresAt: time.Now().Add(time.Hour)}
 			}
 			holder := make(chan error, 1)
 			go func() {

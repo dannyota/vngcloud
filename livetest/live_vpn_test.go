@@ -21,9 +21,9 @@ func TestLiveVPN(t *testing.T) {
 	if err := envfile.Load(repoPath(".env")); err != nil {
 		t.Fatal("could not load live credentials")
 	}
-	auth := &vngcloud.IAMUserAuth{RootEmail: os.Getenv("VNGCLOUD_ROOT_EMAIL"), Username: os.Getenv("VNGCLOUD_USERNAME"), Password: os.Getenv("VNGCLOUD_PASSWORD")}
+	auth := &vngcloud.IAMUserAuth{RootEmail: os.Getenv("VNGCLOUD_ROOT_EMAIL"), Username: os.Getenv("VNGCLOUD_USERNAME"), Password: vngcloud.Secret(os.Getenv("VNGCLOUD_PASSWORD"))}
 	if secret := os.Getenv("VNGCLOUD_TOTP_SECRET"); secret != "" {
-		auth.TOTP = &vngcloud.SecretTOTP{Secret: secret}
+		auth.TOTP = &vngcloud.SecretTOTP{Secret: vngcloud.Secret(secret)}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()

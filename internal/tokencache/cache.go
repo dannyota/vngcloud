@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"time"
 )
 
@@ -93,8 +92,8 @@ func (c *Cache) Get(ctx context.Context, key Key, rejected string, login func(co
 	if err := ctx.Err(); err != nil {
 		return Token{}, err
 	}
-	if err := prepareDir(c.dir); err != nil {
-		return Token{}, err
+	if err := prepareServiceAccountDir(c.dir); err != nil {
+		return Token{}, cacheUnavailable(ctx)
 	}
 	hash := key.Hash()
 	tokenPath := filepath.Join(c.dir, hash+".json")
@@ -104,16 +103,9 @@ func (c *Cache) Get(ctx context.Context, key Key, rejected string, login func(co
 }
 
 func (c *Cache) getEntry(ctx context.Context, tokenPath, lockPath, rejected string, login func(context.Context) (Token, error), strict bool) (Token, error) {
-	lock := acquireLock
-	if strict {
-		lock = acquireServiceAccountLock
-	}
-	unlock, err := lock(ctx, lockPath, minBackoff, maxBackoff)
+	unlock, err := acquireServiceAccountLock(ctx, lockPath, minBackoff, maxBackoff)
 	if err != nil {
-		if strict {
-			return Token{}, cacheUnavailable(ctx)
-		}
-		return Token{}, err
+		return Token{}, cacheUnavailable(ctx)
 	}
 
 	defer unlock()
@@ -121,16 +113,13 @@ func (c *Cache) getEntry(ctx context.Context, tokenPath, lockPath, rejected stri
 		return Token{}, err
 	}
 
-	var fc fileContent
-	var ok bool
-	if strict {
-		fc, ok, err = c.readServiceAccountFresh(tokenPath, rejected)
-		if err != nil {
+	fc, ok, err := c.readCheckedFresh(tokenPath, rejected, !strict)
+	if err != nil {
+		if strict || !errors.Is(err, os.ErrPermission) {
 			return Token{}, cacheUnavailable(ctx)
 		}
-	} else {
-		fc, ok = c.readFresh(tokenPath, rejected)
 	}
+
 	if err := ctx.Err(); err != nil {
 		return Token{}, err
 	}
@@ -149,21 +138,6 @@ func (c *Cache) getEntry(ctx context.Context, tokenPath, lockPath, rejected stri
 	c.write(tokenPath, fileContent{AccessToken: token.AccessToken, ExpiresAt: token.ExpiresAt, ObtainedAt: obtainedAt})
 	token.ObtainedAt = obtainedAt
 	return token, nil
-}
-
-// readFresh reports whether tokenPath holds a token that Get should reuse:
-// it exists, parses, is not within 30 seconds of expiry, and is not both
-// equal to rejected and old enough (see rejectable) to trust the rejection.
-func (c *Cache) readFresh(tokenPath, rejected string) (fileContent, bool) {
-	data, err := os.ReadFile(tokenPath) //nolint:gosec // tokenPath joins the caller-selected cache directory and a hex SHA-256 digest.
-	if err != nil {
-		return fileContent{}, false
-	}
-	var fc fileContent
-	if err := json.Unmarshal(data, &fc); err != nil || fc.AccessToken == "" {
-		return fileContent{}, false
-	}
-	return fc, c.fresh(fc, rejected)
 }
 
 func (c *Cache) fresh(fc fileContent, rejected string) bool {
@@ -211,7 +185,7 @@ func (c *Cache) write(tokenPath string, fc fileContent) {
 	}()
 
 	data, err := json.Marshal(fc) //nolint:gosec // writing the token to this cache file (mode 0600) is this type's purpose
-	if err != nil {
+	if err != nil || len(data) > 64<<10 {
 		_ = tmp.Close()
 		return
 	}
@@ -233,25 +207,4 @@ func (c *Cache) write(tokenPath string, fc fileContent) {
 		return
 	}
 	committed = true
-}
-
-// prepareDir creates dir with mode 0700 when missing, and refuses a
-// pre-existing directory that group or others can access. The check is
-// skipped on Windows, whose permission model does not map onto Unix mode
-// bits.
-func prepareDir(dir string) error {
-	info, err := os.Stat(dir)
-	if errors.Is(err, os.ErrNotExist) {
-		return os.MkdirAll(dir, 0o700)
-	}
-	if err != nil {
-		return err
-	}
-	if !info.IsDir() {
-		return fmt.Errorf("tokencache: %s is not a directory", dir)
-	}
-	if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
-		return fmt.Errorf("tokencache: %s is accessible by group or others; chmod 700", dir)
-	}
-	return nil
 }

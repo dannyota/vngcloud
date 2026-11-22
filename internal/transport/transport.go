@@ -51,8 +51,8 @@ type Client struct {
 	logger        *slog.Logger
 
 	mu        sync.RWMutex
-	token     Token
-	refreshMu sync.Mutex
+	token     *Token
+	refreshMu Gate
 }
 
 // Capture holds one observed response.
@@ -124,7 +124,7 @@ type Request struct {
 	// NoRedirect refuses redirects without changing retries.
 	NoRedirect bool
 
-	// MaxBody caps the response body at MaxBody bytes; zero means unlimited.
+	// MaxBody caps the decompressed response; nonpositive values use 8 MiB.
 	// The transport reads at most MaxBody+1 bytes, so it can tell a body
 	// that exactly fills the cap from one that overflows it: reading that
 	// many means the real body is larger, and the call fails with
@@ -540,12 +540,12 @@ func (c *Client) send(ctx context.Context, req Request, client *http.Client) (in
 	return 0, "", nil, sentToken, &APIError{Operation: req.Operation, Retryable: retryableForContext(ctx, lastRetryable), Err: sanitizeNetworkError(lastErr, req.redactValues())}
 }
 
-// readBody reads r fully when maxBody is not positive. Otherwise it reads at
-// most maxBody+1 bytes: reading that many means the real body is larger than
-// maxBody, and it returns ErrBodyTooLarge instead of a partial body.
 func readBody(r io.Reader, maxBody int64) ([]byte, error) {
 	if maxBody <= 0 {
-		return io.ReadAll(r)
+		maxBody = 8 << 20
+	}
+	if maxBody == 1<<63-1 {
+		maxBody--
 	}
 	data, err := io.ReadAll(io.LimitReader(r, maxBody+1))
 	if err != nil {
@@ -663,7 +663,10 @@ func (c *Client) invalidateOnce(sent string) {
 func (c *Client) currentToken() Token {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.token
+	if c.token == nil {
+		return Token{}
+	}
+	return *c.token
 }
 
 func jsonBody(v any) ([]byte, error) {

@@ -45,7 +45,7 @@ func TestCanceledTokenAcquisitionDoesNotCommitDiskCache(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, key.Hash()+".json")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("disk cache stat error = %v, want os.ErrNotExist", err)
 	}
-	if auth.cachedToken != "" {
+	if auth.cachedToken != nil {
 		t.Error("canceled acquisition committed the shared IAM token")
 	}
 }
@@ -67,7 +67,7 @@ func TestCanceledProjectWaiterDoesNotUseCache(t *testing.T) {
 }
 
 func TestCanceledSharedIAMWaiterDoesNotUseToken(t *testing.T) {
-	a := &IAMUserAuth{cachedToken: "holder-token", expiresAt: time.Now().Add(time.Hour)}
+	a := &IAMUserAuth{cachedToken: newServiceAccountSecret("holder-token"), expiresAt: time.Now().Add(time.Hour)}
 	a.mu.Lock()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -77,13 +77,13 @@ func TestCanceledSharedIAMWaiterDoesNotUseToken(t *testing.T) {
 	if err := <-done; !errors.Is(err, context.Canceled) {
 		t.Fatalf("error=%v", err)
 	}
-	if a.cachedToken != "holder-token" {
+	if string(*a.cachedToken) != "holder-token" {
 		t.Fatal("changed holder's token")
 	}
 }
 
 func TestCanceledSharedIAMInvalidationPreservesToken(t *testing.T) {
-	auth := &IAMUserAuth{cachedToken: "sent-token", expiresAt: time.Now().Add(time.Hour), obtainedAt: time.Now().Add(-time.Hour)}
+	auth := &IAMUserAuth{cachedToken: newServiceAccountSecret("sent-token"), expiresAt: time.Now().Add(time.Hour), obtainedAt: time.Now().Add(-time.Hour)}
 	source := &iamTokenSource{auth: auth}
 	auth.mu.Lock()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -94,7 +94,7 @@ func TestCanceledSharedIAMInvalidationPreservesToken(t *testing.T) {
 	if err := <-done; !errors.Is(err, context.Canceled) {
 		t.Fatalf("invalidation error=%v", err)
 	}
-	if auth.cachedToken != "sent-token" || source.rejected != "" {
+	if string(*auth.cachedToken) != "sent-token" || source.rejected != nil {
 		t.Fatal("canceled invalidation changed shared token")
 	}
 }
@@ -123,7 +123,7 @@ func TestDiscoveryProjectWaiterDeadline(t *testing.T) {
 }
 
 func TestSharedIAMWaiterDeadline(t *testing.T) {
-	auth := &IAMUserAuth{cachedToken: "holder-token", expiresAt: time.Now().Add(time.Hour)}
+	auth := &IAMUserAuth{cachedToken: newServiceAccountSecret("holder-token"), expiresAt: time.Now().Add(time.Hour)}
 	source := &iamTokenSource{auth: auth}
 	auth.mu.Lock()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
@@ -135,7 +135,7 @@ func TestSharedIAMWaiterDeadline(t *testing.T) {
 	if err := <-done; !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("waiter=%v", err)
 	}
-	if auth.cachedToken != "holder-token" {
+	if string(*auth.cachedToken) != "holder-token" {
 		t.Fatal("expired waiter changed shared IAM token")
 	}
 }

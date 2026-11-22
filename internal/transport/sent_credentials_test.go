@@ -294,7 +294,7 @@ func TestSentCredentialsRedactEarlierAttempts(t *testing.T) {
 						}
 						if mode == "5xx" {
 							client.mu.Lock()
-							client.token = Token{AccessToken: "synthetic-token-2", ExpiresAt: time.Now().Add(time.Hour)}
+							client.token = &Token{AccessToken: "synthetic-token-2", ExpiresAt: time.Now().Add(time.Hour)}
 							client.mu.Unlock()
 						}
 					}
@@ -371,7 +371,7 @@ func TestSentCredentialsAcrossRefreshAndRetries(t *testing.T) {
 				if len(sent) == 1 || len(sent) == 3 {
 					next, _ := source.Token(r.Context())
 					client.mu.Lock()
-					client.token = next
+					client.token = &next
 					client.mu.Unlock()
 				}
 				switch len(sent) {
@@ -562,7 +562,7 @@ func TestCredentialObserverAcrossCallsProtectsErrorsAndCaptures(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Force a distinct credential on the second SDK call.
-	client.token = Token{}
+	client.token = &Token{}
 	err := client.DoJSON(ctx, Request{URL: srv.URL}, nil)
 	var api *APIError
 	if !errors.As(err, &api) || api.StatusCode != 403 {

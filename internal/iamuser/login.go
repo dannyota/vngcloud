@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	"danny.vn/vngcloud/internal/endpoints"
+	"danny.vn/vngcloud/internal/jsonresponse"
 )
 
 const (
@@ -186,7 +188,7 @@ func Login(ctx context.Context, req LoginRequest) (Result, error) {
 	}
 	return Result{
 		AccessToken:  token.AccessToken,
-		ExpiresAt:    time.Now().Add(time.Duration(token.ExpiresIn) * time.Second),
+		ExpiresAt:    token.expiresAt,
 		RefreshToken: token.RefreshToken,
 	}, nil
 }
@@ -231,6 +233,7 @@ func handle2FA(ctx context.Context, client *http.Client, signinBaseURL, redirect
 }
 
 type tokenResponse struct {
+	expiresAt    time.Time
 	AccessToken  string `json:"accessToken"`
 	RefreshToken string `json:"refreshToken"`
 	ExpiresIn    int64  `json:"expiresIn"`
@@ -252,21 +255,35 @@ func exchangeToken(ctx context.Context, client *http.Client, tokenURL, dashboard
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(dashboardClientID+":")))
 
+	started := time.Now()
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, &LoginFailure{Step: StepTokenExchange, cause: fmt.Errorf("token exchange request: %w", err)}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, readErr := readLoginBody(resp.Body)
+	if readErr != nil {
+		return nil, &LoginFailure{Step: StepTokenExchange, Status: resp.StatusCode, cause: errors.New("invalid token response")}
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, &LoginFailure{Step: StepTokenExchange, Status: resp.StatusCode,
 			cause: fmt.Errorf("token exchange failed with status %d: %s", resp.StatusCode, truncateBody(respBody))}
 	}
 
 	var token tokenResponse
+	if err := jsonresponse.ValidateStrict(respBody, &token); err != nil {
+		return nil, &LoginFailure{Step: StepTokenExchange, Status: resp.StatusCode, cause: errors.New("invalid token response")}
+	}
 	if err := json.Unmarshal(respBody, &token); err != nil {
 		return nil, &LoginFailure{Step: StepTokenExchange, Status: resp.StatusCode, cause: fmt.Errorf("parse token response: %w", err)}
+	}
+	if token.ExpiresIn <= 30 || token.ExpiresIn > math.MaxInt64/int64(time.Second) {
+		return nil, &LoginFailure{Step: StepTokenExchange, Status: resp.StatusCode, cause: errors.New("invalid token lifespan")}
+	}
+	token.expiresAt = started.Add(time.Duration(token.ExpiresIn) * time.Second)
+	if time.Until(token.expiresAt) <= 30*time.Second {
+		return nil, &LoginFailure{Step: StepTokenExchange, Status: resp.StatusCode, cause: errors.New("expired token response")}
 	}
 	if token.AccessToken == "" {
 		return nil, &LoginFailure{Step: StepTokenExchange, Status: resp.StatusCode, cause: errors.New("empty access token in response")}
@@ -311,7 +328,7 @@ func doGet(ctx context.Context, client *http.Client, reqURL string) ([]byte, int
 	if resp.StatusCode != http.StatusOK {
 		return nil, resp.StatusCode, fmt.Errorf("unexpected status %d", resp.StatusCode)
 	}
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := readLoginBody(resp.Body)
 	return respBody, resp.StatusCode, err
 }
 
@@ -371,4 +388,13 @@ func extractAuthCode(location string) string {
 		return ""
 	}
 	return u.Query().Get("code")
+}
+
+func readLoginBody(body io.Reader) ([]byte, error) {
+	const limit = 1 << 20
+	raw, err := io.ReadAll(io.LimitReader(body, limit+1))
+	if err != nil || len(raw) > limit {
+		return nil, errors.New("invalid login response")
+	}
+	return raw, nil
 }

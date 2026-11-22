@@ -391,9 +391,9 @@ func credentialsFromEnv() (iamUser *IAMUserAuth, accessToken string, missing []s
 		}
 		return nil, "", named, true
 	}
-	auth := &IAMUserAuth{RootEmail: rootEmail, Username: username, Password: password}
+	auth := &IAMUserAuth{RootEmail: rootEmail, Username: username, Password: Secret(password)}
 	if totpSecret != "" {
-		auth.TOTP = &SecretTOTP{Secret: totpSecret}
+		auth.TOTP = &SecretTOTP{Secret: Secret(totpSecret)}
 	}
 	return auth, "", nil, true
 }
@@ -413,9 +413,9 @@ func credentialsFromSection(section map[string]string) (iamUser *IAMUserAuth, mi
 	if m := missingIAMKeys(map[string]string{"root_email": rootEmail, "username": username, "password": password}); len(m) > 0 {
 		return nil, m, true
 	}
-	auth := &IAMUserAuth{RootEmail: rootEmail, Username: username, Password: password}
+	auth := &IAMUserAuth{RootEmail: rootEmail, Username: username, Password: Secret(password)}
 	if totpSecret != "" {
-		auth.TOTP = &SecretTOTP{Secret: totpSecret}
+		auth.TOTP = &SecretTOTP{Secret: Secret(totpSecret)}
 	}
 	return auth, nil, true
 }

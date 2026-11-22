@@ -34,49 +34,56 @@ func NewPagedList[T any](items []T, page, size, totalPage, totalItem int) *Paged
 	return &PagedList[T]{Items: items, Page: page, PageSize: size, TotalPage: totalPage, TotalItem: totalItem}
 }
 
-// CheckNoDuplicateName walks every page fetch returns, starting at
-// DefaultPage, calling name on each item along the way. It returns an error
-// wrapping ErrInvalidInput naming noun and target the moment one matches
-// target exactly, for a paid create's pre-write duplicate-name check: a
-// rerun after an unclear failure must never risk ordering a second resource
-// under a name that already exists.
-//
-// It also fails closed, with the same error, whenever a page's own
-// metadata cannot prove the walk actually covered every item: a non-empty
-// page reporting TotalPage 0 or less, more pages than
-// maxDuplicateNameCheckPages, or a final count that does not match
-// TotalItem. Trusting an incomplete list as "no duplicate" would be the
-// same hole as skipping the check entirely.
-func CheckNoDuplicateName[T any](op, noun, target string, name func(T) string, fetch func(page int) (*PagedList[T], error)) error {
+// CheckNoDuplicateName requires a complete inventory before accepting a name.
+// identity, when supplied, validates nonempty unique resource IDs across pages.
+func CheckNoDuplicateName[T any](op, noun, target string, name func(T) string, fetch func(page int) (*PagedList[T], error), identity ...func(T) string) error {
+	incomplete := func() error {
+		return fmt.Errorf("%w: %s: could not confirm no %s has the requested name: incomplete inventory", ErrInvalidInput, op, noun)
+	}
+	ids := make(map[string]bool)
 	seen := 0
-	for page := DefaultPage; ; page++ {
-		if page > maxDuplicateNameCheckPages {
-			return fmt.Errorf("%w: %s: could not confirm no %s is named %q: the list has more than %d pages",
-				ErrInvalidInput, op, noun, target, maxDuplicateNameCheckPages)
-		}
+	totalPages, totalItems, pageSize := -1, -1, -1
+	for page := DefaultPage; page <= maxDuplicateNameCheckPages; page++ {
 		out, err := fetch(page)
 		if err != nil {
 			return err
 		}
+		if out == nil || out.Items == nil || out.Page != page || out.PageSize <= 0 || out.TotalPage < 0 || out.TotalItem < 0 || out.TotalPage > maxDuplicateNameCheckPages || len(out.Items) > out.PageSize {
+			return incomplete()
+		}
+		if page == DefaultPage {
+			totalPages, totalItems, pageSize = out.TotalPage, out.TotalItem, out.PageSize
+		} else if totalPages != out.TotalPage || totalItems != out.TotalItem || pageSize != out.PageSize {
+			return incomplete()
+		}
+		if len(out.Items) == 0 && (totalItems != 0 || page != DefaultPage || totalPages > 1) {
+			return incomplete()
+		}
 		for _, item := range out.Items {
+			if len(identity) > 0 {
+				if identity[0] == nil {
+					return incomplete()
+				}
+				id := identity[0](item)
+				if id == "" || ids[id] {
+					return incomplete()
+				}
+				ids[id] = true
+			}
 			if name(item) == target {
-				return fmt.Errorf("%w: %s: a %s named %q already exists", ErrInvalidInput, op, noun, target)
+				return fmt.Errorf("%w: %s: a %s with the requested name already exists", ErrInvalidInput, op, noun)
 			}
 		}
 		seen += len(out.Items)
-		if out.TotalPage <= 0 {
-			if len(out.Items) > 0 || out.TotalItem > 0 {
-				return fmt.Errorf("%w: %s: could not confirm no %s is named %q: the list response carried no page count",
-					ErrInvalidInput, op, noun, target)
-			}
-			return nil
+		if seen > totalItems || totalPages == 0 && seen != 0 {
+			return incomplete()
 		}
-		if page >= out.TotalPage {
-			if seen != out.TotalItem {
-				return fmt.Errorf("%w: %s: could not confirm no %s is named %q: listed %d of a reported %d total",
-					ErrInvalidInput, op, noun, target, seen, out.TotalItem)
+		if page >= totalPages {
+			if seen != totalItems {
+				return incomplete()
 			}
 			return nil
 		}
 	}
+	return incomplete()
 }

@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 	"unicode"
 
@@ -88,12 +87,12 @@ type serviceAccountTokenSource struct {
 	client      *http.Client
 	logger      *slog.Logger
 	now         func() time.Time
-	mu          sync.Mutex
-	cached      transport.Token
+	mu          transport.Gate
+	cached      *transport.Token
 	obtainedAt  time.Time
 	cache       *tokencache.Cache
 	cacheKey    tokencache.ServiceAccountKey
-	rejected    string
+	rejected    *serviceAccountSecret
 }
 
 func newServiceAccountTokenSource(credentials *serviceAccountCredentials, timeout time.Duration, logger *slog.Logger, rt http.RoundTripper, now func() time.Time) *serviceAccountTokenSource {
@@ -104,13 +103,15 @@ func newServiceAccountTokenSource(credentials *serviceAccountCredentials, timeou
 }
 
 func (s *serviceAccountTokenSource) Token(ctx context.Context) (transport.Token, error) {
-	s.mu.Lock()
+	if err := s.mu.LockContext(ctx); err != nil {
+		return transport.Token{}, err
+	}
 	defer s.mu.Unlock()
 	if err := ctx.Err(); err != nil {
 		return transport.Token{}, err
 	}
-	if s.cached.AccessToken != "" && s.cached.ExpiresAt.Sub(s.now()) > 30*time.Second {
-		return s.cached, nil
+	if s.cached != nil && s.cached.AccessToken != "" && s.cached.ExpiresAt.Sub(s.now()) > 30*time.Second {
+		return *s.cached, nil
 	}
 	if s.cache != nil {
 		return s.diskToken(ctx)
@@ -123,7 +124,7 @@ func (s *serviceAccountTokenSource) Token(ctx context.Context) (transport.Token,
 	if err := ctx.Err(); err != nil {
 		return transport.Token{}, serviceAccountLoginError(ctx, 0, "token request failed")
 	}
-	s.cached, s.obtainedAt = token, obtainedAt
+	s.cached, s.obtainedAt = &token, obtainedAt
 	return token, nil
 }
 
@@ -132,12 +133,14 @@ func (s *serviceAccountTokenSource) Invalidate(sent string) {
 }
 
 func (s *serviceAccountTokenSource) InvalidateContext(ctx context.Context, sent string) error {
-	s.mu.Lock()
+	if err := s.mu.LockContext(ctx); err != nil {
+		return err
+	}
 	defer s.mu.Unlock()
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if sent == "" || s.cached.AccessToken != sent {
+	if sent == "" || s.cached == nil || s.cached.AccessToken != sent {
 		return nil
 	}
 	age := s.now().Sub(s.obtainedAt)
@@ -145,9 +148,9 @@ func (s *serviceAccountTokenSource) InvalidateContext(ctx context.Context, sent 
 		return err
 	}
 	if age < 0 || age >= 30*time.Second {
-		s.cached = transport.Token{}
+		s.cached = nil
 		if s.cache != nil {
-			s.rejected = sent
+			s.rejected = newServiceAccountSecret(sent)
 		}
 	}
 	return nil
@@ -156,7 +159,7 @@ func (s *serviceAccountTokenSource) InvalidateContext(ctx context.Context, sent 
 // diskToken runs under mu, retaining pending rejection until acquisition and
 // the context-checked memory commit both succeed.
 func (s *serviceAccountTokenSource) diskToken(ctx context.Context) (transport.Token, error) {
-	cached, err := s.cache.GetServiceAccount(ctx, s.cacheKey, s.rejected, func(ctx context.Context) (tokencache.Token, error) {
+	cached, err := s.cache.GetServiceAccount(ctx, s.cacheKey, privateSecretValue(s.rejected), func(ctx context.Context) (tokencache.Token, error) {
 		token, err := s.exchange(ctx)
 		if err != nil {
 			return tokencache.Token{}, err
@@ -172,10 +175,10 @@ func (s *serviceAccountTokenSource) diskToken(ctx context.Context) (transport.To
 	if err != nil {
 		return transport.Token{}, err
 	}
-	s.cached = transport.Token{AccessToken: cached.AccessToken, ExpiresAt: cached.ExpiresAt}
+	s.cached = &transport.Token{AccessToken: cached.AccessToken, ExpiresAt: cached.ExpiresAt}
 	s.obtainedAt = cached.ObtainedAt
-	s.rejected = ""
-	return s.cached, nil
+	s.rejected = nil
+	return *s.cached, nil
 }
 
 // WithServiceAccountTestTransport injects private exchange dependencies for
@@ -186,4 +189,11 @@ func WithServiceAccountTestTransport(rt http.RoundTripper, now func() time.Time)
 		cfg.serviceAccountTransport = rt
 		cfg.serviceAccountClock = now
 	})
+}
+
+func privateSecretValue(secret *serviceAccountSecret) string {
+	if secret == nil {
+		return ""
+	}
+	return string(*secret)
 }

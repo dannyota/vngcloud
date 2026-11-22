@@ -60,7 +60,7 @@ func main() {
 			iamUser := &vngcloud.IAMUserAuth{
 				RootEmail: cfg.RootEmail,
 				Username:  cfg.Username,
-				Password:  cfg.Password,
+				Password:  vngcloud.Secret(cfg.Password),
 			}
 			switch {
 			case cfg.TOTPCode != "":
@@ -76,7 +76,7 @@ func main() {
 						return code, nil
 					})
 				} else {
-					iamUser.TOTP = &vngcloud.SecretTOTP{Secret: secret}
+					iamUser.TOTP = &vngcloud.SecretTOTP{Secret: vngcloud.Secret(secret)}
 				}
 			}
 

@@ -103,6 +103,9 @@ var backupCenterEndpoints = map[string]string{
 
 // ResolveIAMUser resolves regional endpoints and applies overrides.
 func ResolveIAMUser(region string, overrides Overrides) Set {
+	if !ValidRegion(region) {
+		return Set{}
+	}
 	set := Set{
 		Region:        region,
 		VServer:       fmt.Sprintf("https://%s.%s/vserver/iam-vserver-gateway/", region, ConsoleDomain),
@@ -234,7 +237,7 @@ func normalizeURL(u string) string {
 // VNetworkRegionalGateway returns the per-region vNetwork dashboard gateway
 // used as a fallback when the primary vnetwork-gateway route is unavailable.
 func VNetworkRegionalGateway(region string) string {
-	if region == "" {
+	if !ValidRegion(region) {
 		return ""
 	}
 	return fmt.Sprintf("https://%s-vnetwork.%s/vnetwork-gateway/", region, ConsoleDomain)
@@ -247,4 +250,17 @@ func VServerBackup(region string) string {
 
 var vServerBackupEndpoints = map[string]string{
 	"hcm-3": "https://hcm-3.console.greennode.ai/vserver/vbackup-gateway/",
+}
+
+// ValidRegion reports whether region is a lowercase DNS label.
+func ValidRegion(region string) bool {
+	if len(region) == 0 || len(region) > 63 || region[0] == '-' || region[len(region)-1] == '-' {
+		return false
+	}
+	for _, ch := range region {
+		if ch != '-' && (ch < 'a' || ch > 'z') && (ch < '0' || ch > '9') {
+			return false
+		}
+	}
+	return true
 }

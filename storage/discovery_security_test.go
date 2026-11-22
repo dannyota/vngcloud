@@ -239,7 +239,8 @@ func TestListStoragePricesSharedIAMWaiterDeadline(t *testing.T) {
 		}
 		return cfg
 	}
-	holderClient, waiterClient := New(config()), New(config())
+	cfg := config()
+	holderClient, waiterClient := New(cfg), New(cfg)
 	req := transport.Request{Operation: "test.Read", Method: http.MethodGet, URL: server.URL + "/holder", OK: []int{200}}
 	holder := make(chan error, 1)
 	go func() { holder <- holderClient.c.DoJSON(context.Background(), req, nil) }()
@@ -251,12 +252,19 @@ func TestListStoragePricesSharedIAMWaiterDeadline(t *testing.T) {
 	go func() { _, err := waiterClient.ListStoragePrices(ctx, nil); waiter <- err }()
 	sessionCtx := <-sessionContexts
 	<-sessionCtx.Done()
+	select {
+	case err := <-waiter:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			close(release)
+			t.Fatalf("waiter error %v", err)
+		}
+	case <-time.After(time.Second):
+		close(release)
+		t.Fatal("waiter did not return before holder release")
+	}
 	close(release)
 	if err := <-holder; err != nil {
 		t.Fatal(err)
-	}
-	if err := <-waiter; !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("waiter error %v", err)
 	}
 	if requests.Load() != 1 || logins.Load() != 1 {
 		t.Fatalf("requests %d logins %d", requests.Load(), logins.Load())

@@ -121,7 +121,7 @@ func TestLoadServiceAccountMethodAndSourceSelection(t *testing.T) {
 						t.Fatal("option source lost")
 					}
 				case "IAM":
-					if settings.iamUser != iam || settings.serviceAccount != nil {
+					if settings.iamUser == nil || settings.iamUser == iam || settings.iamUser.Username != iam.Username || settings.iamUser.Password != iam.Password || settings.serviceAccount != nil {
 						t.Fatal("mixed option and environment sources")
 					}
 				case "environment":

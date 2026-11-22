@@ -50,7 +50,9 @@ func (c *Client) DoDiscoveryJSONStatus(ctx context.Context, req Request, out any
 	}
 	req.discovery = true
 	req.beforeAttempt = before
-	req.MaxBody = DiscoveryMaxBody
+	if req.MaxBody <= 0 || req.MaxBody > DiscoveryMaxBody {
+		req.MaxBody = DiscoveryMaxBody
+	}
 	req.Sensitive = true
 	req.NoRedirect = true
 	client := *c.httpClient
@@ -123,7 +125,9 @@ func unsafeDiscoveryResponse(raw []byte, credentials map[string]bool) bool {
 }
 
 func (c *Client) refreshToken(ctx context.Context) error {
-	c.refreshMu.Lock()
+	if err := c.refreshMu.LockContext(ctx); err != nil {
+		return err
+	}
 	defer c.refreshMu.Unlock()
 	if err := ctx.Err(); err != nil {
 		return err
@@ -144,7 +148,7 @@ func (c *Client) refreshToken(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	c.token = token
+	c.token = &token
 	return nil
 }
 
@@ -162,7 +166,9 @@ func (c *Client) refreshToken(ctx context.Context) error {
 // this request never sent could drop a still-good token another goroutine is
 // relying on.
 func (c *Client) invalidateAndRefresh(ctx context.Context, sent string) error {
-	c.refreshMu.Lock()
+	if err := c.refreshMu.LockContext(ctx); err != nil {
+		return err
+	}
 	defer c.refreshMu.Unlock()
 	if err := ctx.Err(); err != nil {
 		return err
@@ -189,7 +195,7 @@ func (c *Client) invalidateAndRefresh(ctx context.Context, sent string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	c.token = token
+	c.token = &token
 	return nil
 }
 
@@ -207,7 +213,9 @@ func (c *Client) invalidateContext(ctx context.Context, sent string) error {
 }
 
 func (c *Client) invalidateOnceContext(ctx context.Context, sent string) error {
-	c.refreshMu.Lock()
+	if err := c.refreshMu.LockContext(ctx); err != nil {
+		return err
+	}
 	defer c.refreshMu.Unlock()
 	if err := ctx.Err(); err != nil {
 		return err
@@ -223,6 +231,6 @@ func (c *Client) invalidateOnceContext(ctx context.Context, sent string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	c.token = Token{AccessToken: sent}
+	c.token = &Token{AccessToken: sent}
 	return nil
 }

@@ -15,7 +15,7 @@ cfg, err := vngcloud.NewConfig(
 	vngcloud.WithIAMUser(&vngcloud.IAMUserAuth{
 		RootEmail: "<root-email>",
 		Username:  "<iam-username>",
-		Password:  "<password>",
+		Password:  vngcloud.Secret("<password>"),
 	}),
 )
 if err != nil {
@@ -23,15 +23,29 @@ if err != nil {
 }
 ```
 
-The SDK caches the access token and refreshes it before it expires. After an
-HTTP 401, it logs in again and retries the request once, instead of resending
-the token the server just rejected: it invalidates exactly the token that was
-sent, but only while that token is still at least 30 seconds old. A token
-younger than that is left in place, so a 401 caused by something other than
-an expired token (a bad credential, or a server-side revoke) fails the call
-with `vngcloud.ErrAuth` instead of forcing a second login inside the same
-30-second TOTP window. Concurrent requests that all get a 401 for the same
-token cause at most one new login; the rest reuse it once it is ready.
+`IAMUserAuth.Password` and `SecretTOTP.Secret` use `vngcloud.Secret`. Convert
+string variables with `vngcloud.Secret(password)` and
+`vngcloud.Secret(seed)`. String literals remain valid. `Secret` redacts
+ordinary formatting and JSON; call `Reveal()` only where the value is needed.
+Do not use `%p`, gob, or reflection to print secrets.
+
+`WithIAMUser` snapshots the credential fields and a `SecretTOTP` seed when
+called. Later mutations do not change the configured identity. Services from
+one config share tokens; separate configs have separate memory state and can
+share issued tokens through the optional disk cache. Custom TOTP providers
+retain their supplied implementation.
+
+The SDK caches the access token and refreshes it before it expires. An HTTP
+401 invalidates only the token sent, when at least 30 seconds old or obtained
+in the future. Ordinary requests retry once; a younger token is reused, so a
+second 401 returns `vngcloud.ErrAuth`. Requests marked to send once never
+resend. Concurrent refreshes reuse the winning token. A failed IAM login is
+held for 30 seconds within its session to avoid repeating a TOTP code.
+Login pages and token replies have a 1 MiB decoded-body limit. Lifespans must
+fit a duration and leave more than 30 seconds from exchange request start.
+
+Canceled callers waiting for authentication, refresh, or project discovery
+return promptly without changing the holder's token or canceling its work.
 
 A request that needs authentication, including the retry after a 401, is
 never sent without a token: if the token source (an `IAMUserAuth`, a static
@@ -96,8 +110,8 @@ requests but never receive service-account secrets. The exchange exposes
 no public token endpoint, scope option, token getter, or test hook. A positive
 `WithTimeout` applies; otherwise the exchange uses 120 seconds. Caller
 cancellation and deadlines bound the exchange. A canceled caller waiting
-for a shared refresh lock may wait for the active exchange to finish,
-then fails without sending or changing token state.
+for shared refresh work returns promptly without sending, changing token
+state, or canceling the active exchange.
 
 Failed exchanges return
 [`ServiceAccountLoginError`](Errors.md#serviceaccountloginerror).
@@ -119,9 +133,9 @@ password and TOTP secret. Static tokens and custom providers never use
 this disk cache.
 
 The SDK creates cache directories with mode 0700 and token and persistent
-lock files with mode 0600. Service-account reads refuse symlinks,
+lock files with mode 0600. IAM-user and service-account reads refuse symlinks,
 nonregular files, mismatched opened inodes, and group/other access. Token
-reads stop at 64 KiB. Windows retains its mode-bit exception. Missing or
+reads stop at 64 KiB. Oversized IAM-user entries fail closed. Windows retains its mode-bit exception. Missing or
 malformed content triggers an exchange; unsafe entries or directory,
 read, and lock failures fail closed with
 [`ErrTokenCache`](Errors.md#serviceaccountloginerror). A successful exchange
@@ -152,8 +166,8 @@ itself:
 vngcloud.WithIAMUser(&vngcloud.IAMUserAuth{
 	RootEmail: "<root-email>",
 	Username:  "<iam-username>",
-	Password:  "<password>",
-	TOTP:      &vngcloud.SecretTOTP{Secret: "<totp-secret>"},
+	Password:  vngcloud.Secret("<password>"),
+	TOTP:      &vngcloud.SecretTOTP{Secret: vngcloud.Secret("<totp-secret>")},
 }),
 ```
 
@@ -163,7 +177,7 @@ Or supply codes from your own source:
 vngcloud.WithIAMUser(&vngcloud.IAMUserAuth{
 	RootEmail: "<root-email>",
 	Username:  "<iam-username>",
-	Password:  "<password>",
+	Password:  vngcloud.Secret("<password>"),
 	TOTP: vngcloud.TOTPFunc(func(ctx context.Context) (string, error) {
 		return promptForCode(ctx)
 	}),

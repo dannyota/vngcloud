@@ -33,7 +33,7 @@ func TestCheckNoDuplicateNameNoMatchSinglePage(t *testing.T) {
 
 func TestCheckNoDuplicateNameEmptyList(t *testing.T) {
 	fetch := func(page int) (*PagedList[namedItem], error) {
-		return NewPagedList[namedItem](nil, 1, 10000, 0, 0), nil
+		return NewPagedList([]namedItem{}, 1, 10000, 0, 0), nil
 	}
 	if err := CheckNoDuplicateName("op", "server", "web-1", func(i namedItem) string { return i.name }, fetch); err != nil {
 		t.Fatalf("err = %v, want nil", err)

@@ -171,11 +171,13 @@ func WithProjectID(projectID string) Option {
 	})
 }
 
-// WithIAMUser sets the IAM User credentials used to log in. Not required
-// when a provider, static token, or service account is selected.
+// WithIAMUser snapshots IAM credentials and a SecretTOTP seed when called.
+// Each configured session keeps its own token state. Other TOTP providers
+// retain their supplied implementation. Higher-priority auth methods win.
 func WithIAMUser(auth *IAMUserAuth) Option {
+	snapshot := snapshotIAMUser(auth)
 	return clientOptionFunc(func(cfg *clientConfig) {
-		cfg.iamUser = auth
+		cfg.iamUser = snapshotIAMUser(snapshot)
 	})
 }
 

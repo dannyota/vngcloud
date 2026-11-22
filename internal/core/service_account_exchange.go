@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode"
 
+	"danny.vn/vngcloud/internal/jsonresponse"
 	"danny.vn/vngcloud/internal/transport"
 )
 
@@ -97,6 +98,14 @@ func (s *serviceAccountTokenSource) exchange(ctx context.Context) (token transpo
 
 func decodeServiceAccountToken(body []byte, start, now time.Time) (transport.Token, error) {
 	invalid := errors.New("invalid token response")
+	var fields struct {
+		AccessToken string `json:"access_token"`
+		TokenType   string `json:"token_type"`
+		ExpiresIn   int64  `json:"expires_in"`
+	}
+	if jsonresponse.ValidateStrict(body, &fields) != nil {
+		return transport.Token{}, invalid
+	}
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	opening, err := decoder.Token()
 	if err != nil || opening != json.Delim('{') {

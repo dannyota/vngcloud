@@ -26,6 +26,7 @@ type Session struct {
 	requests int
 	terminal error
 	rows     int
+	retained int
 	last     time.Time
 	now      func() time.Time
 	sleep    func(context.Context, time.Duration) error
@@ -214,9 +215,14 @@ func (s *Session) DoJSON(c Exchanger, req transport.Request, out any, validators
 	if err := s.ctx.Err(); err != nil {
 		return status, err
 	}
+	if len(raw) > (32<<20)-s.retained {
+		s.terminal = fmt.Errorf("%w: maximum 32 MiB retained responses", ErrLimit)
+		return status, s.terminal
+	}
 	if err := s.decode(c, req.Operation, status, raw, out, validators); err != nil {
 		return status, s.failure(c, status, err)
 	}
+	s.retained += len(raw)
 	s.cache[key] = cachedResponse{status: status, raw: append(json.RawMessage(nil), raw...)}
 	return status, nil
 }

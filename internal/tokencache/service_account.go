@@ -12,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+
+	"danny.vn/vngcloud/internal/jsonresponse"
 )
 
 // ErrUnavailable marks a service-account filesystem failure without retaining
@@ -134,7 +136,7 @@ func checkServiceAccountPath(path string, create bool) error {
 	return validateServiceAccountInfo(info)
 }
 
-func (c *Cache) readServiceAccountFresh(path, rejected string) (fileContent, bool, error) {
+func (c *Cache) readCheckedFresh(path, rejected string, refuseOversize bool) (fileContent, bool, error) {
 	file, err := openServiceAccountFile(path, os.O_RDONLY)
 	if errors.Is(err, os.ErrNotExist) {
 		return fileContent{}, false, nil
@@ -151,10 +153,13 @@ func (c *Cache) readServiceAccountFresh(path, rejected string) (fileContent, boo
 		return fileContent{}, false, err
 	}
 	if len(raw) > 64<<10 {
+		if refuseOversize {
+			return fileContent{}, false, ErrUnavailable
+		}
 		return fileContent{}, false, nil
 	}
 	var fc fileContent
-	if err := json.Unmarshal(raw, &fc); err != nil {
+	if jsonresponse.ValidateStrict(raw, &fc) != nil || json.Unmarshal(raw, &fc) != nil {
 		return fileContent{}, false, nil
 	}
 	return fc, c.fresh(fc, rejected), nil

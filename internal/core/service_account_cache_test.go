@@ -205,7 +205,7 @@ func TestServiceAccountCacheRejectedRestored(t *testing.T) {
 	if err := <-done; err == nil || err.Error() != "synthetic-stop" {
 		t.Fatalf("cache holder error %v, want synthetic-stop", err)
 	}
-	if source.rejected != "old" {
+	if privateSecretValue(source.rejected) != "old" {
 		t.Fatal("pending rejection lost")
 	}
 	token, err := source.Token(context.Background())
