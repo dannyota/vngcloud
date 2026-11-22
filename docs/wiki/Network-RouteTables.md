@@ -96,11 +96,11 @@ to belong to a live interface is not yet confirmed live.
 Without `NoWait`, both wait for the table to return to `"ACTIVE"` after
 their `PUT`, then confirm that a fresh read names exactly the routes just
 sent. Either wait failing, or the confirm read not matching, returns an
-error wrapping `network.ErrNotSettled`. The transport itself may still
-retry the `PUT` request on its own after a transient failure such as a
-5xx, since `PUT` is idempotent; what never happens is `AddRoute` or
-`RemoveRoute` resending a previous call's already-computed route list.
-Running the same call again simply reads the table fresh and starts over.
+error wrapping `network.ErrNotSettled`. Each replacement is sent once,
+without retries, authentication replay, or redirects. An ambiguous send
+uses reads to reconcile and still reports `ErrNotSettled`, with the last
+safe table when available. Read the route table before another write.
+Running the call again builds a fresh replacement from current state.
 
 Which `routingType` marks a route the server manages outside a caller's
 control, if any, is not yet confirmed live. Until that is known, a replace

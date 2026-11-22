@@ -30,6 +30,10 @@ Kind: Write.
 
 Needs --yes on every call: add-route changes routing for every server behind the table, and the CLI cannot tell cheaply whether that table is in use. Waits for the table to reach ACTIVE before sending; past that wait, error code ResourceBusy, nothing sent. Matches --destination-cidr as a parsed prefix, not by its exact text. Adding a route to --destination-cidr that is already there with the same --target is a no-op: Changed is false and nothing is sent. The same --destination-cidr with a different --target already there is refused with InvalidUsage, naming the current target; remove-route the old one first. Reads the table again right before sending and refuses with ResourceBusy, nothing sent, if its routes changed since that first read; a write that lands in the moment between this re-read and the send can still be overwritten. Without --no-wait, waits again after sending and confirms that a fresh read names exactly the routes just sent, which only catches a write that lands after this command's own send, not one from before it; a mismatch there is NotSettled.
 
+Sends one replacement PUT without retries, authentication replay, or redirects.
+An ambiguous send reconciles by reading and remains NotSettled; read the table
+before another write.
+
 | Flag | Type | Required |
 |-|-|-|
 | `--route-table-id` | `string` | yes |
@@ -532,6 +536,12 @@ vngcloud network list-address-pairs-by-virtual-subnet --virtual-subnet-id <virtu
 
 Kind: Read.
 
+
+
+Walks every parent page, up to 50 pages and 500000 groups. Repeated IDs or
+pages, changing totals, and incomplete inventories return InvalidResponse
+without partial output.
+
 No fields.
 
 ```sh
@@ -830,6 +840,12 @@ vngcloud network list-subnets-by-vpc --vpc-id <vpc-id>
 
 Kind: Read.
 
+
+
+Discovery cannot choose a credential destination. Requests use the fixed
+regional gateway or the caller's explicit endpoint override; region matching
+uses exact identities.
+
 No fields.
 
 ```sh
@@ -950,6 +966,10 @@ vngcloud network remove-network-acl-rule --network-acl-id <network-acl-id> --dir
 Kind: Write.
 
 Needs --yes on every call: remove-route changes routing for every server behind the table, and the CLI cannot tell cheaply whether that table is in use. Waits for the table to reach ACTIVE before sending; past that wait, error code ResourceBusy, nothing sent. Matches --destination-cidr as a parsed prefix, not by its exact text. Removing a --destination-cidr the table does not have returns NotFound, nothing sent. A --destination-cidr matching more than one route by its parsed prefix is refused, nothing sent. Reads the table again right before sending and refuses with ResourceBusy, nothing sent, if its routes changed since that first read; a write that lands in the moment between this re-read and the send can still be overwritten. Without --no-wait, waits again after sending and confirms that a fresh read names exactly the routes just sent, which only catches a write that lands after this command's own send, not one from before it; a mismatch there is NotSettled.
+
+Sends one replacement PUT without retries, authentication replay, or redirects.
+An ambiguous send reconciles by reading and remains NotSettled; read the table
+before another write.
 
 | Flag | Type | Required |
 |-|-|-|

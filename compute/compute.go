@@ -112,6 +112,9 @@ func (c *Client) GetServer(ctx context.Context, in *GetServerInput) (out *GetSer
 	}, &resp); err != nil {
 		return nil, err
 	}
+	if resp.Data.UUID != in.ServerID {
+		return nil, invalidServerResponse(op, 200, nil)
+	}
 	return &GetServerOutput{Server: resp.Data}, nil
 }
 
@@ -119,7 +122,9 @@ func (c *Client) GetServer(ctx context.Context, in *GetServerInput) (out *GetSer
 type ListSSHKeysOutput = core.PagedList[SSHKey]
 
 // ListSSHKeys reads ssh keys.
-func (c *Client) ListSSHKeys(ctx context.Context, in *ListSSHKeysInput) (*ListSSHKeysOutput, error) {
+func (c *Client) ListSSHKeys(ctx context.Context, in *ListSSHKeysInput) (out *ListSSHKeysOutput, err error) {
+	ctx, scope := serverOperationContext(ctx)
+	defer finishServerOperation(scope, "compute.ListSSHKeys", &out, &err)
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
 		return nil, err
@@ -141,7 +146,7 @@ func (c *Client) ListSSHKeys(ctx context.Context, in *ListSSHKeysInput) (*ListSS
 	q.Set("size", strconv.Itoa(size))
 
 	var resp listSSHKeysResponse
-	if err := c.c.DoJSON(ctx, transport.Request{
+	if err := c.doServerJSON(ctx, transport.Request{
 		Operation: "compute.ListSSHKeys",
 		Method:    "GET",
 		URL:       c.computeURL("v2", []string{projectID, "sshKeys"}, q),
@@ -161,7 +166,9 @@ type GetSSHKeyOutput struct {
 // object, not a 404, so GetSSHKey treats an empty SSHKey.ID in the response
 // as not-found itself, returning the SDK's ordinary not-found sentinel
 // rather than an empty SSHKey with no error.
-func (c *Client) GetSSHKey(ctx context.Context, in *GetSSHKeyInput) (*GetSSHKeyOutput, error) {
+func (c *Client) GetSSHKey(ctx context.Context, in *GetSSHKeyInput) (out *GetSSHKeyOutput, err error) {
+	ctx, scope := serverOperationContext(ctx)
+	defer finishServerOperation(scope, "compute.GetSSHKey", &out, &err)
 	const op = "compute.GetSSHKey"
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
@@ -176,7 +183,7 @@ func (c *Client) GetSSHKey(ctx context.Context, in *GetSSHKeyInput) (*GetSSHKeyO
 	var resp struct {
 		Data SSHKey `json:"data"`
 	}
-	if err := c.c.DoJSON(ctx, transport.Request{
+	if err := c.doServerJSON(ctx, transport.Request{
 		Operation: op,
 		Method:    "GET",
 		URL:       c.computeURL("v2", []string{projectID, "sshKeys", in.SSHKeyID}, nil),
@@ -194,7 +201,9 @@ func (c *Client) GetSSHKey(ctx context.Context, in *GetSSHKeyInput) (*GetSSHKeyO
 type ListServerGroupsOutput = core.PagedList[ServerGroup]
 
 // ListServerGroups reads server groups.
-func (c *Client) ListServerGroups(ctx context.Context, in *ListServerGroupsInput) (*ListServerGroupsOutput, error) {
+func (c *Client) ListServerGroups(ctx context.Context, in *ListServerGroupsInput) (out *ListServerGroupsOutput, err error) {
+	ctx, scope := serverOperationContext(ctx)
+	defer finishServerOperation(scope, "compute.ListServerGroups", &out, &err)
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
 		return nil, err
@@ -205,16 +214,16 @@ func (c *Client) ListServerGroups(ctx context.Context, in *ListServerGroupsInput
 	q.Set("limit", strconv.Itoa(core.DefaultPageSize))
 	if in != nil {
 		q.Set("name", in.Name)
-		if in.Page > 0 {
-			q.Set("offset", strconv.Itoa(in.Page))
+		if in.Offset > 0 {
+			q.Set("offset", strconv.Itoa(in.Offset))
 		}
-		if in.Size > 0 {
-			q.Set("limit", strconv.Itoa(in.Size))
+		if in.Limit > 0 {
+			q.Set("limit", strconv.Itoa(in.Limit))
 		}
 	}
 
 	var resp listServerGroupsResponse
-	if err := c.c.DoJSON(ctx, transport.Request{
+	if err := c.doServerJSON(ctx, transport.Request{
 		Operation: "compute.ListServerGroups",
 		Method:    "GET",
 		URL:       c.computeURL("v2", []string{projectID, "serverGroups"}, q),
@@ -263,50 +272,6 @@ func (c *Client) GetServerGroup(ctx context.Context, in *GetServerGroupInput) (*
 		return nil, fmt.Errorf("%w: %s: server group %s", core.ErrNotFound, op, in.ServerGroupID)
 	}
 	return &GetServerGroupOutput{ServerGroup: resp.Data}, nil
-}
-
-// ListServerSecurityGroupsOutput holds ServerSecurityGroup items.
-type ListServerSecurityGroupsOutput = core.List[ServerSecurityGroup]
-
-// ListServerSecurityGroups reads server security groups.
-func (c *Client) ListServerSecurityGroups(ctx context.Context, _ *ListServerSecurityGroupsInput) (*ListServerSecurityGroupsOutput, error) {
-	servers, err := c.ListServers(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	items := make([]ServerSecurityGroup, 0)
-	for _, server := range servers.Items {
-		for _, secgroup := range server.SecurityGroups {
-			items = append(items, ServerSecurityGroup{
-				ServerID: server.UUID,
-				Name:     secgroup.Name,
-				UUID:     secgroup.UUID,
-			})
-		}
-	}
-	return &ListServerSecurityGroupsOutput{Items: items}, nil
-}
-
-// ListServerGroupMembersOutput holds ServerGroupMembership items.
-type ListServerGroupMembersOutput = core.List[ServerGroupMembership]
-
-// ListServerGroupMembers reads server group members.
-func (c *Client) ListServerGroupMembers(ctx context.Context, _ *ListServerGroupMembersInput) (*ListServerGroupMembersOutput, error) {
-	groups, err := c.ListServerGroups(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	items := make([]ServerGroupMembership, 0)
-	for _, group := range groups.Items {
-		for _, server := range group.Servers {
-			items = append(items, ServerGroupMembership{
-				ServerGroupID: group.UUID,
-				Name:          server.Name,
-				UUID:          server.UUID,
-			})
-		}
-	}
-	return &ListServerGroupMembersOutput{Items: items}, nil
 }
 
 // ListServerGroupPoliciesOutput holds ServerGroupPolicy items.

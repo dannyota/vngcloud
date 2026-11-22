@@ -67,9 +67,9 @@ allRules, err := client.ListAllSecurityGroupRules(ctx, nil)
 with `--query 'Items[].PublicIP'`; empty does not prove absence. See
 [Public address](Compute-Servers.md#public-address).
 
-Group and rule reads have 8 MiB response and 30 s limits, suppress captures,
-and reject credential reflections. `ListAllSecurityGroupRules` shares a
-256-credential history and rechecks output within a 30 s aggregate limit.
+Group and rule reads suppress captures and reject credential reflections.
+Reads allow 8 MiB and 30 s. `ListAllSecurityGroupRules` validates all parent
+pages within 30 s, at most 50 pages, 500000 groups, and 256 credentials.
 `ListSecurityGroups` matches names by substring; compare exact names yourself.
 `SecurityGroup.System` marks the default group. Its broad rules can trigger
 the [public-create guard](Compute-Servers.md#floating-ip-create).

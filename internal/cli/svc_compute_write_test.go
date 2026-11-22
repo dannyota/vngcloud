@@ -27,7 +27,7 @@ func computeServerJSON(uuid, name, status string) string {
 // computeEmptyServerListJSON is one empty ListServers page: no server
 // matches, the shape create-server's own pre-order duplicate-name check
 // gets for a name nothing already uses.
-const computeEmptyServerListJSON = `{"listData":[],"page":0,"pageSize":10000,"totalPage":0,"totalItem":0}`
+const computeEmptyServerListJSON = `{"listData":[],"page":1,"pageSize":10000,"totalPage":0,"totalItem":0}`
 
 // computeQuoteJSON renders one price-quote response priced at optimumPrice,
 // the shape create-server's own quote step reads before it orders.

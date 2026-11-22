@@ -418,9 +418,9 @@ var ErrUnexpectedStatus = errors.New("compute: unexpected status")
 These are the same values [Compute](Compute.md#errors) defines.
 `ErrNotSettled` means a write's confirm read or wait after a successful
 request failed to come back: `CreateServer` must not be repeated, since
-the server already exists, while `StartServer`, `StopServer`,
-`RebootServer`, `ResizeServer`, and `DeleteServer` are safe to run again,
-since each reads first. `ErrFailed` means a create, toggle, resize, or
+the server may already exist. Reconcile other uncertain writes with
+`GetServer` and the console before another write. Repeating `RebootServer`
+can reboot an already recovered server a second time; use reads to check it. `ErrFailed` means a create, toggle, resize, or
 delete's wait observed the server reach `ERROR`. `ErrUnexpectedStatus`
 means `StartServer`, `StopServer`, or `RebootServer` read a status that
 call does not act on, such as a reboot of a `STOPPED` server, or

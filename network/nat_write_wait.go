@@ -13,7 +13,7 @@ import (
 func (c *Client) natWaitSleep(ctx context.Context, deadline time.Time, interval time.Duration) error {
 	remaining := deadline.Sub(c.now())
 	if remaining <= 0 {
-		return natUnsettled("network.NATWait")
+		return natUnsettled("network.NATWait", natDeadlineCause(ctx))
 	}
 	return c.sleep(ctx, min(interval, remaining))
 }
@@ -22,11 +22,11 @@ func (c *Client) waitNATCreate(ctx context.Context, op string, s *natPurchaseSpe
 	defer cancel()
 	for {
 		if waitCtx.Err() != nil || !c.now().Before(deadline) {
-			return natUnsettled(op)
+			return natUnsettled(op, natDeadlineCause(waitCtx))
 		}
 		rows, err := c.natCreateInventory(waitCtx, op, s.scope, deadline)
 		if err != nil && rows == nil {
-			return natUnsettled(op)
+			return natUnsettled(op, err)
 		}
 		var candidate *NATInstance
 		for _, row := range rows {
@@ -44,7 +44,7 @@ func (c *Client) waitNATCreate(ctx context.Context, op string, s *natPurchaseSpe
 			}
 			out.NATInstance = candidate
 			if waitCtx.Err() != nil || !c.now().Before(deadline) {
-				return natUnsettled(op)
+				return natUnsettled(op, natDeadlineCause(waitCtx))
 			}
 			if candidate.Status == "ERROR" {
 				if !accepted {
@@ -55,11 +55,14 @@ func (c *Client) waitNATCreate(ctx context.Context, op string, s *natPurchaseSpe
 			if candidate.Status == "ACTIVE" {
 				row, renewal, err := c.natBilling(waitCtx, op, candidate.UUID, s.offer.BillingSKU)
 				if err != nil {
-					return natUnsettled(op)
+					return natUnsettled(op, err)
 				}
 				if row != nil {
 					out.AutoRenew = renewal
-					if !accepted || !c.now().Before(deadline) || waitCtx.Err() != nil {
+					if !c.now().Before(deadline) || waitCtx.Err() != nil {
+						return natUnsettled(op, natDeadlineCause(waitCtx))
+					}
+					if !accepted {
 						return natUnsettled(op)
 					}
 					return c.natRenewalOff(waitCtx, op, s, out, row, deadline)
@@ -67,10 +70,10 @@ func (c *Client) waitNATCreate(ctx context.Context, op string, s *natPurchaseSpe
 			}
 		}
 		if err != nil {
-			return natUnsettled(op)
+			return natUnsettled(op, err)
 		}
-		if c.natWaitSleep(waitCtx, deadline, 5*time.Second) != nil {
-			return natUnsettled(op)
+		if sleepErr := c.natWaitSleep(waitCtx, deadline, 5*time.Second); sleepErr != nil {
+			return natUnsettled(op, sleepErr)
 		}
 	}
 }
@@ -137,10 +140,10 @@ func (c *Client) natRenewalOff(ctx context.Context, op string, s *natPurchaseSpe
 	}
 	account, err := billingresources.Account(ctx, c.c)
 	if err != nil {
-		return natUnsettled(op)
+		return natUnsettled(op, err)
 	}
 	if ctx.Err() != nil || !c.now().Before(deadline) {
-		return natUnsettled(op)
+		return natUnsettled(op, natDeadlineCause(ctx))
 	}
 	putErr := billingresources.Put(ctx, c.c, op, account, billingresources.Setting{Product: "vserver", ArtifactType: "nat", ArtifactID: out.NATInstance.UUID, Channel: *row.Channel, AutoRenewInfo: billingresources.AutoRenewInfo{IsEnable: false, Period: 43200}})
 	confirmDeadline := minTime(deadline, c.now().Add(30*time.Second))
@@ -148,24 +151,24 @@ func (c *Client) natRenewalOff(ctx context.Context, op string, s *natPurchaseSpe
 	defer cancel()
 	for {
 		if confirmCtx.Err() != nil || !c.now().Before(confirmDeadline) {
-			return natUnsettled(op)
+			return natUnsettled(op, putErr, natDeadlineCause(confirmCtx))
 		}
 		observed, renewal, readErr := c.natBilling(confirmCtx, op, out.NATInstance.UUID, s.offer.BillingSKU)
 		if readErr != nil || observed == nil {
-			return natUnsettled(op)
+			return natUnsettled(op, putErr, readErr)
 		}
 		out.AutoRenew = renewal
 		if putErr != nil {
-			return natUnsettled(op)
+			return natUnsettled(op, putErr)
 		}
 		if !*renewal {
 			if confirmCtx.Err() != nil || !c.now().Before(confirmDeadline) {
-				return natUnsettled(op)
+				return natUnsettled(op, natDeadlineCause(confirmCtx))
 			}
 			return nil
 		}
-		if c.natWaitSleep(confirmCtx, confirmDeadline, 2*time.Second) != nil {
-			return natUnsettled(op)
+		if sleepErr := c.natWaitSleep(confirmCtx, confirmDeadline, 2*time.Second); sleepErr != nil {
+			return natUnsettled(op, putErr, sleepErr)
 		}
 	}
 }
@@ -179,16 +182,16 @@ func minTime(a, b time.Time) time.Time {
 func (c *Client) natCreateInventory(ctx context.Context, op string, scope natScope, deadline time.Time) ([]NATInstance, error) {
 	remaining := deadline.Sub(c.now())
 	if ctx.Err() != nil || remaining <= 0 {
-		return nil, natUnsettled(op)
+		return nil, natUnsettled(op, natDeadlineCause(ctx))
 	}
 	bounded, cancel := context.WithTimeout(ctx, remaining)
 	defer cancel()
 	rows, err := c.natInventory(bounded, op, scope)
 	if err != nil {
-		return nil, natUnsettled(op)
+		return nil, natUnsettled(op, err)
 	}
 	if bounded.Err() != nil || !c.now().Before(deadline) {
-		return rows, natUnsettled(op)
+		return rows, natUnsettled(op, natDeadlineCause(bounded))
 	}
 	return rows, nil
 }

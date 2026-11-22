@@ -19,6 +19,12 @@ import (
 // builds is "acl-1" in "vpc-1", the only ACL and VPC every test in this
 // file needs.
 func aclJSON(name string, defaultACL bool, subnetIDs []string, rules []map[string]any) string {
+	if rules == nil {
+		rules = []map[string]any{}
+	}
+	if subnetIDs == nil {
+		subnetIDs = []string{}
+	}
 	body := map[string]any{
 		"uuid": "acl-1", "interfaceNetworkUuid": "vpc-1", "name": name,
 		"defaultAcl": defaultACL, "status": "ACTIVE",

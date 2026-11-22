@@ -277,8 +277,7 @@ func TestComputeCreateSSHKeyNoRetryOn502(t *testing.T) {
 }
 
 // TestComputeCreateSSHKeyNeverCaptured checks that CreateSSHKey's Sensitive
-// request never reaches the configured response-capture hook, while an
-// ordinary read on the same Client still does.
+// request and SSH key reads never reach the response-capture hook.
 func TestComputeCreateSSHKeyNeverCaptured(t *testing.T) {
 	var captured []transport.Capture
 	cfg := testutil.NewConfigWithCapture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -296,15 +295,15 @@ func TestComputeCreateSSHKeyNeverCaptured(t *testing.T) {
 	if _, err := c.GetSSHKey(context.Background(), &GetSSHKeyInput{SSHKeyID: "key-1"}); err != nil {
 		t.Fatalf("GetSSHKey() error = %v", err)
 	}
-	if len(captured) != 1 {
-		t.Fatalf("captured = %d after GetSSHKey, want 1", len(captured))
+	if len(captured) != 0 {
+		t.Fatalf("captured = %d after GetSSHKey, want 0", len(captured))
 	}
 
 	if _, err := c.CreateSSHKey(context.Background(), &CreateSSHKeyInput{Name: "app"}); err != nil {
 		t.Fatalf("CreateSSHKey() error = %v", err)
 	}
-	if len(captured) != 1 {
-		t.Fatalf("captured = %d after CreateSSHKey, want still 1 (never captured)", len(captured))
+	if len(captured) != 0 {
+		t.Fatalf("captured = %d after CreateSSHKey, want still 0 (never captured)", len(captured))
 	}
 }
 

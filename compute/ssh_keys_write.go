@@ -2,6 +2,7 @@ package compute
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/floatingip"
 	"danny.vn/vngcloud/internal/transport"
 )
 
@@ -100,7 +102,9 @@ type ImportSSHKeyOutput struct {
 // reached the server: after any error that is not a 4xx *core.APIError, the
 // key may exist, and the caller lists keys by Name before importing it
 // again, rather than retrying blind.
-func (c *Client) ImportSSHKey(ctx context.Context, in *ImportSSHKeyInput) (*ImportSSHKeyOutput, error) {
+func (c *Client) ImportSSHKey(ctx context.Context, in *ImportSSHKeyInput) (out *ImportSSHKeyOutput, err error) {
+	ctx, scope := serverOperationContext(ctx)
+	defer finishServerOperation(scope, "compute.ImportSSHKey", &out, &err)
 	const op = "compute.ImportSSHKey"
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
@@ -128,7 +132,7 @@ func (c *Client) ImportSSHKey(ctx context.Context, in *ImportSSHKeyInput) (*Impo
 		Body:      importSSHKeyBody{Name: in.Name, PubKey: publicKey},
 		OK:        []int{201},
 	}
-	status, err := c.c.DoJSONStatus(ctx, req, &resp)
+	status, err := c.doServerJSONStatus(ctx, req, &resp)
 	if err != nil {
 		return nil, wrapAmbiguousSSHKeyErr(op, in.Name, false, err)
 	}
@@ -176,7 +180,9 @@ type CreateSSHKeyOutput struct {
 // leaves the same question open; a 201 with an id but no private key names
 // that id in the error instead, so the caller deletes it directly rather
 // than searching for it.
-func (c *Client) CreateSSHKey(ctx context.Context, in *CreateSSHKeyInput) (*CreateSSHKeyOutput, error) {
+func (c *Client) CreateSSHKey(ctx context.Context, in *CreateSSHKeyInput) (out *CreateSSHKeyOutput, err error) {
+	ctx, scope := serverOperationContext(ctx)
+	defer finishServerOperation(scope, "compute.CreateSSHKey", &out, &err)
 	const op = "compute.CreateSSHKey"
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
@@ -198,9 +204,13 @@ func (c *Client) CreateSSHKey(ctx context.Context, in *CreateSSHKeyInput) (*Crea
 		OK:        []int{201},
 		Sensitive: true,
 	}
-	status, err := c.c.DoJSONStatus(ctx, req, &resp)
+	status, err := c.doServerJSONStatus(ctx, req, &resp)
 	if err != nil {
 		return nil, wrapAmbiguousSSHKeyErr(op, in.Name, true, err)
+	}
+	modelJSON, modelErr := json.Marshal(resp.Data.toSSHKey())
+	if modelErr != nil || floatingip.Reflects(modelJSON, []string{resp.Data.PrivateKey}) {
+		return nil, invalidServerResponse(op, status, nil)
 	}
 	if resp.Data.ID == "" || resp.Data.PrivateKey == "" {
 		msg := "create response had no id or no private key; a key may exist, check with list-ssh-keys"

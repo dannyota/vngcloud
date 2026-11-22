@@ -34,11 +34,10 @@ type GetSSHKeyInput struct {
 type ListServerGroupsInput struct {
 	// Name is sent as the name query parameter.
 	Name string
-	// Page is an offset, not a page number: it starts at 0, and each
-	// value names the index of the first item to return.
-	Page int
-	// Size is the limit; a nonpositive value uses the default.
-	Size int
+	// Offset is the zero-based index of the first item; nonpositive values use zero.
+	Offset int
+	// Limit is the maximum item count; nonpositive values use the default.
+	Limit int
 }
 
 // GetServerGroupInput identifies a server group to read.

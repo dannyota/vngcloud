@@ -52,6 +52,21 @@ func TestResponseReflectionUnknownAndEscapedStrings(t *testing.T) {
 	}
 }
 
+func TestReadJSONRejectsConflictingKnownFields(t *testing.T) {
+	for _, body := range []string{`{"id":"a","id":"b"}`, `{"id":"a","ID":"b"}`} {
+		client := testutil.NewCoreClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }))
+		var out struct {
+			ID string `json:"id"`
+		}
+		ctx, unsafe, cancel := ResponseContext(context.Background())
+		defer cancel()
+		err := ReadJSON(ctx, client, transport.Request{Operation: "read", Method: http.MethodGet, URL: client.Endpoint("vserver"), OK: []int{200}}, &out, unsafe)
+		if err == nil {
+			t.Fatal("conflicting security evidence accepted")
+		}
+	}
+}
+
 func TestExposurePermissionAndResponseLimitsRemainWithOverride(t *testing.T) {
 	for _, status := range []int{401, 403, 500} {
 		c := testutil.NewCoreClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

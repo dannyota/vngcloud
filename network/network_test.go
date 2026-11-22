@@ -283,7 +283,7 @@ func TestNetworkGetEndpoint(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]string{
 				{"uuid": "zone-a", "name": "hcm-3", "vnetworkDashboard": "http://" + r.Host},
 			}})
-		case "/vnetwork-gateway/vnetwork/v1/zone-a/project-1/endpoints/endpoint-1":
+		case "/vnetwork/v1/zone-a/project-1/endpoints/endpoint-1":
 			testutil.WriteFixture(t, w, "../testdata/network/get_endpoint.json")
 		default:
 			t.Fatalf("unexpected path: %s", r.URL.Path)
@@ -491,6 +491,10 @@ func TestSecurityGroupReadBoundsAndReflection(t *testing.T) {
 		} {
 			t.Run(op+"/"+tc.name, func(t *testing.T) {
 				body := tc.body
+				if op == "list" && !tc.bad {
+					const envelope = `{"listData":[],"page":1,"pageSize":10000,"totalPage":0,"totalItem":0}`
+					body = envelope + strings.Repeat(" ", (8<<20)-len(envelope))
+				}
 				if op == "get" && !tc.bad {
 					body = `{"data":{"id":"sg-1"}}` + strings.Repeat(" ", (8<<20)-len(`{"data":{"id":"sg-1"}}`))
 				}

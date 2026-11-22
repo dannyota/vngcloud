@@ -344,14 +344,23 @@ func (c *Client) putRoutesAndConfirm(ctx context.Context, op, routeTableID strin
 		return nil, err
 	}
 	req := transport.Request{
-		Operation: op,
-		Method:    http.MethodPut,
-		URL:       c.networkURL([]string{projectID, "route-table", routeTableID, "routes"}, nil),
-		Body:      routesReplaceBody{Routes: entries},
-		OK:        []int{200},
+		Operation:  op,
+		Method:     http.MethodPut,
+		URL:        c.networkURL([]string{projectID, "route-table", routeTableID, "routes"}, nil),
+		Body:       routesReplaceBody{Routes: entries},
+		OK:         []int{200},
+		Once:       true,
+		NoRedirect: true,
 	}
-	if err := c.c.DoJSON(ctx, req, nil); err != nil {
-		return nil, err
+	if sendErr := c.c.DoJSON(ctx, req, nil); sendErr != nil {
+		if is4xxAPIError(sendErr) {
+			return nil, sendErr
+		}
+		observed, readErr := c.waitRouteTableRoutesSettled(ctx, op, routeTableID, entries)
+		if observed == nil {
+			observed = base
+		}
+		return observed, fmt.Errorf("%w: %s: routes were sent once; read the route table before another write: %w", ErrNotSettled, op, errors.Join(sendErr, readErr))
 	}
 	if noWait {
 		fallback := *base

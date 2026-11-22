@@ -355,6 +355,10 @@ vngcloud compute list-os-images
 
 Kind: Read.
 
+Walks every parent page, up to 50 pages and 500000 parent rows. Repeated IDs
+or pages, changing totals, and incomplete inventories return InvalidResponse
+without partial output.
+
 No fields.
 
 ```sh
@@ -375,11 +379,15 @@ vngcloud compute list-server-group-policies
 
 Kind: Read.
 
+Uses --offset as the zero-based first item and --limit as the maximum item
+count, default 10000. SDK and JSON input use Offset and Limit; migrate Page
+and Size.
+
 | Flag | Type | Required |
 |-|-|-|
 | `--name` | `string` |  |
-| `--page` | `int` |  |
-| `--size` | `int` |  |
+| `--offset` | `int` |  |
+| `--limit` | `int` |  |
 
 ```sh
 vngcloud compute list-server-groups
@@ -388,6 +396,10 @@ vngcloud compute list-server-groups
 ## list-server-security-groups
 
 Kind: Read.
+
+Walks every parent page, up to 50 pages and 500000 parent rows. Repeated IDs
+or pages, changing totals, and incomplete inventories return InvalidResponse
+without partial output.
 
 No fields.
 
@@ -549,6 +561,9 @@ Kind: Write, destructive.
 Needs --yes: a reboot interrupts what runs on the server. Needs the server ACTIVE first; any other status refuses with error code UnexpectedStatus, nothing sent. Without --no-wait, waits up to 5 minutes for a read showing ACTIVE at least 10 seconds after the reboot was sent, since an immediate read can still show the pre-reboot ACTIVE state before REBOOTING even appears; ERROR during that wait is WriteFailed. The bound running out is NotSettled; a rerun reads the server first, but ACTIVE is exactly what this command's own precondition needs, so a rerun that reads ACTIVE again reboots the server a second time rather than treating the first reboot as done, since neither read can tell a settled reboot from a server that never left ACTIVE.
 
 If this resource is managed by OpenTofu or Terraform, a write made here drifts from that tracked state; keep such a resource's writes in the tool that manages it.
+
+After an uncertain result, read with compute get-server and inspect the
+console. Do not repeat reboot to check whether the first reboot settled.
 
 | Flag | Type | Required |
 |-|-|-|

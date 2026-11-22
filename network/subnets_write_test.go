@@ -519,6 +519,8 @@ func TestDeleteSubnet5xxConfirmedByListAbsence(t *testing.T) {
 		case strings.HasSuffix(r.URL.Path, "/subnets"):
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`[]`))
+		case strings.HasSuffix(r.URL.Path, "/network-acl/list"):
+			_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":10000,"totalPage":0,"totalItem":0}`))
 		case r.Method == http.MethodGet:
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"uuid":"subnet-1","status":"ACTIVE"}`))
@@ -554,6 +556,8 @@ func TestDeleteSubnet5xxConfirmedByListPresence(t *testing.T) {
 		case strings.HasSuffix(r.URL.Path, "/subnets"):
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`[{"uuid":"subnet-1","status":"ACTIVE"}]`))
+		case strings.HasSuffix(r.URL.Path, "/network-acl/list"):
+			_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":10000,"totalPage":0,"totalItem":0}`))
 		case r.Method == http.MethodGet:
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"uuid":"subnet-1","status":"ACTIVE"}`))
@@ -591,6 +595,8 @@ func TestDeleteSubnetWaitSettlesByListAbsence(t *testing.T) {
 				return
 			}
 			_, _ = w.Write([]byte(`[]`))
+		case strings.HasSuffix(r.URL.Path, "/network-acl/list"):
+			_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":10000,"totalPage":0,"totalItem":0}`))
 		case r.Method == http.MethodGet:
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"uuid":"subnet-1","status":"ACTIVE"}`))
@@ -619,6 +625,8 @@ func TestDeleteSubnetWaitFailsOnError(t *testing.T) {
 		case strings.HasSuffix(r.URL.Path, "/subnets"):
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`[{"uuid":"subnet-1","status":"ERROR"}]`))
+		case strings.HasSuffix(r.URL.Path, "/network-acl/list"):
+			_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":10000,"totalPage":0,"totalItem":0}`))
 		case r.Method == http.MethodGet:
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"uuid":"subnet-1","status":"ACTIVE"}`))
@@ -648,6 +656,8 @@ func TestDeleteSubnetWaitBoundReached(t *testing.T) {
 		case strings.HasSuffix(r.URL.Path, "/subnets"):
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`[{"uuid":"subnet-1","status":"ACTIVE"}]`))
+		case strings.HasSuffix(r.URL.Path, "/network-acl/list"):
+			_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":10000,"totalPage":0,"totalItem":0}`))
 		case r.Method == http.MethodGet:
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"uuid":"subnet-1","status":"ACTIVE"}`))
@@ -679,6 +689,8 @@ func TestDeleteSubnetNoWaitSkipsWait(t *testing.T) {
 			listCalls++
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`[{"uuid":"subnet-1","status":"ACTIVE"}]`))
+		case strings.HasSuffix(r.URL.Path, "/network-acl/list"):
+			_, _ = w.Write([]byte(`{"listData":[],"page":1,"pageSize":10000,"totalPage":0,"totalItem":0}`))
 		case r.Method == http.MethodGet:
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"uuid":"subnet-1","status":"ACTIVE"}`))
@@ -859,7 +871,7 @@ func TestDeleteSubnetProceedsWhenEmptyNetworkIDACLBelongsToAnotherVPC(t *testing
 			_, _ = w.Write([]byte(`{"listData":[{"uuid":"acl-1","name":"acl-name","networkId":""}],"page":1,"pageSize":10000,"totalPage":1,"totalItem":1}`))
 		case r.URL.Path == "/v2/project-1/network-acl/acl-1":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"data":{"uuid":"acl-1","status":"ACTIVE","defaultAcl":false,"interfaceNetworkUuid":"vpc-2","subnetAssociationList":["subnet-1"]}}`))
+			_, _ = w.Write([]byte(`{"data":{"uuid":"acl-1","status":"ACTIVE","defaultAcl":false,"interfaceNetworkUuid":"vpc-2","subnetAssociationList":["subnet-1"],"aclPolicyRules":[]}}`))
 		case r.Method == http.MethodGet:
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"uuid":"subnet-1","status":"ACTIVE"}`))

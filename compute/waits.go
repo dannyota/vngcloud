@@ -46,14 +46,23 @@ func poll(ctx context.Context, now clockFunc, sleep sleepFunc, bound time.Durati
 	defer cancel()
 	deadline := now().Add(bound)
 	for {
-		stop, err := step(ctx)
-		if stop {
-			return err
+		if ctx.Err() != nil {
+			return ctx.Err()
 		}
 		if !now().Before(deadline) {
 			return onTimeout()
 		}
-		if err := sleep(ctx, serverPollInterval); err != nil {
+		stop, err := step(ctx)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if !now().Before(deadline) {
+			return onTimeout()
+		}
+		if stop {
+			return err
+		}
+		if err := sleep(ctx, min(serverPollInterval, deadline.Sub(now()))); err != nil {
 			return err
 		}
 	}
@@ -189,7 +198,7 @@ func (c *Client) waitServerRebooted(ctx context.Context, op, serverID string, se
 			return false, nil
 		},
 		func() error {
-			return fmt.Errorf("%w: %s: server %s did not confirm reboot within %s; run this operation again to check",
+			return fmt.Errorf("%w: %s: server %s did not confirm reboot within %s; read with get-server and inspect the console; do not repeat reboot to check",
 				ErrNotSettled, op, serverID, serverRebootBound)
 		},
 	)

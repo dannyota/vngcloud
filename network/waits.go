@@ -61,19 +61,31 @@ func contextSleep(ctx context.Context, d time.Duration) error {
 // vpcs_write.go, subnets_write.go, and route_tables_write.go for the values
 // this package uses today.
 func poll(ctx context.Context, now clockFunc, sleep sleepFunc, interval, bound time.Duration, step func(ctx context.Context) (stop bool, err error), onTimeout func() error) error {
+	ctx, cancel := context.WithTimeout(ctx, bound)
+	defer cancel()
 	deadline := now().Add(bound)
 	for {
-		stop, err := step(ctx)
-		if stop {
+		if err := ctx.Err(); err != nil {
 			return err
 		}
 		if !now().Before(deadline) {
 			return onTimeout()
 		}
-		if err := sleep(ctx, interval); err != nil {
+		stop, err := step(ctx)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if !now().Before(deadline) {
+			return onTimeout()
+		}
+		if stop {
+			return err
+		}
+		if err := sleep(ctx, min(interval, deadline.Sub(now()))); err != nil {
 			return err
 		}
 	}
+
 }
 
 // waitSecurityGroupActive is CreateSecurityGroup's post-create wait unless

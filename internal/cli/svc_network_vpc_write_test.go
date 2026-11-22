@@ -66,7 +66,7 @@ func subnetCreateJSON(name string) string {
 // emptyNetworkListJSON is ListNetworkInterfaces' and ListVirtualIPAddresses'
 // own empty-page envelope, the shape DeleteSubnet's in-use guard reads when
 // neither list holds anything for the subnet.
-const emptyNetworkListJSON = `{"listData":[],"page":0,"pageSize":0,"totalPage":0,"totalItem":0}`
+const emptyNetworkListJSON = `{"listData":[],"page":1,"pageSize":10000,"totalPage":0,"totalItem":0}`
 
 // --- create-vpc ---
 

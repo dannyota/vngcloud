@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/jsonresponse"
 	"danny.vn/vngcloud/internal/transport"
 	"danny.vn/vngcloud/pricing"
 )
@@ -312,7 +313,13 @@ func (c *Client) doServerJSONStatus(ctx context.Context, req transport.Request, 
 		}
 		return status, err
 	}
-	if scope.unsafe(raw) || json.Unmarshal(raw, out) != nil {
+	switch out.(type) {
+	case *listServersResponse, *listServerGroupsResponse:
+		if !validComputePage(raw) {
+			return status, invalidServerResponse(req.Operation, status, nil)
+		}
+	}
+	if scope.unsafe(raw) || jsonresponse.ValidateStrict(raw, out) != nil || json.Unmarshal(raw, out) != nil {
 		return status, invalidServerResponse(req.Operation, status, nil)
 	}
 	return status, nil

@@ -13,13 +13,24 @@ import (
 
 const natRecovery = "Run network list-nat-instances in the same scope and billing list-resources, matching the known NAT ID. If no NAT appears, inspect payment history without ordering again. Renewal may remain enabled; use the billing console for a deliberate disable and confirm by a billing read. Do not repeat create while purchase or renewal is unresolved. Deletion requires a separate deliberate action with VPC consent."
 
-type natUnsettledError struct{ op string }
+type natUnsettledError struct {
+	op    string
+	cause error
+}
 
 func (e *natUnsettledError) Error() string {
 	return e.op + ": write outcome is unconfirmed; " + natRecovery
 }
-func (*natUnsettledError) Unwrap() error { return ErrNotSettled }
-func natUnsettled(op string) error       { return &natUnsettledError{op: op} }
+func (e *natUnsettledError) Unwrap() error { return e.cause }
+func natUnsettled(op string, causes ...error) error {
+	safe := []error{ErrNotSettled}
+	for _, cause := range causes {
+		if cause != nil {
+			safe = append(safe, natSafeError(op, cause))
+		}
+	}
+	return &natUnsettledError{op: op, cause: errors.Join(safe...)}
+}
 
 type natOrderBody struct {
 	ResourceType string          `json:"resourceType"`
@@ -59,7 +70,7 @@ func (c *Client) CreateNATInstance(ctx context.Context, in *CreateNATInstanceInp
 	if natDefiniteRefusal(orderErr) {
 		rows, readErr := c.natCreateInventory(ctx, op, s.scope, deadline)
 		if readErr != nil {
-			return out, natUnsettled(op)
+			return out, natUnsettled(op, orderErr, readErr)
 		}
 		candidate := false
 		for _, row := range rows {
@@ -68,13 +79,17 @@ func (c *Client) CreateNATInstance(ctx context.Context, in *CreateNATInstanceInp
 			}
 		}
 		if ctx.Err() != nil || !c.now().Before(deadline) {
-			return out, natUnsettled(op)
+			return out, natUnsettled(op, orderErr, natDeadlineCause(ctx))
 		}
 		if !candidate {
 			return out, orderErr
 		}
 	}
-	return out, c.waitNATCreate(ctx, op, s, out, deadline, orderErr == nil)
+	waitErr := c.waitNATCreate(ctx, op, s, out, deadline, orderErr == nil)
+	if errors.Is(waitErr, ErrNotSettled) {
+		return out, natUnsettled(op, orderErr, waitErr)
+	}
+	return out, waitErr
 }
 
 // DeleteNATInstance sends one delete after confirming the resource's VPC.
@@ -121,7 +136,7 @@ func (c *Client) DeleteNATInstance(ctx context.Context, in *DeleteNATInstanceInp
 	_, sendErr := c.natExchange(ctx, transport.Request{Operation: op, Method: http.MethodDelete, URL: s.collection(in.NATID), Body: struct{}{}, OK: []int{200}, Once: true}, &code)
 	if in.NoWait {
 		if sendErr != nil {
-			return out, natUnsettled(op)
+			return out, natUnsettled(op, sendErr)
 		}
 		return out, nil
 	}
@@ -130,14 +145,14 @@ func (c *Client) DeleteNATInstance(ctx context.Context, in *DeleteNATInstanceInp
 	defer cancel()
 	for {
 		if waitCtx.Err() != nil || !c.now().Before(deadline) {
-			return out, natUnsettled(op)
+			return out, natUnsettled(op, sendErr, natDeadlineCause(waitCtx))
 		}
 		rows, readErr := c.natInventory(waitCtx, op, s)
 		if readErr != nil {
-			return out, natUnsettled(op)
+			return out, natUnsettled(op, sendErr, readErr)
 		}
 		if waitCtx.Err() != nil || !c.now().Before(deadline) {
-			return out, natUnsettled(op)
+			return out, natUnsettled(op, sendErr, natDeadlineCause(waitCtx))
 		}
 		present := false
 		for _, row := range rows {
@@ -149,13 +164,13 @@ func (c *Client) DeleteNATInstance(ctx context.Context, in *DeleteNATInstanceInp
 			if present {
 				return out, sendErr
 			}
-			return out, natUnsettled(op)
+			return out, natUnsettled(op, sendErr)
 		}
 		if !present {
 			return out, nil
 		}
-		if c.natWaitSleep(waitCtx, deadline, 5*time.Second) != nil {
-			return out, natUnsettled(op)
+		if sleepErr := c.natWaitSleep(waitCtx, deadline, 5*time.Second); sleepErr != nil {
+			return out, natUnsettled(op, sendErr, sleepErr)
 		}
 	}
 }
@@ -163,4 +178,11 @@ func (c *Client) DeleteNATInstance(ctx context.Context, in *DeleteNATInstanceInp
 func natDefiniteRefusal(err error) bool {
 	var api *core.APIError
 	return errors.As(err, &api) && api.StatusCode >= 400 && api.StatusCode < 500 && api.StatusCode != 408 && api.StatusCode != 429
+}
+
+func natDeadlineCause(ctx context.Context) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return context.DeadlineExceeded
 }

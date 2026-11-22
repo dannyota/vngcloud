@@ -1,5 +1,23 @@
 # Release Notes
 
+## Unreleased
+
+- Harden compute, network, and portal identity, credential, inventory,
+  replay, and wait guards. Server-group inputs rename `Page`/`Size` to
+  `Offset`/`Limit`; migrate CLI flags to `--offset`/`--limit` and JSON input
+  keys accordingly. Aggregates require complete parent and child inventories;
+  route operations retain credential history and reject unsafe output. Invalid
+  ACL associations block subnet deletion. NAT errors retain safe causes and
+  uncertain reboot recovery uses reads.
+- Load balancer member writes remerge fresh state after busy refusals and
+  never replay ambiguous replacements. Waits enforce deadlines; `NoWait`
+  outputs include submitted fields. CDN writes reject missing status or
+  mismatched identity in detail responses.
+- Harden Monitor order replay, price guards, credential withholding, name
+  searches, check concurrency, and waits. Reject ambiguous quote/alarm fields;
+  preserve ordinary check data. Error redaction uses `[redacted]`. SDK fields
+  and CLI flags stay compatible.
+
 ## v0.97.0 - Pre-1.0 hardening
 
 - Harden billing and pricing responses: withhold credential echoes, reject

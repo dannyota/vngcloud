@@ -47,8 +47,7 @@ func New(cfg vngcloud.Config) *Client {
 // ListVNetworkRegions reads v network regions.
 func (c *Client) ListVNetworkRegions(ctx context.Context, _ *ListVNetworkRegionsInput) (*ListVNetworkRegionsOutput, error) {
 	bases := uniqueNonEmptyStrings([]string{
-		c.c.Endpoint(routes.ProductVNet),
-		endpoints.VNetworkRegionalGateway(c.c.Region()),
+		vnetEndpoints{c: c}.Endpoint(routes.ProductVNet),
 	})
 	if len(bases) == 0 {
 		// An invalid Config resolves no endpoint at all; try one empty base so
@@ -71,7 +70,7 @@ func (c *Client) listVNetworkRegions(ctx context.Context, baseURL string) ([]VNe
 	var resp struct {
 		Data []VNetworkRegion `json:"data"`
 	}
-	if err := c.c.DoJSON(ctx, transport.Request{
+	if err := c.readNetworkEvidence(ctx, transport.Request{
 		Operation: "network.ListVNetworkRegions",
 		Method:    "GET",
 		URL: routes.URL(fixedVNetEndpoint{base: baseURL, next: vnetEndpoints{c: c}}, routes.Route{
@@ -98,21 +97,11 @@ func (f fixedVNetEndpoint) Endpoint(product routes.Product) string {
 	return f.next.Endpoint(product)
 }
 
-// vnetEndpoints resolves the vNetwork endpoint pinned by a prior
-// ListVNetworkRegions call, falling back to the shared client's default for
-// every other product. It exists because routes.URL needs a routes.Endpoints
-// value, and that pinning is Client-specific state that the public Client
-// type does not expose as a method.
 type vnetEndpoints struct{ c *Client }
 
 func (e vnetEndpoints) Endpoint(product routes.Product) string {
-	if product == routes.ProductVNet {
-		e.c.mu.Lock()
-		endpoint := e.c.vnetEndpoint
-		e.c.mu.Unlock()
-		if endpoint != "" {
-			return endpoint
-		}
+	if product == routes.ProductVNet && !e.c.c.VNetworkOverride() {
+		return endpoints.VNetworkRegionalGateway(e.c.c.Region())
 	}
 	return e.c.c.Endpoint(product)
 }
@@ -363,12 +352,14 @@ func (c *Client) ListSecurityGroupRules(ctx context.Context, in *ListSecurityGro
 func (c *Client) ListAllSecurityGroupRules(ctx context.Context, _ *ListAllSecurityGroupRulesInput) (*ListAllSecurityGroupRulesOutput, error) {
 	ctx, unsafe, cancel := floatingip.ResponseContext(ctx)
 	defer cancel()
-	secgroups, err := c.ListSecurityGroups(ctx, nil)
+	secgroups, err := walkNetworkPages(ctx, "network.ListAllSecurityGroupRules", func(page int) (*ListSecurityGroupsOutput, error) {
+		return c.ListSecurityGroups(ctx, &ListSecurityGroupsInput{Page: page})
+	}, func(group SecurityGroup) string { return group.ID })
 	if err != nil {
 		return nil, err
 	}
 	items := make([]SecurityGroupRule, 0)
-	for _, secgroup := range secgroups.Items {
+	for _, secgroup := range secgroups {
 		rules, err := c.ListSecurityGroupRules(ctx, &ListSecurityGroupRulesInput{SecurityGroupID: secgroup.ID})
 		if err != nil {
 			return nil, err
@@ -633,11 +624,8 @@ func (c *Client) list(ctx context.Context, operation string, parts []string, nam
 		URL:       c.networkURL(routeParts, networkListQuery(name, page, size)),
 		OK:        []int{200},
 	}
-	if operation == "network.ListSecurityGroups" {
-		return floatingip.ReadJSON(ctx, c.c, req, out, func(raw []byte) bool {
-			values, err := floatingip.Credentials(ctx)
-			return err != nil || floatingip.Reflects(raw, values)
-		})
+	if operation == "network.ListSecurityGroups" || operation == "network.ListNetworkACLs" {
+		return c.readInventoryPage(ctx, req, out)
 	}
 	return c.c.DoJSON(ctx, req, out)
 }
@@ -669,12 +657,9 @@ func (c *Client) requireVNetworkZoneID(ctx context.Context) string {
 		return c.c.Region()
 	}
 	for _, region := range out.Items {
-		if region.matches(c.c.Region()) {
+		if region.matches(c.c.Region()) && core.CheckPathID("network.ListVNetworkRegions", "ZoneID", region.UUID) == nil {
 			c.mu.Lock()
 			c.vnetZoneID = region.UUID
-			if endpoint := region.endpoint(); endpoint != "" {
-				c.vnetEndpoint = endpoint
-			}
 			id := c.vnetZoneID
 			c.mu.Unlock()
 			return id

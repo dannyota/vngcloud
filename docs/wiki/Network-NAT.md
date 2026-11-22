@@ -171,7 +171,8 @@ true after a valid AUTO-RENEW observation, and nil when unknown.
 An observed ERROR returns `network.ErrFailed` with partial output.
 Lost or malformed order replies, read failures, timeouts, ambiguous
 identity, or renewal failures return `network.ErrNotSettled` with safe
-partial output. A definite HTTP 4xx refusal, except 408 and 429, triggers one complete
+partial output. Safe underlying API and context errors remain available
+through `errors.As` and `errors.Is`, alongside `ErrNotSettled`. A definite HTTP 4xx refusal, except 408 and 429, triggers one complete
 inventory scan. If no new exact-name row exists, create returns the safe
 API error immediately. A new row keeps the outcome unconfirmed.
 A failed order reply never authorizes the renewal PUT.

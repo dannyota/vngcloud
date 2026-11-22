@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/jsonresponse"
 	"danny.vn/vngcloud/internal/transport"
 )
 
@@ -117,7 +118,7 @@ func ReadJSON(ctx context.Context, c *core.Client, req transport.Request, out an
 		}
 		return err
 	}
-	if unsafe(raw) || json.Unmarshal(raw, out) != nil {
+	if unsafe(raw) || jsonresponse.ValidateStrict(raw, out) != nil || json.Unmarshal(raw, out) != nil {
 		return InvalidResponse(req.Operation, nil)
 	}
 	return nil

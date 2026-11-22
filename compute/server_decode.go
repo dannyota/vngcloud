@@ -3,6 +3,8 @@ package compute
 import (
 	"encoding/json"
 	"net/netip"
+
+	"danny.vn/vngcloud/internal/jsonresponse"
 )
 
 // UnmarshalJSON derives PublicIP from this response's internal interfaces.
@@ -10,6 +12,9 @@ import (
 func (s *Server) UnmarshalJSON(data []byte) error {
 	type wireServer Server
 	var decoded wireServer
+	if err := jsonresponse.ValidateStrict(data, &decoded); err != nil {
+		return err
+	}
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		return err
 	}

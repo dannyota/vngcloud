@@ -99,71 +99,14 @@ func wrapACLPutFailure(op, networkACLID string, err error) error {
 		ErrNotSettled, op, networkACLID, err)
 }
 
-// aclFoundAfterServerError lists network ACLs once and reports whether id
-// is present. GetNetworkACL calls this only after a 5xx on its own GET,
-// never after a 404: a deleted ACL's own get returns 500, not 404, unlike
-// every other resource this package deletes, so a 5xx here needs the same
-// list confirm a 404 gets automatically elsewhere. Listing once, rather
-// than paging through every ACL, matches the design; ListNetworkACLs itself
-// defaults to a page of 10000, so this misses an id only in a project with
-// more network ACLs than that.
-//
-// DeleteNetworkACL's pre-delete read goes through GetNetworkACL, so a 5xx
-// on that read is confirmed the same way; DeleteNetworkACL's own DELETE
-// uses waitACLAbsentAfterDelete instead, which pages through every ACL and
-// polls rather than trusting one page read once (see its doc comment for
-// why: a delete is destructive, so a false "still there" costs only time,
-// while a false "gone" would leave a caller believing a live ACL is
-// deleted).
-//
-// A list that comes back short of the account's own count, more than one
-// page or fewer items than TotalItem, is not a reliable absence: id could
-// simply be on a page this call never asked for. GetNetworkACL already
-// treats any error from this method as "fall back to the original 5xx," so
-// this returns an error instead of a bare false in that case, rather than
-// answering a question the single-page list cannot actually settle.
 func (c *Client) aclFoundAfterServerError(ctx context.Context, id string) (bool, error) {
-	out, err := c.ListNetworkACLs(ctx, nil)
-	if err != nil {
-		return false, err
-	}
-	for _, acl := range out.Items {
-		if acl.UUID == id || acl.ID == id {
-			return true, nil
-		}
-	}
-	if out.TotalPage > 1 || len(out.Items) < out.TotalItem {
-		return false, fmt.Errorf("network ACL list confirm: got %d of %d item(s) across %d page(s); inconclusive",
-			len(out.Items), out.TotalItem, out.TotalPage)
-	}
-	return false, nil
+	return c.aclListedAfterDelete(ctx, id)
 }
 
-// listAllNetworkACLs walks every page of ListNetworkACLs and returns every
-// item seen. It returns an error, rather than a partial slice, when the
-// items seen across every page fall short of the total the server itself
-// reported: listNetworkACLsInVPC (subnets_write.go) and
-// waitACLAbsentAfterDelete both need every ACL the account has, not just
-// whatever a first page happens to hold.
 func (c *Client) listAllNetworkACLs(ctx context.Context) ([]ACL, error) {
-	var items []ACL
-	var seen, total int
-	for page := 1; ; page++ {
-		out, err := c.ListNetworkACLs(ctx, &ListNetworkACLsInput{Page: page})
-		if err != nil {
-			return nil, err
-		}
-		total = out.TotalItem
-		seen += len(out.Items)
-		items = append(items, out.Items...)
-		if page >= out.TotalPage || len(out.Items) == 0 {
-			break
-		}
-	}
-	if seen < total {
-		return nil, fmt.Errorf("network ACL list: got %d of %d item(s) across every page; the list is incomplete", seen, total)
-	}
-	return items, nil
+	return walkNetworkPages(ctx, "network.ListNetworkACLs", func(page int) (*ListNetworkACLsOutput, error) {
+		return c.ListNetworkACLs(ctx, &ListNetworkACLsInput{Page: page})
+	}, func(acl ACL) string { return acl.UUID })
 }
 
 // aclListedAfterDelete reports whether id is still present across every
@@ -218,16 +161,8 @@ type GetNetworkACLOutput struct {
 	ACL ACL
 }
 
-// GetNetworkACL reads a network ACL, including its rules and associated
-// subnets.
-//
-// Confirmed live, a deleted ACL's get returns 500, not 404. Because of that,
-// this SDK never treats a bare 5xx here as NotFound on its own: after any
-// error with a 5xx status, GetNetworkACL calls ListNetworkACLs once and
-// checks whether NetworkACLID is still listed. Absent, it returns an error
-// wrapping core.ErrNotFound; listed, or if the list call itself fails, it
-// returns the original 5xx. A plain 404 (an id that was never valid) still
-// becomes core.ErrNotFound through the shared transport, with no list call.
+// GetNetworkACL requires matching identity and explicit guard state.
+// A server failure becomes NotFound only after a complete inventory.
 func (c *Client) GetNetworkACL(ctx context.Context, in *GetNetworkACLInput) (*GetNetworkACLOutput, error) {
 	const op = "network.GetNetworkACL"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -243,13 +178,16 @@ func (c *Client) GetNetworkACL(ctx context.Context, in *GetNetworkACLInput) (*Ge
 	var resp struct {
 		Data ACL `json:"data"`
 	}
-	getErr := c.c.DoJSON(ctx, transport.Request{
+	getErr := c.readNetworkEvidence(ctx, transport.Request{
 		Operation: op,
 		Method:    http.MethodGet,
 		URL:       c.networkURL([]string{projectID, "network-acl", in.NetworkACLID}, nil),
 		OK:        []int{200},
-	}, &resp)
+	}, &resp, "uuid", "status", "defaultAcl", "interfaceNetworkUuid", "subnetAssociationList", "aclPolicyRules")
 	if getErr == nil {
+		if resp.Data.UUID != in.NetworkACLID || resp.Data.Status == "" || resp.Data.VPCID == "" {
+			return nil, invalidInventory(op)
+		}
 		return &GetNetworkACLOutput{ACL: resp.Data}, nil
 	}
 	if !isACLServerError(getErr) {

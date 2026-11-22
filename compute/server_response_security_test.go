@@ -62,8 +62,8 @@ func TestServerReadResponseSafety(t *testing.T) {
 			name, body string
 			fail       bool
 		}{
-			{"limit", strings.Repeat(" ", 8<<20-len(`{"data":{},"listData":[]}`)) + `{"data":{},"listData":[]}`, false},
-			{"limit plus one", strings.Repeat(" ", (8<<20)+1-len(`{"data":{},"listData":[]}`)) + `{"data":{},"listData":[]}`, true},
+			{"limit", strings.Repeat(" ", 8<<20-len(`{"data":{"uuid":"server-1"},"listData":[],"page":1,"pageSize":10000,"totalPage":0,"totalItem":0}`)) + `{"data":{"uuid":"server-1"},"listData":[],"page":1,"pageSize":10000,"totalPage":0,"totalItem":0}`, false},
+			{"limit plus one", strings.Repeat(" ", (8<<20)+1-len(`{"data":{"uuid":"server-1"},"listData":[],"page":1,"pageSize":10000,"totalPage":0,"totalItem":0}`)) + `{"data":{"uuid":"server-1"},"listData":[],"page":1,"pageSize":10000,"totalPage":0,"totalItem":0}`, true},
 			{"truncated", `{"data":{"name":"hostile-marker"},"listData":[`, true},
 			{"type error", `{"data":{"uuid":"hostile-marker","status":[]},"listData":[{"name":{}}]}`, true},
 			{"raw reflection", `{"data":{"name":"synthetic-token-001"},"listData":[{"name":"synthetic-token-001"}]}`, true},

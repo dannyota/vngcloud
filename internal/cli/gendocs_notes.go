@@ -320,7 +320,8 @@ func networkChangeRouteNote(command, sameRouteBehavior string) string {
 		"write that lands in the moment between this re-read and the send can still be overwritten. Without " +
 		"--no-wait, waits again after sending and confirms that a fresh read names exactly the routes just " +
 		"sent, which only catches a write that lands after this command's own send, not one from before it; " +
-		"a mismatch there is NotSettled."
+		"a mismatch there is NotSettled.\n\nSends one replacement PUT without retries, authentication replay, or redirects.\n" +
+		"An ambiguous send reconciles by reading and remains NotSettled; read the table\nbefore another write."
 }
 
 // networkAddRouteNote documents add-route's own no-op and conflict cases,

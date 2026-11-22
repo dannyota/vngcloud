@@ -115,7 +115,10 @@ fields with no fallback. Unknown fields are ignored.
 
 SDK JSON uses API spellings (`uuid`, `isEnabled`); CLI JSON, table, text,
 and queries use Go names (`UUID`, `IsEnabled`). Nil pointers encode as null.
-User info and quotas remain map-backed and preserve returned fields.
+User info and quotas remain map-backed and preserve safe returned fields.
+Portal reads suppress response captures and reject reflected credentials.
+Object reads reject arrays, scalars, null, and conflicting envelopes.
+Malformed or duplicate known fields return `InvalidResponse` without output.
 
 ## Compute
 
@@ -124,7 +127,7 @@ computeClient := compute.New(cfg)
 computeClient.ListServers(ctx, in)              // Page, Size
 computeClient.GetServer(ctx, in)                // ServerID (required)
 computeClient.ListSSHKeys(ctx, in)              // Name, Page, Size
-computeClient.ListServerGroups(ctx, in)         // Name, Page, Size
+computeClient.ListServerGroups(ctx, in)         // Name, Offset, Limit
 computeClient.ListServerSecurityGroups(ctx, nil)
 computeClient.ListServerGroupMembers(ctx, nil)
 computeClient.ListServerGroupPolicies(ctx, nil)

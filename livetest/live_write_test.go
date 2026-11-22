@@ -3100,7 +3100,7 @@ func listAllServerGroups(ctx context.Context, client *compute.Client) ([]compute
 	var all []compute.ServerGroup
 	offset := 0
 	for {
-		out, err := client.ListServerGroups(ctx, &compute.ListServerGroupsInput{Page: offset})
+		out, err := client.ListServerGroups(ctx, &compute.ListServerGroupsInput{Offset: offset})
 		if err != nil {
 			return all, err
 		}

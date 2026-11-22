@@ -93,13 +93,16 @@ func (c *Client) GetRouteTable(ctx context.Context, in *GetRouteTableInput) (*Ge
 	var resp struct {
 		Data RouteTable `json:"data"`
 	}
-	if err := c.c.DoJSON(ctx, transport.Request{
+	if err := c.readNetworkEvidence(ctx, transport.Request{
 		Operation: op,
 		Method:    http.MethodGet,
 		URL:       c.networkURL([]string{projectID, "route-table", in.RouteTableID}, nil),
 		OK:        []int{200},
-	}, &resp); err != nil {
+	}, &resp, "uuid", "status", "routes"); err != nil {
 		return nil, err
+	}
+	if resp.Data.UUID != in.RouteTableID || resp.Data.Status == "" {
+		return nil, invalidInventory(op)
 	}
 	return &GetRouteTableOutput{RouteTable: resp.Data}, nil
 }

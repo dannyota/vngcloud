@@ -117,8 +117,11 @@ alone, so after any 5xx it polls every network ACL instead of resending
 the `DELETE`, across every page, every 2 seconds for up to 60 seconds: the
 id absent at any point means the delete did take effect and the call
 succeeds; still listed at the bound, or a list error at any point, returns
-the original 500, and waiting out the busy window before calling again
-succeeds.
+the original 500. Absence is confirmed only after a complete inventory
+with explicit lists, stable totals, matching page numbers, and unique IDs.
+Malformed, repeated, or incomplete pages cannot confirm deletion or clear
+a subnet guard. Scans stop after 50 pages or 500000 rows. Detail reads
+require matching identity and explicit guard state, including subnet lists.
 
 ## Rules
 

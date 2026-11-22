@@ -21,6 +21,9 @@ import (
 // builds is "acl-1" in "vpc-1", the fixed ids this package's ACL write
 // tests key their other responses on.
 func aclJSON(status string, defaultACL bool, rules []aclRuleEntry, subnetIDs []string) string {
+	if subnetIDs == nil {
+		subnetIDs = []string{}
+	}
 	type ruleJSON struct {
 		UUID                   string `json:"uuid"`
 		SeqNumber              int    `json:"seqNumber"`

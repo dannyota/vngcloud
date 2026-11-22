@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -36,7 +37,7 @@ type GetUserInfoOutput struct {
 // GetUserInfo reads the current portal user's information.
 func (c *Client) GetUserInfo(ctx context.Context, _ *GetUserInfoInput) (*GetUserInfoOutput, error) {
 	var resp flexibleObject[UserInfo]
-	if err := c.c.DoJSON(ctx, transport.Request{
+	if err := c.readJSON(ctx, transport.Request{
 		Operation: "portal.GetUserInfo",
 		Method:    "GET",
 		URL:       c.portalURL("v1", []string{"users", "info"}),
@@ -60,7 +61,7 @@ func (c *Client) ListZones(ctx context.Context, _ *ListZonesInput) (*ListZonesOu
 		return nil, err
 	}
 	var resp flexibleList[Zone]
-	if err := c.c.DoJSON(ctx, transport.Request{
+	if err := c.readJSON(ctx, transport.Request{
 		Operation: "portal.ListZones",
 		Method:    "GET",
 		URL:       c.vserverURL("v1", []string{projectID, "zones"}),
@@ -84,7 +85,7 @@ func (c *Client) ListQuotaUsed(ctx context.Context, _ *ListQuotaUsedInput) (*Lis
 		return nil, err
 	}
 	var resp flexibleList[Quota]
-	if err := c.c.DoJSON(ctx, transport.Request{
+	if err := c.readJSON(ctx, transport.Request{
 		Operation: "portal.ListQuotaUsed",
 		Method:    "GET",
 		URL:       c.vserverURL("v2", []string{projectID, "quotas", "quotaUsed"}),
@@ -138,7 +139,7 @@ func (c *Client) GetTagQuota(ctx context.Context, _ *GetTagQuotaInput) (*GetTagQ
 		return nil, err
 	}
 	var resp flexibleObject[TagQuota]
-	if err := c.c.DoJSON(ctx, transport.Request{
+	if err := c.readJSON(ctx, transport.Request{
 		Operation: "portal.GetTagQuota",
 		Method:    "GET",
 		URL:       c.vserverURL("v2", []string{projectID, "tag", "quota"}),
@@ -183,21 +184,34 @@ type flexibleObject[T ~map[string]any] struct {
 }
 
 func (r *flexibleObject[T]) UnmarshalJSON(data []byte) error {
+	r.Value = nil
 	var value any
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
 	if err := decoder.Decode(&value); err != nil {
 		return err
 	}
-	if object, ok := value.(map[string]any); ok {
-		for _, key := range []string{"data", "user", "userInfo", "quota"} {
-			if nested, ok := object[key].(map[string]any); ok {
-				r.Value = T(nested)
-				return nil
-			}
-		}
-		r.Value = T(object)
+	object, ok := value.(map[string]any)
+	if !ok || object == nil {
+		return errors.New("expected portal object")
 	}
+	var selected map[string]any
+	for key, value := range object {
+		for _, envelope := range []string{"data", "user", "userInfo", "quota"} {
+			if !strings.EqualFold(key, envelope) {
+				continue
+			}
+			nested, ok := value.(map[string]any)
+			if key != envelope || !ok || nested == nil || selected != nil {
+				return errors.New("invalid portal envelope")
+			}
+			selected = nested
+		}
+	}
+	if selected != nil {
+		object = selected
+	}
+	r.Value = T(object)
 	return nil
 }
 
@@ -206,6 +220,9 @@ type flexibleList[T any] struct {
 }
 
 func (r *flexibleList[T]) UnmarshalJSON(data []byte) error {
+	if !validPortalList[T](data) {
+		return errors.New("invalid portal list")
+	}
 	items, _, _, _, _, err := core.DecodeFlexibleList[T](data)
 	if err != nil {
 		return err

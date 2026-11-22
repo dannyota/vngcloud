@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 
 	"danny.vn/vngcloud"
@@ -105,7 +106,7 @@ func TestComputeListServerGroups(t *testing.T) {
 		testutil.WriteFixture(t, w, "../testdata/compute/list_server_groups.json")
 	}))
 
-	out, err := c.ListServerGroups(context.Background(), &ListServerGroupsInput{Name: "anti-affinity", Page: 2, Size: 10})
+	out, err := c.ListServerGroups(context.Background(), &ListServerGroupsInput{Name: "anti-affinity", Offset: 2, Limit: 10})
 	if err != nil {
 		t.Fatalf("ListServerGroups() error = %v", err)
 	}
@@ -136,7 +137,11 @@ func TestComputeDerivedServerSecurityGroups(t *testing.T) {
 		if r.URL.Path != "/v2/project-1/servers" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
-		testutil.WriteFixture(t, w, "../testdata/compute/list_servers.json")
+		body := testutil.FixtureBody(t, "../testdata/compute/list_servers.json")
+		body = strings.ReplaceAll(body, `"page": 2`, `"page": 1`)
+		body = strings.ReplaceAll(body, `"totalPage": 3`, `"totalPage": 1`)
+		body = strings.ReplaceAll(body, `"totalItem": 21`, `"totalItem": 1`)
+		_, _ = w.Write([]byte(body))
 	}))
 
 	out, err := c.ListServerSecurityGroups(context.Background(), nil)

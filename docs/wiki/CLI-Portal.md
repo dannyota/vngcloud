@@ -8,6 +8,10 @@ Kind: Read.
 
 Values under a key that looks like a secret (password, token, credential, and similar, matched after lower-casing and stripping punctuation) print as `<redacted>`, at any depth.
 
+Responses are limited to 8 MiB, suppress captures, and reject reflected
+credentials or conflicting known fields. Object reads reject arrays, scalars,
+null, and conflicting envelopes with InvalidResponse.
+
 | Flag | Type | Required |
 |-|-|-|
 | `--name` | `string` | yes |
@@ -21,6 +25,10 @@ vngcloud portal get-quota --name <name> --query Quota
 Kind: Read.
 
 Values under a key that looks like a secret (password, token, credential, and similar, matched after lower-casing and stripping punctuation) print as `<redacted>`, at any depth.
+
+Responses are limited to 8 MiB, suppress captures, and reject reflected
+credentials or conflicting known fields. Object reads reject arrays, scalars,
+null, and conflicting envelopes with InvalidResponse.
 
 No fields.
 
@@ -36,6 +44,10 @@ Prints account data: email, names, user ID, and cash and billing status. It is t
 
 Values under a key that looks like a secret (password, token, credential, and similar, matched after lower-casing and stripping punctuation) print as `<redacted>`, at any depth.
 
+Responses are limited to 8 MiB, suppress captures, and reject reflected
+credentials or conflicting known fields. Object reads reject arrays, scalars,
+null, and conflicting envelopes with InvalidResponse.
+
 No fields.
 
 ```sh
@@ -47,6 +59,10 @@ vngcloud portal get-user-info --query UserInfo
 Kind: Read.
 
 Values under a key that looks like a secret (password, token, credential, and similar, matched after lower-casing and stripping punctuation) print as `<redacted>`, at any depth.
+
+Responses are limited to 8 MiB, suppress captures, and reject reflected
+credentials or conflicting known fields. Object reads reject arrays, scalars,
+null, and conflicting envelopes with InvalidResponse.
 
 No fields.
 
@@ -61,6 +77,10 @@ Kind: Read.
 Prints Go field names: `ID`, `UUID`, `Name`, `ZoneType`, `IsDefault`, `Description`, `IsEnabled`, `VolumeCount`, `ServerCount`, `OpenStackZone`, and `IPRanges`. Absent or null pointer fields print as null in JSON; unknown fields are ignored. `ID` and `UUID` are separate fields, with no fallback.
 
 A zone can report `IsEnabled` false with "Contact to enable" (seen for `HCM03-1A`) while quotes and creates there work. Use the flag as a hint, not a gate.
+
+Responses are limited to 8 MiB, suppress captures, and reject reflected
+credentials or conflicting known fields. Object reads reject arrays, scalars,
+null, and conflicting envelopes with InvalidResponse.
 
 No fields.
 

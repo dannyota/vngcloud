@@ -44,7 +44,7 @@ func showCompute(ctx context.Context, cfg vngcloud.Config, outputs *sdkOutputSto
 	})
 	record(outputs, cfg, "server/ssh_key", "ssh keys", keys, err)
 
-	groups, err := computeClient.ListServerGroups(ctx, &compute.ListServerGroupsInput{Page: 0, Size: vngcloud.DefaultPageSize})
+	groups, err := computeClient.ListServerGroups(ctx, &compute.ListServerGroupsInput{Offset: 0, Limit: vngcloud.DefaultPageSize})
 	groupItems := []compute.ServerGroup(nil)
 	if groups != nil {
 		groupItems = groups.Items

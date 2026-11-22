@@ -517,30 +517,9 @@ func (r VNetworkRegion) matches(region string) bool {
 	if region == "" {
 		return false
 	}
-	for _, value := range []string{
-		r.Name,
-		r.Code,
-		r.GatewayURL,
-		r.DashboardURL,
-		r.VServerEndpoint,
-		r.VLBEndpoint,
-		r.UIServerEndpoint,
-		r.VNetworkEndpoint,
-	} {
-		if strings.Contains(strings.ToLower(value), strings.ToLower(region)) {
-			return true
-		}
+	if strings.EqualFold(r.Name, region) || strings.EqualFold(r.Code, region) {
+		return true
 	}
-	return false
-}
-
-func (r VNetworkRegion) endpoint() string {
-	switch {
-	case r.DashboardURL != "":
-		return strings.TrimRight(r.DashboardURL, "/") + "/vnetwork-gateway/"
-	case r.GatewayURL != "":
-		return strings.TrimRight(r.GatewayURL, "/") + "/"
-	default:
-		return ""
-	}
+	origin := natRegionalOrigin(region)
+	return origin != "" && (strings.TrimRight(r.DashboardURL, "/") == origin || strings.TrimRight(r.GatewayURL, "/") == origin+"/vnetwork-gateway")
 }

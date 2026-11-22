@@ -50,7 +50,7 @@ servers, err := client.ListServers(ctx, in)     // Page, Size
 server, err := client.GetServer(ctx, in)        // ServerID (required)
 keys, err := client.ListSSHKeys(ctx, in)        // Name, Page, Size
 key, err := client.GetSSHKey(ctx, in)           // SSHKeyID (required)
-groups, err := client.ListServerGroups(ctx, in) // Name, Page, Size
+groups, err := client.ListServerGroups(ctx, in) // Name, Offset, Limit
 group, err := client.GetServerGroup(ctx, in)    // ServerGroupID (required)
 osImages, err := client.ListOSImages(ctx, in)   // ZoneID
 flavors, err := client.ListFlavors(ctx, in)     // FlavorZoneID or ZoneID, Name
@@ -59,11 +59,22 @@ userImages, err := client.ListUserImages(ctx, in) // Page, Size
 ```
 
 `ListServerSecurityGroups` and `ListServerGroupMembers` flatten nested data
-already returned by `ListServers` and `ListServerGroups`; see
+returned by every page of `ListServers` and `ListServerGroups`; see
 [Services](Services.md#compute) for the full read method list.
 `ListServerGroups`' own `Name` filter matches by substring, not exactly: a
 search for `"web"` also finds `"webhook"`. Any code that must find one
 group by name lists and scans for an exact match itself.
+
+`ListServerGroupsInput` uses `Offset` (zero-based first item) and `Limit`
+(item count, default 10000). The CLI uses `--offset` and `--limit`.
+For example, `Offset: 2, Limit: 100` requests items starting at index 2.
+The aggregate reads stop with `InvalidResponse` instead of partial output
+on repeated IDs or pages, changing totals, or an incomplete inventory.
+They scan at most 50 pages and 500000 parent rows.
+
+Server detail reads require the requested UUID. SSH key reads and writes
+suppress response captures and reject reflected bearer credentials. A
+created private key cannot appear in public key fields or diagnostics.
 
 ## Listing flavors
 
