@@ -24,7 +24,7 @@ Use existing authorities until replacement documents exist. Create a directory w
 - Living docs describe the current state without dates, status history, or stale statements. Rewrite affected text in touched files; do not start repository-wide sweeps. Preserve versioned facts in release notes.
 - Never cite plans, tasks, review findings, or their names or IDs in code, comments, tests, or living docs. Cite the design or ADR, or state the rule. Navigation may link the plans directory.
 - Keep completed plans with checked completion boxes. A short-term TODO task is one unchecked line and leaves the list in the commit that completes it. Do not put account details in plans or public TODO items.
-- Agent-only files (`AGENTS.md`, `CLAUDE.md`, `instructions/`, `.claude/`, `.codex/`, and `docs/plans/`) use one line per paragraph or list item and unpadded tables. Human docs wrap at 80 columns.
+- Agent-only files (`AGENTS.md`, `CLAUDE.md`, `instructions/`, `.claude/`, and `docs/plans/`) use one line per paragraph or list item and unpadded tables. Human docs wrap at 80 columns.
 - General Markdown stays at or under 450 lines and new or converted designs and specifications at or under 400; [file length](#file-length) sets the ratchet and split rules.
 - Inspect relative links and heading anchors after moves. Retain forwarding files and their consumed headings until every consumer moves in the atomic document cutover. Do not delete a forwarder while a contract still links to it.
 

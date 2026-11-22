@@ -5,11 +5,9 @@ Work proceeds in briefed slices with independent review. [AGENTS.md](../AGENTS.m
 ## Duties
 
 - The primary agent acts as manager: turn the owner's request into small releases, plan the work, assign disjoint paths, brief workers, and keep worktrees, verification, Git, releases, and the final answer. Ask the owner only for decisions the owner must make, one focused question at a time, with options and a recommendation.
-- The manager does not investigate failures itself. It fetches evidence workers cannot reach, such as CI logs, run artifacts, and authorized live output, saves it in the private scratchpad without secrets or account data, and briefs the troubleshooter with the failure, the evidence paths, and the owned paths.
-- The troubleshooter reproduces a failing or flaky test, CI failure, or wrong behavior, finds the root cause with evidence, and fixes it within owned paths with a failing test first. It never retries a flaky test into a pass, weakens a check, or widens a timeout to hide a race. When the cause lies outside owned paths or needs a contract change, it reports the cause and the needed change instead of editing.
-- The manager writes designs, architecture notes, plans, and documentation itself, reviews them itself, and decides. Cover the public SDK or CLI surface, errors, compatibility with existing callers, security, dependencies, limits, alternatives, trade-offs, and release order. Name choices that require owner approval. Astra high reviews architecture designs independently before code. Answer contract questions during implementation, but never implement the slice designed.
-- The implementer writes only within the brief's owned paths, follows [Go](go.md) and [testing](testing.md), and updates affected user docs under [documentation](documentation.md#public-surface-and-wiki). Report a needed file outside the brief instead of editing it.
-- The reviewer inspects plans, designs, and completed code independently under [Reviews](#reviews), including troubleshooter fixes. Reviewers never fix reviewed source.
+- The manager does not investigate failures itself. It fetches evidence workers cannot reach, such as CI logs, run artifacts, and authorized live output, saves it in the private scratchpad without secrets or account data, and briefs an implementer with the failure, the evidence paths, and the owned paths.
+- The manager writes plans and documentation itself, briefs the designer for design, ADR, and contract drafts, edits every draft, and decides. Name choices that require owner approval. An independent design review precedes code for architecture and contract changes. The manager answers contract questions during implementation.
+- Workers follow their role in [roles](roles.md): the designer drafts, the implementer writes code, scripts, and workflows and fixes failures, and the reviewer inspects designs and completed code independently. Reviewers never fix reviewed source.
 
 ## Design and implementation
 
@@ -22,9 +20,7 @@ Work proceeds in briefed slices with independent review. [AGENTS.md](../AGENTS.m
 
 A self-contained brief names the objective, authorities, exact owned and forbidden paths, required checks, definition of done, and report format. Repeat the writing rules: plain words, active voice, short paragraphs, no dates or em dashes, no plan/task/review IDs in code or living docs, one line per paragraph or list item in agent-only files, and 80-column wrapping in human docs. Tell each worker it is not alone, must preserve others' edits, and must not change Git state.
 
-Every worker brief forbids network calls other than those the task's checks need, secret reads, and edits outside owned paths. Implementation and build-capable code review use `workspace-write` with the exact cache, temporary-directory, and network settings in [CLAUDE.md](../CLAUDE.md#claude-routing-and-invocation). Those settings allow loopback sockets for tests and writes to the two tool caches required by `make check`. Writes stay confined to the owned worktree or disposable review copy, those caches, and `/tmp` for temporary work. The brief's network and secret-read restrictions and the credential-free worktree rule provide defense in depth for network access; that access does not authorize unrelated calls or edits.
-
-Codex keeps `.codex/` read-only under `workspace-write`. A worker assigned role-file changes returns a proposed patch in the private scratchpad for the manager to inspect and apply. Do not widen permissions or bypass the sandbox to edit protected files. This procedure applies only to brief-owned changes; reviewers never prepare or apply source fixes.
+Every worker brief names the worker's role in [roles](roles.md) and forbids network calls other than those the task's checks need, secret reads, and edits outside owned paths. Workers run with every tool, so the brief and the credential-free worktree rule are the boundary; reviewer briefs also forbid edits, writing commands, and Git changes.
 
 Give standing answers for routine ambiguity in every brief, for example: pick the safer reading, list the choice in the report, and stop only for a contract change or an edit outside owned paths. Name generous but explicit owned paths; most stops come from a needed file outside them.
 
@@ -58,7 +54,7 @@ Low-risk slices touch no paid write, auth, credential, token, or release-workflo
 
 Auth, token handling, credential storage, every write API, and release workflows require adversarial review before landing or release. Follow the [security review scope](security.md#adversarial-review). Name confirmed invariants. Rank each finding by severity with a concrete failure scenario, `path:line`, and fix direction. State checks and what was not checked. A reviewer never reviews its own work or implements fixes to reviewed files.
 
-Design reviews are read-only. A build-capable code reviewer may write build output and probes in a disposable public-source copy, never source fixes. The manager prepares caches and any authorized network setup. [CLAUDE.md](../CLAUDE.md#build-capable-code-review) gives the invocation and copy procedure for Claude sessions.
+Reviews are read-only. A reviewer may build and run tests that write only to `/tmp` or Go caches, never source fixes. [CLAUDE.md](../CLAUDE.md#dispatch) covers what the manager gives each reviewer.
 
 ## Git
 
@@ -68,7 +64,7 @@ Only the manager changes Git state. Workers never add, commit, stash, reset, che
 - Every commit and tag uses the owner's SSH signature. Keep `commit.gpgsign` and `tag.gpgSign` enabled. Never use `--no-gpg-sign` or `-c commit.gpgsign=false`, and never push an unsigned commit or tag.
 - Use a plain imperative commit subject and a body explaining why. Commit subjects, commit bodies, and PR bodies describe only the changes and their purpose; never mention agents, AI, or automated assistance. Add the owner's Developer Certificate of Origin sign-off with `git commit -s`; sign-off does not replace the SSH signature. No Conventional Commit prefixes, tool attribution, AI co-author trailers, or generated footers in commits or PR bodies.
 - Amend or reorder only unpushed commits. The sole pushed-history exception is an explicitly coordinated `wip/` rebase with `--force-with-lease` under [landing](#landing-a-slice). Never rewrite commits on master.
-- Keep local-only paths in `.git/info/exclude`, not committed `.gitignore`. Preserve tracked files and repo-local exceptions. Only shared agent definitions under `.claude/agents/` and `.codex/agents/`, plus `.claude/settings.json`, belong in the tracked agent configuration; keep local state ignored.
+- Keep local-only paths in `.git/info/exclude`, not committed `.gitignore`. Preserve tracked files and repo-local exceptions. Only `.claude/settings.json` belongs in the tracked agent configuration; worker agents are the owner's user-level definitions; keep local state ignored.
 - Never replace or reconfigure global ignores or `core.excludesFile`. Add global entries only at the owner's explicit request. A repo instruction to track named files permits scoped repo-local negations for those files; otherwise do not newly track globally ignored files or add exceptions. No exception permits secrets.
 - Install the staged-content hook once per clone with `make hooks-install`. It runs gitleaks and the file-length check.
 

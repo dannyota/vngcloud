@@ -17,7 +17,6 @@ ci-workflows-check: ## Check workflow triggers, source identity, and validation 
 
 scripts-test: ## Test developer scripts and offline live-write guards
 	@python3 -I -c 'import tomllib'
-	@bash scripts/test/codex-agent-test.sh
 	@bash scripts/test/check-lengths-test.sh
 	@python3 -I scripts/test/browser_creds_test.py
 	@python3 -I scripts/test/length_inventory_test.py

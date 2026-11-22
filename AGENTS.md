@@ -43,19 +43,17 @@ Direct user instructions and platform safety rules come first. Accepted decision
 
 ## AI agent definitions and routing
 
-Definitions live in [.codex/agents/](.codex/agents/) (the Codex `design_reviewer`, `implementer`, `troubleshooter`, `code_reviewer`, and `explorer`, plus a `designer` role kept for research the primary session delegates) and [.claude/agents/](.claude/agents/), one file per role name. Codex jobs run through `scripts/codex-agent.sh`, which loads the role file and requires an explicit model and effort ([CLAUDE.md](CLAUDE.md#codex-dispatch)). Dispatch uses the routing below, with duties and brief-scoped ownership in [workflow](instructions/workflow.md#duties); role defaults do not select the dispatch model. Role files point here instead of repeating this table.
+This section is the only home for routing. Worker role rules live in [instructions/roles.md](instructions/roles.md); each brief names one role and points the worker there. [CLAUDE.md](CLAUDE.md#dispatch) covers how Claude Code dispatches workers.
 
-|Work|Model and effort|
-|-|-|
-|Designs, architecture notes, plans, and documentation|The primary session writes them, reviews them itself, and makes the decisions|
-|Planning and coordination workers|`gpt-6.1-sol` medium|
-|Simple, bounded code, scripts, workflows, and small code edits|The latest Terra, now `gpt-6.1-terra`, xhigh through `implementer`|
-|Complex code jobs: spanning components, or touching a public contract, a migration, or a security-relevant path such as auth, credentials, or a write API; the manager decides which jobs count|The latest Sol, now `gpt-6.1-sol`, xhigh through `implementer`|
-|Failing or flaky tests, CI failures, and root-cause debugging, fix included|`gpt-6.1-sol` xhigh through `troubleshooter`|
-|Exploration, searches, summaries, test execution, and mechanical non-code work|`gpt-6-luna` low through `explorer`|
-|Independent review of architecture designs, and every code review and fix confirmation|`gpt-6-astra` high through `design_reviewer` or `code_reviewer`, as a separate job with the source read-only, so no model reviews its own work; plans and documentation need no separate review|
+|Work|Role|GPT agent|Claude stand-in|
+|-|-|-|-|
+|Design, ADR, or contract draft|`designer`|Sol|Opus|
+|Design review|`reviewer`|Astra|Fable|
+|Implementation and troubleshooting, all code, scripts, and workflows|`implementer`|Terra|Sonnet|
+|Code review and fix confirmation|`reviewer`|Sol|Opus|
+|Searches, summaries, mechanical reading|-|-|Claude `Explore` agent|
 
-The primary session designs, writes documentation, decides, researches, and coordinates; it does not implement, troubleshoot, or review code. No worker or subagent runs on Sonnet or Opus. This restriction covers workers and subagents only; the owner chooses the main Claude Code session model. Set model and effort explicitly on every dispatch, always from this table; model names in plans or briefs written before a routing change are superseded by it. A design author never implements that slice. A reviewer never fixes reviewed work and never reviews work it wrote; a worker's self-review never counts as review. The primary agent remains responsible for planning, briefs, worktrees, verification, Git, releases, and reports; it sends failure investigation to the troubleshooter instead of debugging itself.
+The primary session writes documentation, plans, and prose itself, edits every design draft, and makes the decisions; it does not implement, troubleshoot, or review code. Each agent name is a model family; it resolves to the family's newest model, so plans, briefs, and notes name the family or role, never a versioned model ID, and older model names in plans are superseded by this table. A reviewer never runs on the author's model. Astra and Fable never write code. A design author never implements that slice, a reviewer never fixes reviewed work, and a worker's self-review never counts as review. Plans, documentation, and changes only to agent setup (`.claude/`, AGENTS.md, CLAUDE.md, `instructions/`) need no separate review. The primary remains responsible for briefs, worktrees, verification, Git, releases, and reports.
 
 ## Rules for every task
 

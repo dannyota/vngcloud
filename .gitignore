@@ -22,20 +22,7 @@ Icon?
 .fseventsd
 .localized
 
-# Shared agent roles. Everything else under .claude/ and .codex/ stays local.
+# Shared agent settings. Everything else under .claude/ stays local.
 !.claude/
 .claude/*
-!.claude/agents/
-.claude/agents/*
-!.claude/agents/designer.md
 !.claude/settings.json
-!.codex/
-.codex/*
-!.codex/agents/
-.codex/agents/*
-!.codex/agents/designer.toml
-!.codex/agents/design_reviewer.toml
-!.codex/agents/implementer.toml
-!.codex/agents/code_reviewer.toml
-!.codex/agents/explorer.toml
-!.codex/agents/troubleshooter.toml
