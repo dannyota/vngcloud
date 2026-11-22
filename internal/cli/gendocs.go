@@ -495,10 +495,12 @@ func renderCLIPage(services []docService) string {
 		"`BucketNotEmpty` (a storage delete-bucket was refused because a pre-delete read showed the bucket " +
 		"holds objects, so nothing was sent; see [Storage](CLI-Storage.md#delete-bucket)), " +
 		"`UserNotFound` (a containerregistry create-user's own create succeeded but a follow-up list could " +
-		"not confirm the new user by name; the new secret is still written to --secret-file either way; see " +
-		"[ContainerRegistry](CLI-ContainerRegistry.md#create-user)), " +
-		"`SecretFileFailed` (create-ssh-key's, create-user's, or storage create-s3-key's own " +
-		"create succeeded but writing --secret-file failed afterward, so the CLI deleted the new key or user; " +
+		"not find the new user; a name match never proves ownership, and the new secret is still written to " +
+		"--secret-file either way; see [ContainerRegistry](CLI-ContainerRegistry.md#create-user)), " +
+		"`SecretFileFailed` (create-ssh-key's or storage create-s3-key's own create succeeded but writing " +
+		"--secret-file failed afterward, so the CLI attempts to delete the new key by its created ID; for " +
+		"containerregistry create-user, ownership is unproven, so nothing is deleted: reconcile with " +
+		"list-users before any deletion; " +
 		"see [Compute](CLI-Compute.md#create-ssh-key), [ContainerRegistry](CLI-ContainerRegistry.md#create-user), " +
 		"and [Storage](CLI-Storage.md#create-s3-key)), " +
 		"or `NotFound` (a not-found result that " +
