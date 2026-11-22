@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -15,6 +17,8 @@ type rawFile struct {
 }
 
 type rawEntry struct {
+	Config     string          `json:"config"`
+	Region     string          `json:"region"`
 	StatusCode int             `json:"statusCode"`
 	Body       json.RawMessage `json:"body"`
 }
@@ -24,9 +28,12 @@ type sdkFile struct {
 }
 
 type sdkEntry struct {
-	Count int             `json:"count"`
-	Items json.RawMessage `json:"items"`
-	Error string          `json:"error"`
+	Config string          `json:"config"`
+	Region string          `json:"region"`
+	Scope  string          `json:"scope"`
+	Count  int             `json:"count"`
+	Items  json.RawMessage `json:"items"`
+	Error  string          `json:"error"`
 }
 
 type resourceReport struct {
@@ -42,15 +49,25 @@ type resourceReport struct {
 	noComparable  bool
 }
 
+type captureScope struct {
+	config string
+	region string
+}
+
+type payloadCoverage struct {
+	rows int
+	keys map[string]int
+}
+
 var envelopeKeys = map[string]bool{
-	"data": true, "items": true, "listData": true, "content": true, "results": true,
+	"data": true, "datas": true, "items": true, "listData": true, "content": true, "results": true,
 	"projects": true, "regions": true, "images": true, "volumeTypes": true, "encryptionTypes": true,
 	"page": true, "pageSize": true, "size": true,
 	"total": true, "totalItem": true, "totalItems": true, "totalPage": true, "totalPages": true,
 	"success": true, "status": true, "code": true, "message": true, "errorCode": true, "errorMsg": true, "extra": true,
 }
 
-var payloadKeys = []string{"listData", "data", "items", "content", "results", "projects", "regions", "images", "volumeTypes", "encryptionTypes"}
+var payloadKeys = []string{"listData", "data", "datas", "items", "Items", "content", "results", "projects", "regions", "images", "volumeTypes", "encryptionTypes"}
 
 func checkSmokeOutput(root string) ([]resourceReport, error) {
 	rawRoot := filepath.Join(root, "raw")
@@ -59,16 +76,22 @@ func checkSmokeOutput(root string) ([]resourceReport, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(rawPaths) == 0 {
-		return nil, fmt.Errorf("no raw output found under %s", rawRoot)
+	sdkPaths, err := filepath.Glob(filepath.Join(sdkRoot, "**", "*.json"))
+	if err != nil {
+		return nil, err
+	}
+	if len(rawPaths) == 0 && len(sdkPaths) == 0 {
+		return nil, fmt.Errorf("no output found under %s", root)
 	}
 
-	reports := make([]resourceReport, 0, len(rawPaths))
+	reports := make([]resourceReport, 0, len(rawPaths)+len(sdkPaths))
+	matched := make(map[string]bool, len(rawPaths))
 	for _, rawPath := range rawPaths {
 		rel, err := filepath.Rel(rawRoot, rawPath)
 		if err != nil {
 			return nil, err
 		}
+		matched[rel] = true
 		report := resourceReport{resource: strings.TrimSuffix(filepath.ToSlash(rel), ".json")}
 		sdkPath := filepath.Join(sdkRoot, rel)
 		if _, err := os.Stat(sdkPath); err != nil {
@@ -80,6 +103,18 @@ func checkSmokeOutput(root string) ([]resourceReport, error) {
 			report.unreadable = err.Error()
 		}
 		reports = append(reports, report)
+	}
+	for _, sdkPath := range sdkPaths {
+		rel, err := filepath.Rel(sdkRoot, sdkPath)
+		if err != nil {
+			return nil, err
+		}
+		if !matched[rel] {
+			reports = append(reports, resourceReport{
+				resource:      strings.TrimSuffix(filepath.ToSlash(rel), ".json"),
+				sdkWithoutRaw: true,
+			})
+		}
 	}
 	sort.Slice(reports, func(i, j int) bool { return reports[i].resource < reports[j].resource })
 	return reports, nil
@@ -93,10 +128,11 @@ func printSmokeCheck(reports []resourceReport) bool {
 			fmt.Printf("%s: unreadable: %s\n", report.resource, report.unreadable)
 			continue
 		}
-		if len(report.missingKeys) > 0 || report.rawWithoutSDK > 0 || report.sdkWithoutRaw {
+		if report.sdkErrors > 0 || report.noComparable || report.rawRows != report.sdkRows ||
+			len(report.missingKeys) > 0 || report.rawWithoutSDK > 0 || report.sdkWithoutRaw {
 			failed = true
-			fmt.Printf("%s: raw_ok=%d raw_rows=%d sdk_rows=%d sdk_errors=%d missing_keys=%v raw_without_sdk=%d sdk_without_raw=%t\n",
-				report.resource, report.rawSuccess, report.rawRows, report.sdkRows, report.sdkErrors, report.missingKeys, report.rawWithoutSDK, report.sdkWithoutRaw)
+			fmt.Printf("%s: raw_ok=%d raw_rows=%d sdk_rows=%d sdk_errors=%d missing_keys=%v raw_without_sdk=%d sdk_without_raw=%t no_comparable=%t\n",
+				report.resource, report.rawSuccess, report.rawRows, report.sdkRows, report.sdkErrors, report.missingKeys, report.rawWithoutSDK, report.sdkWithoutRaw, report.noComparable)
 		}
 	}
 	if failed {
@@ -116,53 +152,104 @@ func compareResource(rawPath, sdkPath string, report *resourceReport) error {
 		return err
 	}
 
-	rawKeys := rawPayloadKeys(raw, report)
-	sdkKeys := sdkPayloadKeys(sdk, report)
-
-	report.noComparable = len(rawKeys) == 0 || len(sdkKeys) == 0
-	if report.noComparable {
-		return nil
-	}
-	for key := range rawKeys {
-		if !sdkKeys[key] {
-			report.missingKeys = append(report.missingKeys, key)
+	accountConfigs := make(map[string]bool)
+	for _, entry := range sdk.Regions {
+		if entry.Scope == "account" {
+			accountConfigs[entry.Config] = true
 		}
+	}
+	rawCoverage, err := rawPayloadCoverage(raw, accountConfigs, report)
+	if err != nil {
+		return err
+	}
+	sdkCoverage, err := sdkPayloadCoverage(sdk, report)
+	if err != nil {
+		return err
+	}
+
+	report.noComparable = report.rawSuccess == 0 || len(sdk.Regions) == 0
+	missing := make(map[string]bool)
+	for scope, rawPayload := range rawCoverage {
+		sdkPayload := sdkCoverage[scope]
+		if sdkPayload == nil {
+			report.rawWithoutSDK++
+			continue
+		}
+		if rawPayload.rows != sdkPayload.rows || (rawPayload.rows > 0 && len(rawPayload.keys) == 0) {
+			report.noComparable = true
+		}
+		for key, count := range rawPayload.keys {
+			if sdkPayload.keys[key] < count {
+				missing[key] = true
+			}
+		}
+	}
+	for scope := range sdkCoverage {
+		if rawCoverage[scope] == nil {
+			report.sdkWithoutRaw = true
+		}
+	}
+	for key := range missing {
+		report.missingKeys = append(report.missingKeys, key)
 	}
 	sort.Strings(report.missingKeys)
 	return nil
 }
 
-// rawPayloadKeys collects every field name in the successful raw responses.
-func rawPayloadKeys(raw rawFile, report *resourceReport) map[string]bool {
-	keys := map[string]bool{}
+func rawPayloadCoverage(raw rawFile, accountConfigs map[string]bool, report *resourceReport) (map[captureScope]*payloadCoverage, error) {
+	coverage := make(map[captureScope]*payloadCoverage)
 	for _, entry := range raw.Regions {
-		if entry.StatusCode < 200 || entry.StatusCode >= 300 || len(entry.Body) == 0 {
+		if entry.StatusCode < 200 || entry.StatusCode >= 300 {
 			continue
 		}
 		report.rawSuccess++
-		payloads := payloadsFromBody(entry.Body)
-		report.rawRows += len(payloads)
-		for _, payload := range payloads {
-			collectKeys(payload, keys)
+		payloads, err := payloadsFromBody(entry.Body)
+		if err != nil {
+			return nil, err
 		}
+		report.rawRows += len(payloads)
+		scope := captureScope{config: entry.Config, region: entry.Region}
+		if accountConfigs[entry.Config] {
+			scope.region = ""
+		}
+		addPayloadCoverage(coverage, scope, payloads)
 	}
-	return keys
+	return coverage, nil
 }
 
-// sdkPayloadKeys collects every field name in the decoded SDK output.
-func sdkPayloadKeys(sdk sdkFile, report *resourceReport) map[string]bool {
-	keys := map[string]bool{}
+func sdkPayloadCoverage(sdk sdkFile, report *resourceReport) (map[captureScope]*payloadCoverage, error) {
+	coverage := make(map[captureScope]*payloadCoverage)
 	for _, entry := range sdk.Regions {
 		if entry.Error != "" {
 			report.sdkErrors++
 			continue
 		}
-		report.sdkRows += entry.Count
-		for _, payload := range payloadsFromRaw(entry.Items) {
-			collectKeys(payload, keys)
+		payloads, count, err := payloadsFromRaw(entry.Items)
+		if err != nil {
+			return nil, err
 		}
+		if count != entry.Count {
+			return nil, errors.New("SDK count does not match its items")
+		}
+		report.sdkRows += len(payloads)
+		scope := captureScope{config: entry.Config, region: entry.Region}
+		if entry.Scope == "account" {
+			scope.region = ""
+		}
+		addPayloadCoverage(coverage, scope, payloads)
 	}
-	return keys
+	return coverage, nil
+}
+
+func addPayloadCoverage(coverage map[captureScope]*payloadCoverage, scope captureScope, payloads []any) {
+	if coverage[scope] == nil {
+		coverage[scope] = &payloadCoverage{keys: make(map[string]int)}
+	}
+	entry := coverage[scope]
+	entry.rows += len(payloads)
+	for _, payload := range payloads {
+		collectKeys(payload, "", entry.keys)
+	}
 }
 
 func readJSON(path string, out any) error {
@@ -172,30 +259,44 @@ func readJSON(path string, out any) error {
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
-	return decoder.Decode(out)
+	if err := decoder.Decode(out); err != nil {
+		return err
+	}
+	if decoder.Decode(new(any)) != io.EOF {
+		return errors.New("artifact must contain one JSON value")
+	}
+	return nil
 }
 
-func payloadsFromBody(body json.RawMessage) []any {
+func payloadsFromBody(body json.RawMessage) ([]any, error) {
 	var value any
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.UseNumber()
 	if err := decoder.Decode(&value); err != nil {
-		return nil
+		return nil, errors.New("invalid captured response body")
 	}
-	return payloadsFromValue(value)
+	payloads := payloadsFromValue(value)
+	if payloads == nil {
+		return nil, errors.New("captured response has no comparable payload")
+	}
+	return payloads, nil
 }
 
-func payloadsFromRaw(raw json.RawMessage) []any {
+func payloadsFromRaw(raw json.RawMessage) ([]any, int, error) {
 	if len(raw) == 0 || string(raw) == "null" {
-		return nil
+		return nil, 0, nil
 	}
 	var value any
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
 	if err := decoder.Decode(&value); err != nil {
-		return nil
+		return nil, 0, errors.New("invalid SDK items")
 	}
-	return payloadsFromValue(value)
+	payloads := payloadsFromValue(value)
+	if payloads == nil {
+		return nil, 0, errors.New("SDK items have no comparable payload")
+	}
+	return payloads, countItems(value), nil
 }
 
 func payloadsFromValue(value any) []any {
@@ -229,18 +330,17 @@ func onlyEnvelopeKeys(value map[string]any) bool {
 	return true
 }
 
-func collectKeys(value any, keys map[string]bool) {
+func collectKeys(value any, prefix string, keys map[string]int) {
 	switch typed := value.(type) {
 	case []any:
 		for _, item := range typed {
-			collectKeys(item, keys)
+			collectKeys(item, prefix, keys)
 		}
 	case map[string]any:
 		for key, child := range typed {
-			if !envelopeKeys[key] {
-				keys[key] = true
-			}
-			collectKeys(child, keys)
+			path := prefix + "/" + strings.ReplaceAll(strings.ReplaceAll(key, "~", "~0"), "/", "~1")
+			keys[path]++
+			collectKeys(child, path, keys)
 		}
 	}
 }
