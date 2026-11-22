@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SHA = "0123456789abcdef" * 2 + "01234567"
 OTHER = "abcdef0123456789" * 2 + "abcdef01"
 RUN_URL = "https://github.com/example/project/actions/runs/123/attempts/2"
-GIT_STUB = r'''import base64
+COMMAND_STUB = r'''import base64
 import json
 import os
 from pathlib import Path
@@ -27,19 +27,29 @@ trace = Path(os.environ["STUB_TRACE"])
 def record(kind, **fields):
     with trace.open("a") as stream:
         stream.write(json.dumps(dict(kind=kind, **fields)) + "\n")
-if any(token in arg or encoded in arg for arg in args):
-    record("credential-in-argument")
-while args and args[0] in ("-C", "-c"):
-    args = args[2:]
+command_name = Path(sys.argv[0]).name
+source_selected = args[:2] == ["-C", os.environ["STUB_SOURCE"]]
+if command_name == "git":
+    while args and args[0] in ("-C", "-c"):
+        args = args[2:]
+record("child", command=command_name, env_keys=sorted(os.environ),
+       git_command=args[0] if command_name == "git" else "",
+       credential_in_argument=any(token in arg or encoded in arg for arg in sys.argv[1:]),
+       authorization_in_environment=(os.environ.get("GIT_CONFIG_COUNT") == "1"
+           and os.environ.get("GIT_CONFIG_KEY_0") == "http.extraheader"
+           and os.environ.get("GIT_CONFIG_VALUE_0") == "AUTHORIZATION: basic " + encoded))
+if command_name != "git":
+    executable = json.loads(os.environ["STUB_TOOLS"])[command_name]
+    os.execv(executable, [executable, *args])
 command = args[0]
 if command == "rev-parse":
-    record(command)
+    record(command, source_selected=source_selected)
     print(os.environ["STUB_HEAD"][:7] if "--short" in args else os.environ["STUB_HEAD"])
 elif command == "ls-remote":
     if args != ["ls-remote", "origin", "refs/heads/master"]:
         sys.exit("unexpected master query")
     count = sum(json.loads(line)["kind"] == command for line in trace.read_text().splitlines()) if trace.exists() else 0
-    record(command)
+    record(command, source_selected=source_selected)
     masters = json.loads(os.environ["STUB_MASTERS"])
     master = masters[min(count, len(masters) - 1)]
     if master == "error":
@@ -84,23 +94,27 @@ class PublicationTests(unittest.TestCase):
         (pages / "Guide.md").write_text("[Home](Home.md#start)\n")
         binaries = self.root / "bin"
         binaries.mkdir()
-        git = binaries / "git"
-        git.write_text(f"#!{sys.executable}\n" + GIT_STUB)
-        git.chmod(0o700)
+        commands = ("dirname", "grep", "mktemp", "sed", "basename", "base64",
+                    "tr", "find", "rm", "cp", "tail", "ls", "wc")
+        tools = {name: shutil.which(name) for name in commands}
+        self.assertTrue(all(tools.values()))
+        for name in ("git", *commands):
+            wrapper = binaries / name
+            wrapper.write_text(f"#!{sys.executable}\n" + COMMAND_STUB)
+            wrapper.chmod(0o700)
         self.trace = self.root / "trace"
         self.token = "synthetic-publication-credential"
         self.encoded = base64.b64encode(("x-access-token:" + self.token).encode()).decode()
-        self.env = dict(os.environ, PATH=str(binaries) + ":" + os.environ["PATH"],
+        self.env = dict(PATH=str(binaries) + ":" + os.environ["PATH"], LC_ALL="C",
                         GH_TOKEN=self.token, GITHUB_REPOSITORY="example/project",
                         WIKI_SOURCE_SHA=SHA, WIKI_SOURCE_RUN_URL=RUN_URL,
                         STUB_HEAD=SHA, STUB_MASTERS=json.dumps([SHA, SHA]),
                         STUB_TRACE=str(self.trace), STUB_TOKEN=self.token,
+                        STUB_SOURCE=str(self.root), STUB_TOOLS=json.dumps(tools),
                         TMPDIR=str(self.root))
-        for key in ("STUB_FAILURE", "STUB_UNCHANGED", "BASH_ENV", "ENV"):
-            self.env.pop(key, None)
 
     def run_sync(self, *args):
-        result = subprocess.run(["bash", str(self.root / "scripts/wiki-sync.sh"), *args],
+        result = subprocess.run(["bash", "-x", str(self.root / "scripts/wiki-sync.sh"), *args],
                                 env=self.env, capture_output=True, text=True, timeout=10)
         output = result.stdout + result.stderr
         self.assertNotIn(self.token, output)
@@ -110,11 +124,22 @@ class PublicationTests(unittest.TestCase):
                 content = path.read_text()
                 self.assertNotIn(self.token, content, str(path))
                 self.assertNotIn(self.encoded, content, str(path))
+        children = self.events("child")
+        self.assertTrue(children)
+        for child in children:
+            self.assertNotIn("GH_TOKEN", child["env_keys"], child["command"])
+            self.assertFalse(child["credential_in_argument"], child["command"])
+            authenticated = child["command"] == "git" and child["git_command"] in ("clone", "push")
+            self.assertEqual(child["authorization_in_environment"], authenticated, child["command"])
+            if authenticated:
+                self.assertEqual({key for key in child["env_keys"] if key.startswith("GIT_CONFIG_")},
+                                 {"GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0"})
+        for query in self.events("ls-remote"):
+            self.assertTrue(query["source_selected"], "master query must select the source repository")
         return result
 
     def events(self, kind):
         records = [json.loads(line) for line in self.trace.read_text().splitlines()] if self.trace.exists() else []
-        self.assertFalse(any(record["kind"] == "credential-in-argument" for record in records))
         return [record for record in records if record["kind"] == kind]
 
     def assert_rejected(self, clones=0):
@@ -194,7 +219,14 @@ class PublicationTests(unittest.TestCase):
         render = Path(result.stdout.strip().split(" into ")[-1])
         self.assertEqual((render / "Home.md").read_text(), "[Guide](Guide)\n")
         self.assertEqual((render / "Guide.md").read_text(), "[Home](Home#start)\n")
-        self.assertFalse(self.trace.exists())
+        self.assertEqual(self.events("clone"), [])
+        self.assertEqual(self.events("push"), [])
+        self.assertEqual(len([child for child in self.events("child") if child["command"] == "sed"]), 2)
+
+    def test_rendering_children_do_not_inherit_raw_token(self):
+        result = self.run_sync("--dry-run")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len([child for child in self.events("child") if child["command"] == "sed"]), 2)
 
 
 if __name__ == "__main__":

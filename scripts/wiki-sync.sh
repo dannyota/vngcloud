@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set +x
+wiki_token=${GH_TOKEN:-}
+unset GH_TOKEN
 set -Eeuo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
@@ -33,10 +35,10 @@ if $dry_run; then
   exit 0
 fi
 
-[[ -n "${GH_TOKEN:-}" ]] || die "GH_TOKEN is not set"
+[[ -n "$wiki_token" ]] || die "GH_TOKEN is not set"
 [[ "${WIKI_SOURCE_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || die "WIKI_SOURCE_SHA must be a full lowercase commit SHA"
-auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\r\n')
-unset GH_TOKEN
+auth=$(printf 'x-access-token:%s' "$wiki_token" | base64 | tr -d '\r\n')
+unset wiki_token
 [[ "$(git rev-parse HEAD)" == "$WIKI_SOURCE_SHA" ]] || die "WIKI_SOURCE_SHA differs from the checkout"
 source_root=$PWD
 

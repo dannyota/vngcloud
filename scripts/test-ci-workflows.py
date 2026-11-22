@@ -12,7 +12,8 @@ import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
 HEAD = "${{ github.event.pull_request.head.sha || github.sha }}"
-WIKI_GUARD = "github.event_name != 'pull_request' && github.ref == 'refs/heads/master'"
+WIKI_GUARD = "github.event_name == 'push' && github.ref == 'refs/heads/master'"
+WIKI_GROUP = "wiki-publish-${{ github.sha }}"
 WIKI_IDENTITY = '''actual=$(git rev-parse HEAD)
 test "$actual" = "$EXPECTED_SHA"
 test "$actual" = "$TESTED_SHA"'''
@@ -223,7 +224,7 @@ def wiki_publish_policy(job):
     assert job["needs"] == ["go", "required"]
     assert job["environment"] == "wiki"
     assert job["permissions"] == {"contents": "write"}
-    assert job["concurrency"] == {"group": "wiki-publish", "cancel-in-progress": "false"}
+    assert job["concurrency"] == {"group": WIKI_GROUP, "cancel-in-progress": "false"}
     assert int(job["timeout-minutes"]) > 0
     assert "env" not in job and "strategy" not in job
     assert len(job["steps"]) == 3
@@ -536,6 +537,25 @@ jobs:
                     self.assertEqual(result.returncode, 0)
                     self.assertFalse(marker.exists())
 
+    def test_wiki_publication_event_and_ref_matrix(self):
+        guard = self.workflows["ci"]["jobs"]["wiki"]["if"]
+        expression = guard.replace("github.event_name", '"$EVENT_NAME"').replace("github.ref", '"$SOURCE_REF"')
+        for event in ("push", "workflow_dispatch", "pull_request"):
+            for ref in ("refs/heads/master", "refs/heads/other", "refs/tags/master", "refs/pull/1/merge"):
+                with self.subTest(event=event, ref=ref):
+                    result = shell("[[ " + expression + " ]]", EVENT_NAME=event, SOURCE_REF=ref)
+                    self.assertEqual(result.returncode == 0, event == "push" and ref == "refs/heads/master")
+
+    def test_wiki_concurrency_is_scoped_to_source_sha(self):
+        job = self.workflows["ci"]["jobs"]["wiki"]
+        self.assertEqual(job["concurrency"], {"group": WIKI_GROUP, "cancel-in-progress": "false"})
+        group = job["concurrency"]["group"]
+        self.assertNotEqual(group.replace("${{ github.sha }}", "a" * 40),
+                            group.replace("${{ github.sha }}", "b" * 40))
+        for value in ("wiki-publish", "wiki-publish-${{ github.ref }}", "wiki-publish-${{ github.run_id }}"):
+            with self.subTest(group=value):
+                self.rejected(wiki_publish_policy, job, lambda j: j["concurrency"].update(group=value))
+
     def test_wiki_publisher_controls_and_mutations(self):
         publication_policy(self.workflows)
         ci = self.workflows["ci"]
@@ -547,7 +567,8 @@ jobs:
             lambda j: j.update({"if": "github.event_name != 'pull_request'"}),
             lambda j: j.update({"if": WIKI_GUARD.replace("&&", "||")}),
             lambda j: j.update({"if": "always() && (" + WIKI_GUARD + ")"}),
-            lambda j: j.update({"if": WIKI_GUARD.replace("!=", "==", 1)}),
+            lambda j: j.update({"if": WIKI_GUARD.replace("== 'push'", "!= 'pull_request'", 1)}),
+            lambda j: j.update({"if": WIKI_GUARD + " || github.event_name == 'pull_request'"}),
             lambda j: j.update(environment="other"),
             lambda j: j["permissions"].update(actions="write"),
             lambda j: j["permissions"].update(checks="read"),

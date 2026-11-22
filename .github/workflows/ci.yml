@@ -182,14 +182,14 @@ jobs:
   wiki:
     name: Wiki publish
     needs: [go, required]
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: wiki
     permissions:
       contents: write
     concurrency:
-      group: wiki-publish
+      group: wiki-publish-${{ github.sha }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
