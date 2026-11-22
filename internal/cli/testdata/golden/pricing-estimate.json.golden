@@ -1,0 +1,96 @@
+{
+  "Items": [
+    {
+      "Key": "web",
+      "Kind": "server",
+      "ServerKey": "",
+      "Region": "han-1",
+      "ZoneID": "zone-1",
+      "Quantity": 2,
+      "Price": {
+        "Status": "quoted",
+        "Basis": "",
+        "Currency": "VND",
+        "Tax": "as-returned",
+        "Source": "",
+        "MonthlyPrice": 100.125,
+        "OriginalPrice": null,
+        "DiscountPrice": null,
+        "DiscountPercent": null
+      },
+      "MonthlyAmount": 200.25,
+      "Breakdown": [
+        {
+          "Name": "ROOT DISK",
+          "MonthlyPrice": 20
+        },
+        {
+          "Name": "CES\n\t\u001b",
+          "MonthlyPrice": null
+        }
+      ]
+    },
+    {
+      "Key": "data",
+      "Kind": "volume",
+      "ServerKey": "web",
+      "Region": "han-1",
+      "ZoneID": "zone-1",
+      "Quantity": 3,
+      "Price": {
+        "Status": "quoted",
+        "Basis": "",
+        "Currency": "VND",
+        "Tax": "as-returned",
+        "Source": "",
+        "MonthlyPrice": 10,
+        "OriginalPrice": null,
+        "DiscountPrice": null,
+        "DiscountPercent": null
+      },
+      "MonthlyAmount": 30,
+      "Breakdown": []
+    }
+  ],
+  "Total": {
+    "KnownMonthlySubtotal": 230.25,
+    "RequestedMonthlyTotal": 230.25,
+    "Currency": "VND",
+    "Tax": "as-returned",
+    "Basis": "sum-of-independent-monthly-quotes",
+    "Scope": "specified-recurring-components",
+    "RequestedComplete": true,
+    "CostComplete": false
+  },
+  "Coverage": [
+    {
+      "Topic": "vserver-traffic",
+      "Scope": "web",
+      "Status": "unknown",
+      "Reason": "usage-not-priced"
+    },
+    {
+      "Topic": "nat",
+      "Scope": "setup",
+      "Status": "excluded",
+      "Reason": "outside-estimate-scope"
+    }
+  ],
+  "Metadata": {
+    "Region": "han-1",
+    "Complete": true,
+    "Requests": 0,
+    "QuotedAt": "2026-01-01T00:00:00Z",
+    "Failures": [],
+    "Notes": [
+      {
+        "Topic": "quantity",
+        "Scope": "",
+        "Text": "Independent unit quotes; no bulk discounts.",
+        "SourceURL": "",
+        "Evidence": ""
+      }
+    ],
+    "ExcludedGroups": null
+  }
+}

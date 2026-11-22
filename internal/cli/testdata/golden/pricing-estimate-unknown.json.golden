@@ -1,0 +1,66 @@
+{
+  "Items": [
+    {
+      "Key": "ip",
+      "Kind": "floating-ip",
+      "ServerKey": "",
+      "Region": "han-1",
+      "ZoneID": "",
+      "Quantity": 2,
+      "Price": {
+        "Status": "unknown",
+        "Basis": "",
+        "Currency": "",
+        "Tax": "",
+        "Source": "",
+        "MonthlyPrice": null,
+        "OriginalPrice": null,
+        "DiscountPrice": null,
+        "DiscountPercent": null
+      },
+      "MonthlyAmount": null,
+      "Breakdown": []
+    }
+  ],
+  "Total": {
+    "KnownMonthlySubtotal": null,
+    "RequestedMonthlyTotal": null,
+    "Currency": "VND",
+    "Tax": "as-returned",
+    "Basis": "sum-of-independent-monthly-quotes",
+    "Scope": "specified-recurring-components",
+    "RequestedComplete": false,
+    "CostComplete": false
+  },
+  "Coverage": [
+    {
+      "Topic": "vserver-traffic",
+      "Scope": "web",
+      "Status": "unknown",
+      "Reason": "usage-not-priced"
+    },
+    {
+      "Topic": "nat",
+      "Scope": "setup",
+      "Status": "excluded",
+      "Reason": "outside-estimate-scope"
+    }
+  ],
+  "Metadata": {
+    "Region": "han-1",
+    "Complete": true,
+    "Requests": 0,
+    "QuotedAt": "2026-01-01T00:00:00Z",
+    "Failures": [],
+    "Notes": [
+      {
+        "Topic": "quantity",
+        "Scope": "",
+        "Text": "Independent unit quotes; no bulk discounts.",
+        "SourceURL": "",
+        "Evidence": ""
+      }
+    ],
+    "ExcludedGroups": null
+  }
+}

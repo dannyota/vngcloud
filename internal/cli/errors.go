@@ -252,6 +252,12 @@ func classify(err error) errorEnvelope {
 	if errors.Is(err, pricing.ErrDiscoveryIncomplete) {
 		return errorEnvelope{Code: "DiscoveryIncomplete", Message: err.Error()}
 	}
+	if errors.Is(err, pricing.ErrEstimateLimit) {
+		return errorEnvelope{Code: "EstimateLimit", Message: err.Error()}
+	}
+	if errors.Is(err, pricing.ErrEstimateOverflow) {
+		return errorEnvelope{Code: "EstimateOverflow", Message: "estimate arithmetic overflow"}
+	}
 	if errors.Is(err, storage.ErrBucketEncryptionIncomplete) {
 		return errorEnvelope{Code: "BucketEncryptionIncomplete", Message: err.Error()}
 	}

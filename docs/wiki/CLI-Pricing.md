@@ -2,6 +2,95 @@
 
 # CLI: Pricing
 
+## estimate
+
+Kind: Read.
+
+Prices specified recurring components without ordering resources. Read-only
+profiles can run this command. Quotes reserve neither prices nor capacity.
+Quantities project independent monthly units, without bulk discounts or shared
+allowances. All sums use VND, with VAT as returned; no extra VAT or discount is
+applied. This is an account-scoped estimate, not a commitment or a complete bill.
+
+Supply one JSON object, inline or with --cli-input-json file://setup.json.
+Both forms have a 1 MiB cap. Files must be regular files; FIFOs and directories
+refuse before authentication. Duplicate, unknown, and case-mismatched fields at
+every depth, trailing values, and nesting beyond 16 levels refuse with exit 2.
+JSON cannot supply credentials, endpoints, headers, or order options. Explicit
+--allow-partial and --max-requests override valid JSON controls.
+
+Each row needs a unique Key and Quantity from 1 to 1000. At most 1000 rows and
+10000 summed quantities are allowed. Servers need explicit zone, flavor, image,
+root size, and root type IDs. Pricing requires unlicensed Ubuntu with a usable
+minimum root size; other images can remain unknown. Disabled zones are
+inapplicable. Use returned encryption type keys, never encryption key material.
+DataDiskSize and DataDiskTypeID specify one bundled disk per server unit,
+already included in its quote. Volumes are additional disks counted once;
+their Quantity is never multiplied by a server group's Quantity. ServerKey
+records intended association only, requiring the same zone and an encrypted
+server root for an encrypted associated volume. No attachment occurs.
+
+PublicIPs Kind is public-vip, floating-ip, external-interface, or reservation.
+Only public-vip accepts and requires Type: public, public-vm, or public-mkp.
+Other IP products remain unknown, without a free-IP deduction. Storage uses an
+exact returned Type, positive QuotaGB per package, and optional Region. Omitted
+Region uses configured resolution, normally HCM04 for hcm-3 or HAN02 for han-1.
+
+Example setup.json; replace synthetic selectors with returned catalog IDs:
+
+```json
+{
+  "Servers": [{"Key": "web", "Quantity": 2, "ZoneID": "zone-1",
+    "FlavorID": "flavor-1", "ImageID": "image-1", "RootDiskSize": 20,
+    "RootDiskTypeID": "type-1", "DataDiskSize": 30,
+    "DataDiskTypeID": "type-1"}],
+  "Volumes": [{"Key": "extra", "Quantity": 3, "ServerKey": "web",
+    "ZoneID": "zone-1", "VolumeTypeID": "type-1", "Size": 10}],
+  "PublicIPs": [{"Key": "ip", "Kind": "floating-ip", "Quantity": 2}],
+  "Storage": [{"Key": "objects", "Quantity": 1, "Type": "Gold",
+    "QuotaGB": 30}]
+}
+```
+
+JSON prints the full output. Table/text show unit prices, extended amounts,
+quantities, and separate per-unit breakdowns labeled included in server quote.
+Nil amounts display as unknown. Known monthly subtotal sums valid amounts;
+Requested monthly total (specified components only) stays unknown unless every
+requested row is quoted and processing completes. Display rounds to two
+decimals only. Inspect Total.RequestedComplete and Coverage in automation;
+Metadata.Complete describes processing, while Total.CostComplete is always
+false. Exit 0 includes deliberate unknown and inapplicable results.
+
+Bandwidth packages, vServer traffic, object egress/requests, software licenses,
+NAT, load balancers, backups, snapshots, PAYG, and negotiated discounts/credits
+remain unknown or excluded. Unspecified IP costs are excluded. Table/text and
+every query, including JSON queries, print coverage and the estimate caveat on
+stderr so a query cannot hide those limits.
+
+Errors normally return no output. --allow-partial preserves surviving rows,
+prints partial output on stdout and a structured error on stderr, and uses
+exit 1 even with --query. Failed rows retain unknown amounts. Authentication,
+throttling, cancellation, and runtime limits stop further work; invalid setup
+input always refuses the whole call. Arithmetic overflow also uses exit 1.
+The request budget defaults to 500, accepts 1..2000, and counts logical reads
+and quotes rather than units or authentication. One invocation shares a
+ten-minute deadline and serial request pacing. Shared authentication or cache
+waits can outlast a caller deadline; cancellation is checked after acquisition.
+See [Billing and Pricing](Billing-and-Pricing.md) for the SDK estimate.
+
+| Flag | Type | Required |
+|-|-|-|
+| `Servers` (via `--cli-input-json` only) | `[]pricing.EstimateServer` |  |
+| `Volumes` (via `--cli-input-json` only) | `[]pricing.EstimateVolume` |  |
+| `PublicIPs` (via `--cli-input-json` only) | `[]pricing.EstimatePublicIP` |  |
+| `Storage` (via `--cli-input-json` only) | `[]pricing.EstimateStorage` |  |
+| `--max-requests` | `int` |  |
+| `--allow-partial` | `bool` |  |
+
+```sh
+vngcloud pricing estimate --cli-input-json file://setup.json --allow-partial --max-requests 100 --output table
+```
+
 ## get-quote
 
 Kind: Read.

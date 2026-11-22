@@ -1,0 +1,115 @@
+{
+  "Items": [
+    {
+      "Key": "web",
+      "Kind": "server",
+      "ServerKey": "",
+      "Region": "han-1",
+      "ZoneID": "zone-1",
+      "Quantity": 2,
+      "Price": {
+        "Status": "quoted",
+        "Basis": "",
+        "Currency": "VND",
+        "Tax": "as-returned",
+        "Source": "",
+        "MonthlyPrice": 100.125,
+        "OriginalPrice": null,
+        "DiscountPrice": null,
+        "DiscountPercent": null
+      },
+      "MonthlyAmount": 200.25,
+      "Breakdown": [
+        {
+          "Name": "ROOT DISK",
+          "MonthlyPrice": 20
+        },
+        {
+          "Name": "CES\n\t\u001b",
+          "MonthlyPrice": null
+        }
+      ]
+    },
+    {
+      "Key": "data",
+      "Kind": "volume",
+      "ServerKey": "web",
+      "Region": "han-1",
+      "ZoneID": "zone-1",
+      "Quantity": 3,
+      "Price": {
+        "Status": "failed",
+        "Basis": "",
+        "Currency": "",
+        "Tax": "",
+        "Source": "",
+        "MonthlyPrice": null,
+        "OriginalPrice": null,
+        "DiscountPrice": null,
+        "DiscountPercent": null
+      },
+      "MonthlyAmount": null,
+      "Breakdown": []
+    }
+  ],
+  "Total": {
+    "KnownMonthlySubtotal": 200.25,
+    "RequestedMonthlyTotal": null,
+    "Currency": "VND",
+    "Tax": "as-returned",
+    "Basis": "sum-of-independent-monthly-quotes",
+    "Scope": "specified-recurring-components",
+    "RequestedComplete": false,
+    "CostComplete": false
+  },
+  "Coverage": [
+    {
+      "Topic": "vserver-traffic",
+      "Scope": "web",
+      "Status": "unknown",
+      "Reason": "usage-not-priced"
+    },
+    {
+      "Topic": "nat",
+      "Scope": "setup",
+      "Status": "excluded",
+      "Reason": "outside-estimate-scope"
+    }
+  ],
+  "Metadata": {
+    "Region": "han-1",
+    "Complete": false,
+    "Requests": 0,
+    "QuotedAt": "2026-01-01T00:00:00Z",
+    "Failures": [
+      {
+        "Operation": "pricing.Estimate",
+        "ItemKey": "data",
+        "Code": "InternalServerError",
+        "Status": 500
+      }
+    ],
+    "Notes": [
+      {
+        "Topic": "quantity",
+        "Scope": "",
+        "Text": "Independent unit quotes; no bulk discounts.",
+        "SourceURL": "",
+        "Evidence": ""
+      }
+    ],
+    "ExcludedGroups": null
+  }
+}
+Usage:
+  estimate [flags]
+
+Examples:
+vngcloud pricing estimate --cli-input-json file://setup.json --allow-partial --max-requests 100 --output table
+
+Flags:
+      --allow-partial[=true|false]   
+      --cli-input-json string        a JSON object ('<json>' or file://path) supplying Input fields by their Go name
+  -h, --help[=true|false]            help for estimate
+      --max-requests int
+

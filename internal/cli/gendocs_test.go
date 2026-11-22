@@ -8,6 +8,23 @@ import (
 	"testing"
 )
 
+func TestGenDocsEstimateGuidance(t *testing.T) {
+	dir := t.TempDir()
+	if err := runGenDocs(dir); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "CLI-Pricing.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(data)
+	for _, text := range []string{"## estimate", "file://setup.json", "Quantity", "bundled", "Volumes", "floating-ip", "Coverage", "RequestedComplete", "Known monthly subtotal", "Requested monthly total (specified components only)", "exit 1", "1 MiB", "16", "--allow-partial", "--max-requests"} {
+		if !strings.Contains(page, text) {
+			t.Errorf("generated pricing guidance lacks %q", text)
+		}
+	}
+}
+
 func TestGenDocsIsDeterministic(t *testing.T) {
 	dir1, dir2 := t.TempDir(), t.TempDir()
 	if err := runGenDocs(dir1); err != nil {

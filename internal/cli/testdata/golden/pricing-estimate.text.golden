@@ -1,0 +1,7 @@
+VND	web	server	200.25	2	han-1	quoted	as-returned	100.12	zone-1
+VND	data	volume	30.00	3	han-1	quoted	as-returned	10.00	zone-1
+Breakdown per unit (included in server quote)
+ROOT DISK	VND	web	as-returned	20.00
+CES\n\t\x1b	VND	web	as-returned	unknown
+Known monthly subtotal	230.25 VND	monthly, VAT as returned, account-scoped estimate; not a commitment
+Requested monthly total (specified components only)	230.25 VND	monthly, VAT as returned, account-scoped estimate; not a commitment

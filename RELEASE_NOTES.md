@@ -1,5 +1,20 @@
 # Release Notes
 
+## v0.96.0 - Setup cost estimate
+
+- Add SDK `pricing.Client.Estimate` and CLI `pricing estimate` to quote a
+  specified setup of servers, separate volumes, public IP products, and
+  monthly object storage packages without buying resources.
+- Quantities project independent monthly units. Server quotes include their
+  root and bundled data disk; separate volumes count once. Prices use VND
+  with VAT as returned, without inferred discounts or a price lock.
+- Show a known subtotal, a nullable requested total, and cost coverage.
+  Usage, unsupported products, and unverified IP costs remain unknown or
+  excluded, so the estimate never claims to be a complete bill.
+- The CLI accepts a strict JSON setup and supports read-only profiles.
+  `--allow-partial` retains surviving results with an error and exit 1;
+  deliberate unknown prices can complete successfully.
+
 ## v0.95.0 - Floating IP on server create
 
 - `compute create-server --attach-floating-ip` (SDK `CreateServerInput.AttachFloatingIP`)

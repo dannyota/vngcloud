@@ -39,6 +39,7 @@ const (
 // rejects an Op built from another client type's method.
 type Op[C any] struct {
 	discovery     bool
+	estimate      bool
 	name          string
 	short         string
 	render        func(io.Writer, string, string, any) error
@@ -393,6 +394,10 @@ func newOpCmd[C any](e *env, serviceName string, newClient func(vngcloud.Config)
 		Short: op.short,
 		Args:  noArgs,
 	}
+	if op.estimate {
+		cmd.Long = estimateHelp
+		cmd.Example = docExampleOverride["pricing estimate"]
+	}
 	bound := registerFlags(cmd, specs)
 	cmd.Flags().String("cli-input-json", "", "a JSON object ('<json>' or file://path) supplying Input fields by their Go name")
 	if op.extraFlags != nil {
@@ -417,10 +422,21 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 	if err != nil {
 		return usageError{msg: err.Error()}
 	}
-	if err := applyCLIInputJSON(rawJSON, input); err != nil {
-		return err
+	if op.estimate {
+		if err := applyEstimateInputJSON(rawJSON, input.(*pricing.EstimateInput)); err != nil {
+			return err
+		}
+	} else {
+		if err := applyCLIInputJSON(rawJSON, input); err != nil {
+			return err
+		}
 	}
 	applyChangedFlags(cmd, input, bound)
+	if op.estimate {
+		if err := validateEstimateInput(input.(*pricing.EstimateInput)); err != nil {
+			return err
+		}
+	}
 	if op.discovery {
 		if err := validateDiscoverySort(cmd); err != nil {
 			return err
@@ -504,6 +520,13 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 	}
 	client := newClient(cfg)
 	out, callErr := op.call(cmd, client, ctx, input)
+	if op.estimate && !isNilOutput(out) {
+		renderErr := renderEstimate(e.stdout, e.stderr, format, e.flags.query, out.(*pricing.EstimateOutput))
+		if callErr != nil {
+			return callErr
+		}
+		return renderErr
+	}
 
 	if op.kind == kindWrite && logger != nil {
 		logger.DebugContext(ctx, "write finished", "operation", serviceName+" "+op.name)

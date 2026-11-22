@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -21,8 +22,32 @@ import (
 	"danny.vn/vngcloud/loadbalancer"
 	"danny.vn/vngcloud/monitor"
 	"danny.vn/vngcloud/network"
+	"danny.vn/vngcloud/pricing"
 	"danny.vn/vngcloud/storage"
 )
+
+func TestEstimateErrorMapping(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		code string
+		exit int
+	}{
+		{pricing.ErrEstimateLimit, "EstimateLimit", 1},
+		{&pricing.EstimateArithmeticError{Stage: "multiplication", ItemKey: "safe"}, "EstimateOverflow", 1},
+		{&pricing.EstimateArithmeticError{Stage: "subtotal"}, "EstimateOverflow", 1},
+		{&pricing.DiscoveryError{Errors: []error{pricing.ErrEstimateOverflow}}, "DiscoveryIncomplete", 1},
+		{&pricing.DiscoveryError{Errors: []error{vngcloud.ErrAuth}}, "DiscoveryIncomplete", 1},
+		{&vngcloud.APIError{StatusCode: 401, Code: "Unauthorized", Err: vngcloud.ErrAuth}, "Unauthorized", 3},
+		{&vngcloud.APIError{StatusCode: 404, Code: "NotFound", Err: vngcloud.ErrNotFound}, "NotFound", 4},
+		{vngcloud.ErrInvalidInput, "InvalidUsage", 2},
+	} {
+		t.Run(tc.code+strconv.Itoa(tc.exit), func(t *testing.T) {
+			if env := classify(tc.err); env.Code != tc.code || exitCode(tc.err) != tc.exit {
+				t.Fatalf("classification=%+v exit=%d", env, exitCode(tc.err))
+			}
+		})
+	}
+}
 
 func TestHistoryIncompleteClassification(t *testing.T) {
 	for _, err := range []error{vngcloud.ErrHistoryIncomplete, fmt.Errorf("wrapped: %w", vngcloud.ErrHistoryIncomplete), &vngcloud.APIError{Operation: "billing.ListTransactions", Code: "HistoryIncomplete", Err: vngcloud.ErrHistoryIncomplete}} {

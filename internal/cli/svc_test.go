@@ -16,18 +16,11 @@ import (
 	"danny.vn/vngcloud"
 )
 
-// assertKindMatchesMethodName checks the CLI design's rule that Service
-// tables follow: an operation named Get*, List*, or Quote* is a Read, and
-// every other operation is a Write (billing's two deletes also carry
-// Destructive, checked separately by the read-only and --yes tests). Quote*
-// covers monitor.QuoteCreateLogProject: ADR 0002 rule 1 makes a quote a
-// Read regardless of its HTTP method or that its name does not start with
-// Get or List, the same rule that already lets pricing.GetQuote (a POST)
-// register as Read.
 func assertKindMatchesMethodName[C any](t *testing.T, serviceName string, ops []Op[C]) {
 	t.Helper()
 	for _, op := range ops {
-		isRead := strings.HasPrefix(op.methodName, "Get") ||
+		pricingEstimateRead := serviceName == "pricing" && op.name == "estimate" && op.methodName == "Estimate"
+		isRead := pricingEstimateRead || strings.HasPrefix(op.methodName, "Get") ||
 			strings.HasPrefix(op.methodName, "List") ||
 			strings.HasPrefix(op.methodName, "Quote")
 		wantWrite := !isRead
@@ -55,6 +48,23 @@ func TestEveryNonReadPrefixOpIsAWrite(t *testing.T) {
 	assertKindMatchesMethodName(t, "globalloadbalancer", globalLoadBalancerOps)
 	assertKindMatchesMethodName(t, "tagging", taggingOps)
 	assertKindMatchesMethodName(t, "storage", storageOps)
+}
+
+func TestEstimateReadExceptionIsExact(t *testing.T) {
+	for _, tc := range []struct {
+		name, service, command, method string
+		kind                           opKind
+	}{
+		{"pricing estimate", "pricing", "estimate", "Estimate", kindRead},
+		{"other service", "compute", "estimate", "Estimate", kindWrite},
+		{"other command", "pricing", "estimate-other", "Estimate", kindWrite},
+		{"other method", "pricing", "estimate", "EstimateOther", kindWrite},
+		{"other estimate operation", "pricing", "estimate-other", "EstimateOther", kindWrite},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assertKindMatchesMethodName(t, tc.service, []Op[struct{}]{{name: tc.command, methodName: tc.method, kind: tc.kind}})
+		})
+	}
 }
 
 // assertNoSecretFieldGetsAFlag checks, for every op in ops, that no Input
