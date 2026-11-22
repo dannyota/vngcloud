@@ -228,7 +228,8 @@ const monitorCreateLogProjectNote = "Orders nothing above --max-price, default 0
 	"create-log-project --name <name> only orders a free class and retention option. --max-price NaN, " +
 	"Inf, or negative exits 2 (InvalidUsage) before any request. The quote and the order build from one " +
 	"class-list read and the same order body, so the order always prices what was just quoted; a quote " +
-	"with a missing, null, negative, or nonfinite price refuses the order. The name search must finish " +
+	"with a missing, null, negative, nonfinite, duplicate, or case-aliased price refuses the order. " +
+	"The name search must finish " +
 	"every page with consistent counts and identities within 1000 pages; incomplete evidence refuses " +
 	"the order, and an exact duplicate exits 2 (InvalidUsage). The order is sent once, including on " +
 	"redirects, 401, 429, and 5xx; list log " +
@@ -456,8 +457,8 @@ var docOpNotes = map[string]string{
 	"monitor create-log-alarm":                monitorCreateLogAlarmNote,
 	"monitor update-log-alarm":                monitorUpdateLogAlarmNote,
 	"monitor delete-log-alarm":                monitorDeleteLogAlarmNote,
-	"monitor create-check":                    monitorCheckNotificationsNote + "\n\n" + monitorWritePrivacyNote,
-	"monitor update-check":                    monitorCheckNotificationsNote + "\n\n" + monitorWritePrivacyNote + "\n\n" + monitorCheckGateNote,
+	"monitor create-check":                    monitorCheckNotificationsNote + "\n\n" + monitorWritePrivacyNote + "\n\n" + monitorCheckCredentialNote,
+	"monitor update-check":                    monitorCheckNotificationsNote + "\n\n" + monitorWritePrivacyNote + "\n\n" + monitorCheckCredentialNote + "\n\n" + monitorCheckGateNote,
 	"monitor pause-check":                     monitorCheckGateNote,
 	"monitor resume-check":                    monitorCheckGateNote,
 	"portal get-user-info":                    portalUserInfoNote,

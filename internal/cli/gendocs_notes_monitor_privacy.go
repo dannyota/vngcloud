@@ -7,3 +7,7 @@ const monitorWritePrivacyNote = "Suppresses response captures during channel and
 
 const monitorCheckGateNote = "Within one SDK client, pause, resume, and update serialize calls for the " +
 	"same check ID. Canceled waiters send nothing; unrelated check IDs can progress independently."
+
+const monitorCheckCredentialNote = "Check response validation distinguishes ordinary request data from " +
+	"credentials in named header, query, and JSON fields, Bearer/Basic values, URL user info, and sent " +
+	"tokens. Ordinary values such as X-Old: 1 do not block an update, but remain redacted in diagnostics."

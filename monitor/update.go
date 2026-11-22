@@ -119,7 +119,8 @@ func (c *Client) UpdateCheck(ctx context.Context, in *UpdateCheckInput) (out *Up
 	if in.Body != nil {
 		inputRequest.Body = *in.Body
 	}
-	ctx, privacy := monitorPrivateContext(ctx, checkRequestSecrets(inputRequest)...)
+	ctx, privacy := monitorPrivateContext(ctx)
+	privacy.addCheckRequest(inputRequest)
 	defer func() { err = redactChannelSecrets(err, privacy.values) }()
 
 	release, err := c.acquireCheck(ctx, in.CheckID)
@@ -132,7 +133,7 @@ func (c *Client) UpdateCheck(ctx context.Context, in *UpdateCheckInput) (out *Up
 	if err != nil {
 		return nil, err
 	}
-	privacy.add(checkRequestSecrets(current.Config.Request)...)
+	privacy.addCheckRequest(current.Config.Request)
 	if err := privacy.check(op, http.StatusOK, *current); err != nil {
 		return nil, err
 	}

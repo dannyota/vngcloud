@@ -87,9 +87,10 @@ existing alarm instead of the one this call creates. It then reads the log
 project with `GetLogProject` for its `Name`, which becomes the body's
 `projectName`; a 404 there returns `vngcloud.IsNotFound(err) == true` and
 creates nothing. Name searches require complete, consistent pages within
-1000 pages. Missing/null lists, duplicate keys or IDs, repeated pages,
-changing totals, and exhausted budgets refuse the create. The server's
-exact name-filter behavior remains unverified.
+1000 pages. Missing/null lists, duplicate or case-aliased fields, duplicate
+IDs, repeated pages, changing totals, and exhausted budgets refuse the
+create. Alias checks include nested alarm identities and project names.
+The server's exact name-filter behavior remains unverified.
 
 The create is a `POST` and, like `CreateLogProject`'s order, is never
 retried after a failure that may have already reached the server: after

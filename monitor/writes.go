@@ -194,7 +194,8 @@ func (c *Client) CreateCheck(ctx context.Context, in *CreateCheckInput) (out *Cr
 	}
 
 	var check Check
-	ctx, privacy := monitorPrivateContext(ctx, checkRequestSecrets(body.Config.Request)...)
+	ctx, privacy := monitorPrivateContext(ctx)
+	privacy.addCheckRequest(body.Config.Request)
 	defer func() { err = redactChannelSecrets(err, privacy.values) }()
 	req := transport.Request{
 		Operation: op,

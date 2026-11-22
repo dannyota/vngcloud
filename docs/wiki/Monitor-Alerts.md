@@ -285,11 +285,10 @@ list fresh on every call, since the class list and its prices can change
 between one request and the next; it does not share that read with
 `CreateLogProject`, which instead reads the class list once and sends that
 exact order body to both its own quote and its order (see below). A quote
-response missing `optimumPrice`, or sending it `null`, negative, or
-nonfinite, fails with a
-`*vngcloud.APIError` rather than pricing the order at a silent 0. The
-quote ignores `MaxPrice` and `NoWait`: those fields govern only
-`CreateLogProject`'s price ceiling and wait.
+response with missing/null, negative, or nonfinite `optimumPrice`, or with
+duplicate or case-aliased price fields, fails with `*vngcloud.APIError`
+before an order. The quote ignores `MaxPrice` and `NoWait`: those fields
+govern only the create's price ceiling and wait.
 
 ### Ordering, deleting, and purging a log project
 

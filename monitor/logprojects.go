@@ -545,6 +545,7 @@ func (c *Client) sendLogProjectQuote(ctx context.Context, op string, body logPro
 		Body:       body,
 		OK:         []int{200},
 		Idempotent: true,
+		StrictJSON: true,
 	}
 	status, err := c.c.DoJSONStatus(ctx, req, &resp)
 	if err != nil {

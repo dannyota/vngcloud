@@ -13,6 +13,7 @@ import (
 
 type monitorPrivacy struct {
 	values      monitorReadCredentials
+	modelValues monitorReadCredentials
 	credentials monitorReadCredentials
 	exhausted   bool
 }
@@ -33,7 +34,13 @@ func monitorPrivateContext(ctx context.Context, values ...string) (context.Conte
 }
 
 func (p *monitorPrivacy) add(values ...string) {
-	if !p.values.add(values) {
+	if !p.values.add(values) || !p.modelValues.add(values) {
+		p.exhausted = true
+	}
+}
+
+func (p *monitorPrivacy) addCheckRequest(request CheckRequest) {
+	if !p.values.add(checkRequestSecrets(request)) || !p.modelValues.add(checkRequestCredentials(request)) {
 		p.exhausted = true
 	}
 }

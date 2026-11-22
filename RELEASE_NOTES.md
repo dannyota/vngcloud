@@ -6,6 +6,10 @@
   never replay ambiguous replacements. Waits enforce deadlines; `NoWait`
   outputs include submitted fields. CDN writes reject missing status or
   mismatched identity in detail responses.
+- Harden Monitor order replay, price guards, credential withholding, name
+  searches, check concurrency, and waits. Reject ambiguous quote/alarm fields;
+  preserve ordinary check data. Error redaction uses `[redacted]`. SDK fields
+  and CLI flags stay compatible.
 
 ## v0.96.0 - Setup cost estimate
 
@@ -21,11 +25,6 @@
 - The CLI accepts a strict JSON setup and supports read-only profiles.
   `--allow-partial` retains surviving results with an error and exit 1;
   deliberate unknown prices can complete successfully.
-
-- Harden Monitor order replay, create-price guards, credential withholding,
-  complete name searches, check concurrency, and wait deadlines. Unsafe
-  responses now fail; error redaction uses `[redacted]`. SDK fields and CLI
-  flags stay compatible.
 
 ## v0.95.0 - Floating IP on server create
 

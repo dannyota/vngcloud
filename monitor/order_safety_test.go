@@ -86,3 +86,35 @@ func TestLogProjectCreateRejectsInvalidPrices(t *testing.T) {
 		})
 	}
 }
+
+func TestLogProjectAmbiguousQuoteSendsNoOrder(t *testing.T) {
+	for name, body := range map[string]string{
+		"alias":     `{"optimumPrice":1000,"OptimumPrice":0}`,
+		"duplicate": `{"optimumPrice":1000,"optimumPrice":0}`,
+		"property":  `{"optimumPrice":0,"propertiesPrice":[{"name":"plan","optimumPrice":1000,"OptimumPrice":0}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			var orders atomic.Int64
+			client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/log-api/v1/projects":
+					_, _ = w.Write([]byte(noExistingLogProjectsPage))
+				case "/billing-api/v2/log/quota-class":
+					_, _ = w.Write([]byte(logProjectClassesBasicOnly("pkg-1", 10)))
+				case "/billing-api/v2/log/prices/created-price":
+					_, _ = w.Write([]byte(body))
+				case "/billing-api/v2/log/quotas":
+					orders.Add(1)
+					_, _ = w.Write([]byte(`{"orderId":"order-1"}`))
+				default:
+					t.Errorf("unexpected path: %s", r.URL.Path)
+					w.WriteHeader(500)
+				}
+			}))
+			out, err := client.CreateLogProject(context.Background(), &CreateLogProjectInput{Name: "app", NoWait: true})
+			if out != nil || err == nil || orders.Load() != 0 {
+				t.Fatalf("output=%+v error=%v orders=%d; want refusal with no order", out, err, orders.Load())
+			}
+		})
+	}
+}

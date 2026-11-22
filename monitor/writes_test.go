@@ -65,11 +65,11 @@ func TestCreateCheckSendsFieldsAndDefaults(t *testing.T) {
 				}
 			}
 			headers, _ := request["headers"].(map[string]any)
-			if len(headers) != 1 || headers["X-Test"] != "write-header-canary" {
+			if len(headers) != 1 || headers["X-Test"] != "1" {
 				t.Fatalf("headers = %+v", headers)
 			}
 			query, _ := request["query"].(map[string]any)
-			if len(query) != 1 || query["q"] != "write-query-canary" {
+			if len(query) != 1 || query["q"] != "1" {
 				t.Fatalf("query = %+v", query)
 			}
 			assertions, ok := config["assertions"].([]any)
@@ -113,8 +113,8 @@ func TestCreateCheckSendsFieldsAndDefaults(t *testing.T) {
 			URL:             "https://example.com/health",
 			Locations:       []string{"loc-1", "loc-2"},
 			Method:          "POST",
-			Headers:         map[string]string{"X-Test": "write-header-canary"},
-			Query:           map[string]string{"q": "write-query-canary"},
+			Headers:         map[string]string{"X-Test": "1"},
+			Query:           map[string]string{"q": "1"},
 			Body:            "ping",
 			Timeout:         5,
 			TestFrequency:   15,

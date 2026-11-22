@@ -5,7 +5,7 @@ const monitorCreateLogAlarmNote = "Unverified live: the create response's own sh
 	"as AlarmID, or otherwise finds the alarm by its exact --name once it settles. Refuses a NaN or " +
 	"infinite --threshold-value, with InvalidUsage, before any request. It then refuses a --name a log " +
 	"alarm already has, with InvalidUsage, creating nothing. Name searches must complete every page " +
-	"with consistent counts and identities within 1000 pages; missing, repeated, or incomplete evidence " +
+	"with consistent counts and identities within 1000 pages; missing, repeated, aliased, or incomplete evidence " +
 	"refuses the create. --query-string and an inline or file Filter " +
 	"(set only through --cli-input-json) must both be given or both left out; leaving both out sends a " +
 	"match-all query. The create POST is never retried after a failure that may have already reached the " +

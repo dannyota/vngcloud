@@ -40,7 +40,7 @@ func privateMonitorValue(value reflect.Value, secrets []string) bool {
 }
 
 func (p *monitorPrivacy) validate(op string, status int, full, ordinary any) error {
-	if p.exhausted || !privateMonitorValue(reflect.ValueOf(full), p.credentials) || !privateMonitorValue(reflect.ValueOf(ordinary), p.values) {
+	if p.exhausted || !privateMonitorValue(reflect.ValueOf(full), p.credentials) || !privateMonitorValue(reflect.ValueOf(ordinary), p.modelValues) {
 		return &core.APIError{Operation: op, StatusCode: status, Code: "InvalidResponse", Message: "response withheld because credential safety could not be confirmed"}
 	}
 	return nil

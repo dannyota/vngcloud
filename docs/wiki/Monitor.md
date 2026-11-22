@@ -90,9 +90,11 @@ never appear in log output (`vngcloud.WithLogger` never logs a body).
 Create and update retain known request secrets and every sent token through
 dependent reads. They suppress response captures, sanitize error codes,
 messages, and causes, and reject credential reflections outside request
-fields. Keep headers, query values, and bodies distinct from ordinary check
-fields: ambiguous overlaps fail closed. Avoid long-lived check credentials,
-since anyone who can read the check can read them back.
+fields. Model checks distinguish ordinary request data from credentials:
+sent tokens, credential-named header/query/JSON fields, Bearer/Basic values,
+and URL user info stay protected. An ordinary value such as `X-Old: 1` does
+not conflict with ID `chk-1`. All request values still participate in error
+redaction. Avoid long-lived check credentials, since readers can read them back.
 
 ## Listing locations
 

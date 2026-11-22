@@ -137,13 +137,13 @@ func TestMonitorRejectsReflectedWriteModels(t *testing.T) {
 				out, callErr := client.UpdateChannel(context.Background(), input)
 				err, hasOutput = callErr, out != nil
 			case "check-create":
-				out, callErr := client.CreateCheck(context.Background(), &CreateCheckInput{Name: "check", URL: "https://example.com", Locations: []string{"loc-1"}, Headers: map[string]string{"X-Custom": secret}})
+				out, callErr := client.CreateCheck(context.Background(), &CreateCheckInput{Name: "check", URL: "https://example.com", Locations: []string{"loc-1"}, Headers: map[string]string{"X-API-Key": secret}})
 				err, hasOutput = callErr, out != nil
 			case "otp-ref":
 				out, callErr := client.SendChannelOTP(context.Background(), &SendChannelOTPInput{Type: ChannelTypeEmail, Address: "example@example.com", Headers: []ChannelHeader{{Key: "X-Custom", Value: secret}}})
 				err, hasOutput = callErr, out != nil
 			default:
-				headers := map[string]string{"X-Custom": secret}
+				headers := map[string]string{"X-API-Key": secret}
 				out, callErr := client.UpdateCheck(context.Background(), &UpdateCheckInput{CheckID: "chk-1", Headers: &headers})
 				err, hasOutput = callErr, out != nil
 			}

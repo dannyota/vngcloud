@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/jsonresponse"
 	"danny.vn/vngcloud/internal/routes"
 	"danny.vn/vngcloud/internal/transport"
 )
@@ -286,6 +287,9 @@ func (d *LogAlarmDetail) UnmarshalJSON(data []byte) error {
 		ResendTimes    flexibleNumber  `json:"resendTimes"`
 		ResendStatus   string          `json:"resendStatus"`
 	}
+	if err := jsonresponse.ValidateStrict(data, &aux); err != nil {
+		return err
+	}
 	if err := json.Unmarshal(data, &aux); err != nil {
 		return err
 	}
@@ -352,6 +356,9 @@ func (a *Alarm) UnmarshalJSON(data []byte) error {
 		InAlarm         *string         `json:"inAlarm"`
 		OK              *string         `json:"ok"`
 		AlarmLog        *LogAlarmDetail `json:"alarmLog"`
+	}
+	if err := jsonresponse.ValidateStrict(data, &aux); err != nil {
+		return err
 	}
 	if err := json.Unmarshal(data, &aux); err != nil {
 		return err
