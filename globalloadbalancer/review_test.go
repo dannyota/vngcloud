@@ -145,14 +145,17 @@ func TestReviewCreateRedactsEmail(t *testing.T) {
 }
 
 func TestReviewCreateRejectsWrongType(t *testing.T) {
-	for _, typ := range []string{"Layer 7", ""} {
-		t.Run(typ, func(t *testing.T) {
+	for _, tc := range []struct{ name, detail string }{
+		{"wrong type", `{"id":"glb-1","name":"demo","package":"pkg-1","status":"ACTIVE","type":"Layer 7"}`},
+		{"missing type", `{"id":"glb-1","name":"demo","package":"pkg-1","status":"ACTIVE"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			c := newWriteTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method == http.MethodPost {
 					_, _ = fmt.Fprint(w, `{"globalLoadBalancer":{"id":"glb-1"}}`)
 					return
 				}
-				_, _ = fmt.Fprintf(w, `{"id":"glb-1","name":"demo","package":"pkg-1","type":"Layer 4","status":"ACTIVE","type":%q}`, typ)
+				_, _ = fmt.Fprint(w, tc.detail)
 			}))
 			out, err := c.CreateLoadBalancer(context.Background(), &CreateLoadBalancerInput{Name: "demo", PackageID: "pkg-1"})
 			if !errors.Is(err, ErrNotSettled) || out == nil || out.LoadBalancer.ID != "glb-1" {
