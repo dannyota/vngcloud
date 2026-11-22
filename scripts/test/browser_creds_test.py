@@ -5,6 +5,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 import sys
@@ -312,6 +313,68 @@ class CapabilityTest(unittest.TestCase):
     def setUp(self):
         self.root = synthetic_repository(self)
 
+    def test_two_helpers_use_independent_bound_ports(self):
+        ready = threading.Event()
+        servers = []
+        server_type = creds.http.server.HTTPServer
+        output = io.StringIO()
+        fake = {"VNGCLOUD_PASSWORD": "synthetic-password",
+                "VNGCLOUD_TOTP_SECRET": "JBSWY3DPEHPK3PXP"}
+
+        def server(address, handler):
+            self.assertEqual(address, ("127.0.0.1", 0))
+            instance = server_type(address, handler)
+            servers.append(instance)
+            if len(servers) == 2:
+                ready.set()
+            return instance
+
+        with mock.patch.object(creds, "load_env", return_value=fake), \
+                mock.patch.object(creds.http.server, "HTTPServer", side_effect=server), \
+                mock.patch.object(creds, "TIMEOUT_SECONDS", 3), \
+                contextlib.redirect_stdout(output), \
+                concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(creds.main, ["synthetic-input"]) for _ in range(2)]
+            try:
+                self.assertTrue(ready.wait(2), [f.exception() for f in futures if f.done()])
+                for instance in servers:
+                    instance.timeout = 0.1
+                scripts = []
+                for _ in range(200):
+                    if output.getvalue().count("browser script: ") == 2:
+                        break
+                    threading.Event().wait(0.01)
+                self.assertEqual(output.getvalue().count("browser script: "), 2)
+                scripts = list((self.root / ".playwright-mcp").glob("*/browser-login.js"))
+                self.assertEqual(len(scripts), 2)
+                ports = {instance.server_port for instance in servers}
+                self.assertEqual(len(ports), 2)
+                for script in scripts:
+                    text = script.read_text()
+                    url = re.search(r'const helper = "(http://127\.0\.0\.1:(\d+))";', text)
+                    token = re.search(r'const capability = "([^"]+)";', text)
+                    self.assertIsNotNone(url)
+                    self.assertIsNotNone(token)
+                    port = int(url.group(2))
+                    self.assertIn(port, ports)
+                    ports.remove(port)
+                    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
+                    try:
+                        connection.request("GET", "/creds", headers={"Authorization": "Bearer " + token.group(1)})
+                        response = connection.getresponse()
+                        self.assertEqual(response.status, 200)
+                        self.assertEqual(json.loads(response.read())["password"], "synthetic-password")
+                        connection.request("GET", "/totp", headers={"Authorization": "Bearer " + token.group(1)})
+                        response = connection.getresponse()
+                        self.assertEqual(response.status, 200)
+                        response.read()
+                    finally:
+                        connection.close()
+                self.assertFalse(ports)
+            finally:
+                for future in futures:
+                    future.result(timeout=5)
+
     def test_authentication_precedes_one_shot_consumption(self):
         self.run_session("synthetic-first-capability", "synthetic-old-capability")
         self.run_session("synthetic-capability", "synthetic-first-capability")
@@ -327,8 +390,7 @@ class CapabilityTest(unittest.TestCase):
                 "VNGCLOUD_TOTP_SECRET": "JBSWY3DPEHPK3PXP"}
 
         def server(address, handler):
-            instance = server_type(("127.0.0.1", 0), handler)
-            creds.HOSTS.add(f"127.0.0.1:{instance.server_port}")
+            instance = server_type(address, handler)
             servers.append(instance)
             ready.set()
             return instance
@@ -347,7 +409,6 @@ class CapabilityTest(unittest.TestCase):
                 connection.close()
 
         with mock.patch.object(creds, "load_env", return_value=fake), \
-                mock.patch.object(creds, "HOSTS", set()), \
                 mock.patch.object(creds.http.server, "HTTPServer", side_effect=server), \
                 mock.patch.object(creds, "TIMEOUT_SECONDS", 2), \
                 mock.patch("secrets.token_urlsafe", return_value=capability), \

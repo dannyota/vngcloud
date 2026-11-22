@@ -15,10 +15,8 @@ import sys
 import tempfile
 import time
 
-PORT = 18765
 TIMEOUT_SECONDS = 180
 MAX_SERVED = {"/creds": 1, "/totp": 1}
-HOSTS = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
 
 
 def load_env(path):
@@ -139,7 +137,10 @@ def main(argv=None):
         def do_GET(self):
             authorization = self.headers.get_all("Authorization", [])
             if (len(self.headers.get_all("Host", [])) != 1
-                    or self.headers.get("Host") not in HOSTS
+                    or self.headers.get("Host") not in {
+                        f"127.0.0.1:{self.server.server_port}",
+                        f"localhost:{self.server.server_port}",
+                    }
                     or len(authorization) != 1
                     or not hmac.compare_digest(authorization[0].encode(),
                                                ("Bearer " + capability).encode())):
@@ -177,14 +178,16 @@ def main(argv=None):
         return 2
     with tempfile.TemporaryDirectory(prefix="vngcloud-browser-", dir=browser_root) as directory:
         os.chmod(directory, 0o700)
-        script = os.path.join(directory, "browser-login.js")
-        with open(os.path.join(root, "scripts/browser-login.js"), encoding="utf-8") as source:
-            consumer = source.read().replace('"__VNGCLOUD_BROWSER_CAPABILITY__"',
-                                             json.dumps(capability))
-        descriptor = os.open(script, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
-            output.write(consumer)
-        with http.server.HTTPServer(("127.0.0.1", PORT), Handler) as server:
+        with http.server.HTTPServer(("127.0.0.1", 0), Handler) as server:
+            script = os.path.join(directory, "browser-login.js")
+            with open(os.path.join(root, "scripts/browser-login.js"), encoding="utf-8") as source:
+                consumer = source.read().replace('"__VNGCLOUD_BROWSER_CAPABILITY__"',
+                                                 json.dumps(capability)).replace(
+                    '"__VNGCLOUD_BROWSER_HELPER__"',
+                    json.dumps(f"http://127.0.0.1:{server.server_port}"))
+            descriptor = os.open(script, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+                output.write(consumer)
             server.timeout = 1
             deadline = time.monotonic() + TIMEOUT_SECONDS
             print(f"browser script: {script}", flush=True)

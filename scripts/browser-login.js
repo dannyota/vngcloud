@@ -1,7 +1,7 @@
 async (page) => {
-  const helper = 'http://127.0.0.1:18765';
+  const helper = "__VNGCLOUD_BROWSER_HELPER__";
   const capability = "__VNGCLOUD_BROWSER_CAPABILITY__";
-  if (capability.startsWith('__VNGCLOUD_')) {
+  if (helper.startsWith('__VNGCLOUD_') || capability.startsWith('__VNGCLOUD_')) {
     throw new Error('run the private browser script printed by make browser-creds');
   }
   const fetchJSON = async (path) => {
