@@ -371,6 +371,16 @@ func TestDeleteProvesTheProjectFromTheList(t *testing.T) {
 		{"ID on both pages", nil, func(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 200, listPage("project-1", map[bool]int{true: 2, false: 1}[r.URL.Query().Get("pageNumber") == "2"], 2, 2, "db-1"))
 		}, false, 2},
+		{"row project differs", nil, fail(200, `{"code":200,"data":{"projectId":"project-1","data":[{"id":"db-1","name":"n","status":"ACTIVE","projectId":"project-2"}],"pageObject":{"number":1,"size":100,"totalPages":1,"totalElements":1}}}`), false, 1},
+		{"row project matches", map[string]any{"projectId": nil}, fail(200, `{"code":200,"data":{"projectId":"project-1","data":[{"id":"db-1","name":"n","status":"ACTIVE","projectId":"project-1"}],"pageObject":{"number":1,"size":100,"totalPages":1,"totalElements":1}}}`), true, 1},
+		{"zero total pages with rows", nil, fail(200, `{"code":200,"data":{"projectId":"project-1","data":[{"id":"db-1","name":"n","status":"ACTIVE"}],"pageObject":{"number":1,"size":100,"totalPages":0,"totalElements":1}}}`), false, 1},
+		{"zero total elements with rows", nil, fail(200, `{"code":200,"data":{"projectId":"project-1","data":[{"id":"db-1","name":"n","status":"ACTIVE"}],"pageObject":{"number":1,"size":100,"totalPages":1,"totalElements":0}}}`), false, 1},
+		{"missing total elements", nil, fail(200, `{"code":200,"data":{"projectId":"project-1","data":[{"id":"db-1","name":"n","status":"ACTIVE"}],"pageObject":{"number":1,"size":100,"totalPages":1}}}`), false, 1},
+		{"missing total pages", nil, fail(200, `{"code":200,"data":{"projectId":"project-1","data":[{"id":"db-1","name":"n","status":"ACTIVE"}],"pageObject":{"number":1,"size":100,"totalElements":1}}}`), false, 1},
+		{"total elements more than rows", nil, fail(200, listPage("project-1", 1, 1, 2, "db-1")), false, 1},
+		{"total elements fewer than rows", nil, fail(200, listPage("project-1", 1, 1, 1, "db-0", "db-1")), false, 1},
+		{"missing size", nil, fail(200, `{"code":200,"data":{"projectId":"project-1","data":[{"id":"db-1","name":"n","status":"ACTIVE"}],"pageObject":{"number":1,"totalPages":1,"totalElements":1}}}`), false, 1},
+		{"zero size", nil, fail(200, `{"code":200,"data":{"projectId":"project-1","data":[{"id":"db-1","name":"n","status":"ACTIVE"}],"pageObject":{"number":1,"size":0,"totalPages":1,"totalElements":1}}}`), false, 1},
 		{"detail project differs although the list matches", map[string]any{"projectId": "project-2"}, nil, false, 0},
 	}
 	for _, tc := range cases {

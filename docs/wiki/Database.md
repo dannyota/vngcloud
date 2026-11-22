@@ -93,7 +93,9 @@ in the client's project, in a zone that `ListDatabaseZones` returns, not shared
 (`owner` is not false), with no replication and no backups. The project is
 proven from the complete instance list: every page is read, the list's
 `projectId` must equal the client's project, and the ID must appear exactly
-once. A partial or inconsistent page set refuses. A detail `projectId`, when
+once, and a listed row that carries a different `projectId` refuses. Missing or
+inconsistent paging metadata (`size`, `totalPages`, `totalElements`), or a
+total that differs from the rows read, refuses. A detail `projectId`, when
 present, must match too. A different project or an unknown zone is refused. It then sends one delete with no final
 backup and no backup purge, accepts any 2xx reply except one echoing a
 credential or an explicit `success: false` row, and waits up to 30 minutes for

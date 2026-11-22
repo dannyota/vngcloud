@@ -192,6 +192,9 @@ func (c *Client) proveInProject(ctx context.Context, id, projectID string) error
 			return refuse("the instance list is not for the selected project")
 		}
 		p := got.Page
+		if p.Size < 1 || (len(got.Items) > 0 && (p.TotalPages < 1 || p.TotalElements < 1)) {
+			return refuse("the instance list paging metadata is incomplete")
+		}
 		if p.Number != page || p.TotalPages < 0 || p.TotalElements < 0 || (page > 1 && (p.TotalPages != totalPages || p.TotalElements != totalElements)) {
 			return refuse("the instance list pages are inconsistent")
 		}
@@ -199,6 +202,9 @@ func (c *Client) proveInProject(ctx context.Context, id, projectID string) error
 		rows += len(got.Items)
 		for _, item := range got.Items {
 			if item.ID == id {
+				if item.ProjectID != "" && item.ProjectID != projectID {
+					return refuse("the listed instance belongs to another project")
+				}
 				matches++
 			}
 		}
