@@ -1,8 +1,28 @@
 {
   "data": {
-    "uuid": "volume-1",
+    "bootIndex": 0,
+    "bootable": false,
+    "createdAt": "2020-01-01T00:00:00Z",
+    "encryptionType": null,
+    "iops": "0",
+    "location": "location-1",
+    "migrateState": null,
+    "multiAttach": false,
+    "name": "volume-1",
+    "persistentVolume": false,
+    "product": "product-1",
+    "projectId": "project-1",
+    "serverId": null,
+    "serverIdList": [],
+    "serverNameList": [],
+    "size": 10,
     "status": "AVAILABLE",
-    "serverId": "",
-    "serverIdList": []
+    "statusMessage": null,
+    "updatedAt": "2020-01-01T00:00:00Z",
+    "uuid": "volume-1",
+    "volumeType": {},
+    "volumeTypeId": "type-1",
+    "volumeTypeZoneName": "zone-1",
+    "zone": {}
   }
 }
