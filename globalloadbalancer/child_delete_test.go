@@ -33,20 +33,8 @@ func deleteCases() []deleteCase {
 			gone: func(f *fixture) bool { return !f.listener && f.pool && f.group },
 		},
 		{
-			name: "group", key: "DELETE " + glbPrefix + "/global-pools/" + fxPool + "/pool-members/" + fxGroup,
-			setup: func(f *fixture) { f.pool, f.group = true, true },
-			call: func(ctx context.Context, c *Client) (bool, string, error) {
-				out, err := c.DeletePoolMember(ctx, &DeletePoolMemberInput{LoadBalancerID: fxGLB, PoolID: fxPool, PoolMemberID: fxGroup})
-				if out == nil {
-					return false, "", err
-				}
-				return out.Deleted, out.LoadBalancerID + "/" + out.PoolID + "/" + out.PoolMemberID, err
-			},
-			gone: func(f *fixture) bool { return !f.group && f.pool },
-		},
-		{
 			name: "pool", key: "DELETE " + glbPrefix + "/global-pools/" + fxPool,
-			setup: func(f *fixture) { f.pool = true },
+			setup: func(f *fixture) { f.pool, f.group = true, true },
 			call: func(ctx context.Context, c *Client) (bool, string, error) {
 				out, err := c.DeletePool(ctx, &DeletePoolInput{LoadBalancerID: fxGLB, PoolID: fxPool})
 				if out == nil {
@@ -54,13 +42,13 @@ func deleteCases() []deleteCase {
 				}
 				return out.Deleted, out.LoadBalancerID + "/" + out.PoolID, err
 			},
-			gone: func(f *fixture) bool { return !f.pool },
+			gone: func(f *fixture) bool { return !f.pool && !f.group },
 		},
 	}
 }
 
 func TestDeletesSendOnceAndConfirmAbsence(t *testing.T) {
-	ids := map[string]string{"listener": "glb-1/glis-1", "group": "glb-1/gpool-1/gmem-1", "pool": "glb-1/gpool-1"}
+	ids := map[string]string{"listener": "glb-1/glis-1", "pool": "glb-1/gpool-1"}
 	for _, tc := range deleteCases() {
 		for _, code := range []int{200, 202} {
 			t.Run(tc.name, func(t *testing.T) {
@@ -112,15 +100,13 @@ func TestDeleteRefusesBeforeAnyWrite(t *testing.T) {
 		"listener: pool binding gone": {"listener", listenerGet, strings.Replace(base.listenerJSON(), `"globalPoolId":"gpool-1"`, `"globalPoolId":"gpool-9"`, 1), nil},
 		"listener: two listeners":     {"listener", listeners, `[` + base.listenerJSON() + `,{"id":"glis-2"}]`, nil},
 		"listener: two pools":         {"listener", pools, `[` + base.poolJSON() + `,{"id":"gpool-2"}]`, nil},
-		"group: listener present":     {"group", listeners, `[` + base.listenerJSON() + `]`, nil},
-		"group: not active":           {"group", groupGet, strings.Replace(base.groupJSON(), `"status":"OFFLINE","members"`, `"status":"ERROR","members"`, 1), nil},
-		"group: public":               {"group", groupGet, strings.Replace(base.groupJSON(), `PRIVATE`, `PUBLIC`, 1), nil},
-		"group: other pool":           {"group", groupGet, strings.Replace(base.groupJSON(), `"globalPoolId":"gpool-1"`, `"globalPoolId":"gpool-2"`, 1), nil},
-		"group: two groups":           {"group", groups, `[` + base.groupJSON() + `,{"id":"gmem-2"}]`, nil},
-		"group: two rows":             {"group", groupGet, strings.Replace(base.groupJSON(), `"members":[`, `"members":[{"id":"x"},`, 1), nil},
-		"group: no rows":              {"group", groupGet, strings.Replace(base.groupJSON(), `"members":[`, `"members":[],"x":[`, 1), nil},
 		"pool: listener present":      {"pool", listeners, `[` + base.listenerJSON() + `]`, nil},
-		"pool: member present":        {"pool", groups, `[` + base.groupJSON() + `]`, nil},
+		"pool: no group":              {"pool", groups, `[]`, nil},
+		"pool: two groups":            {"pool", groups, `[` + base.groupJSON() + `,{"id":"gmem-2"}]`, nil},
+		"pool: group public":          {"pool", groupGet, strings.Replace(base.groupJSON(), `PRIVATE`, `PUBLIC`, 1), nil},
+		"pool: group status":          {"pool", groupGet, strings.Replace(base.groupJSON(), `"status":"OFFLINE","members"`, `"status":"ERROR","members"`, 1), nil},
+		"pool: two rows":              {"pool", groupGet, strings.Replace(base.groupJSON(), `"members":[`, `"members":[{"id":"x"},`, 1), nil},
+		"pool: health not active":     {"pool", poolGet, strings.Replace(base.poolJSON(), `"status":"ACTIVE"}`, `"status":"CREATING"}`, 1), nil},
 		"pool: not tcp":               {"pool", poolGet, strings.Replace(base.poolJSON(), `"protocol":"TCP","status"`, `"protocol":"HTTP","status"`, 1), nil},
 		"pool: other id":              {"pool", poolGet, strings.Replace(base.poolJSON(), `"id":"gpool-1","name"`, `"id":"gpool-2","name"`, 1), nil},
 		"pool: two pools":             {"pool", pools, `[` + base.poolJSON() + `,{"id":"gpool-2"}]`, nil},
@@ -135,19 +121,10 @@ func TestDeleteRefusesBeforeAnyWrite(t *testing.T) {
 				}
 			}
 			f := newFixture(t)
-			f.withChildren()
-			if set.op == "pool" {
-				f.listener, f.group = false, false
-			}
-			if set.op == "group" {
-				f.listener = false
-			}
+			f.pool, f.group = true, true
 			f.on(set.key, jsonBody(set.body))
-			if strings.HasPrefix(name, "group: listener") || strings.HasPrefix(name, "pool: listener") {
+			if strings.HasPrefix(name, "pool: listener") {
 				f.listener = true
-			}
-			if strings.HasPrefix(name, "pool: member") || strings.HasPrefix(name, "pool: null") {
-				f.group = true
 			}
 			deleted, _, err := tc.call(bg(), f.client(t))
 			if err == nil || deleted || f.writes() != 0 || errors.Is(err, ErrNotSettled) || strings.Contains(err.Error(), "synthetic") {
@@ -202,12 +179,10 @@ func TestDeleteAbsenceMustBeProven(t *testing.T) {
 	for _, tc := range deleteCases() {
 		exact := map[string]string{
 			"listener": "GET " + glbPrefix + "/global-listeners/" + fxListener,
-			"group":    "GET " + glbPrefix + "/global-pools/" + fxPool + "/pool-members/" + fxGroup,
 			"pool":     "GET " + glbPrefix + "/global-pools/" + fxPool,
 		}[tc.name]
 		collection := map[string]string{
 			"listener": "GET " + glbPrefix + "/global-listeners",
-			"group":    "GET " + glbPrefix + "/global-pools/" + fxPool + "/pool-members",
 			"pool":     "GET " + glbPrefix + "/global-pools",
 		}[tc.name]
 		afterDelete := func(f *fixture, h httpHandlerFunc) httpHandlerFunc {
@@ -222,7 +197,7 @@ func TestDeleteAbsenceMustBeProven(t *testing.T) {
 		for name, mutate := range map[string]func(*fixture){
 			"exact id differs": func(f *fixture) { f.on(exact, afterDelete(f, jsonBody(`{"id":"other","status":"ACTIVE"}`))) },
 			"exact unknown state": func(f *fixture) {
-				f.on(exact, afterDelete(f, jsonBody(`{"id":"`+map[string]string{"listener": fxListener, "group": fxGroup, "pool": fxPool}[tc.name]+`","status":"WEIRD"}`)))
+				f.on(exact, afterDelete(f, jsonBody(`{"id":"`+map[string]string{"listener": fxListener, "pool": fxPool}[tc.name]+`","status":"WEIRD"}`)))
 			},
 			"exact forbidden": func(f *fixture) { f.on(exact, afterDelete(f, status(403))) },
 			"collection forbidden": func(f *fixture) {
@@ -291,11 +266,10 @@ func TestDeleteRejectsBadIDsBeforeRequests(t *testing.T) {
 	c := newFixture(t)
 	cl := c.client(t)
 	_, e1 := cl.DeleteListener(bg(), &DeleteListenerInput{LoadBalancerID: fxGLB, ListenerID: "a/b"})
-	_, e2 := cl.DeletePoolMember(bg(), &DeletePoolMemberInput{LoadBalancerID: fxGLB, PoolID: fxPool, PoolMemberID: ".."})
 	_, e3 := cl.DeletePool(bg(), &DeletePoolInput{LoadBalancerID: "a b", PoolID: fxPool})
 	_, e4 := cl.DeletePool(bg(), &DeletePoolInput{LoadBalancerID: fxGLB})
 	_, e5 := cl.DeletePool(bg(), nil)
-	for i, err := range []error{e1, e2, e3, e4, e5} {
+	for i, err := range []error{e1, e3, e4, e5} {
 		if !errors.Is(err, vngcloud.ErrInvalidInput) {
 			t.Errorf("case %d err=%v", i, err)
 		}
@@ -305,18 +279,13 @@ func TestDeleteRejectsBadIDsBeforeRequests(t *testing.T) {
 	}
 }
 
-func TestDeletesAcceptAnyMemberHealth(t *testing.T) {
+func TestDeletePoolAcceptsAnyMemberHealth(t *testing.T) {
 	for _, health := range []string{"ONLINE", "OFFLINE", "HEALTHY", "UNHEALTHY"} {
-		for _, tc := range deleteCases()[1:] {
-			f := newFixture(t)
-			f.groupStatus = health
-			tc.setup(f)
-			if tc.name == "group" {
-				f.listener = false
-			}
-			if deleted, _, err := tc.call(bg(), f.client(t)); tc.name == "group" && (err != nil || !deleted) {
-				t.Fatalf("health=%s deleted=%v err=%v", health, deleted, err)
-			}
+		f := newFixture(t)
+		f.pool, f.group, f.groupStatus = true, true, health
+		deleted, _, err := deleteCases()[1].call(bg(), f.client(t))
+		if err != nil || !deleted || f.count("DELETE ") != 1 {
+			t.Fatalf("health=%s deleted=%v err=%v", health, deleted, err)
 		}
 	}
 }
@@ -386,8 +355,6 @@ func deleteKeys(name string) (exact, collection, id string) {
 	switch name {
 	case "listener":
 		return "GET " + glbPrefix + "/global-listeners/" + fxListener, "GET " + glbPrefix + "/global-listeners", fxListener
-	case "group":
-		return "GET " + glbPrefix + "/global-pools/" + fxPool + "/pool-members/" + fxGroup, "GET " + glbPrefix + "/global-pools/" + fxPool + "/pool-members", fxGroup
 	}
 	return "GET " + glbPrefix + "/global-pools/" + fxPool, "GET " + glbPrefix + "/global-pools", fxPool
 }

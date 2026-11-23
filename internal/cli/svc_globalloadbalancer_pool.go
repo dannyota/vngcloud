@@ -25,11 +25,8 @@ func globalLoadBalancerChildOps() []Op[globalloadbalancer.Client] {
 	deleteListener := Write[globalloadbalancer.Client, globalloadbalancer.DeleteListenerInput, globalloadbalancer.DeleteListenerOutput](
 		kebab("DeleteListener"), (*globalloadbalancer.Client).DeleteListener, Destructive())
 	deleteListener.short = "Delete the listener only; the pool and its member group stay."
-	deleteMember := Write[globalloadbalancer.Client, globalloadbalancer.DeletePoolMemberInput, globalloadbalancer.DeletePoolMemberOutput](
-		kebab("DeletePoolMember"), (*globalloadbalancer.Client).DeletePoolMember, Destructive())
-	deleteMember.short = "Delete the pool's member group; the vServer and the pool stay."
 	deletePool := Write[globalloadbalancer.Client, globalloadbalancer.DeletePoolInput, globalloadbalancer.DeletePoolOutput](
 		kebab("DeletePool"), (*globalloadbalancer.Client).DeletePool, Destructive())
-	deletePool.short = "Delete an empty pool with no listener; nothing cascades."
-	return []Op[globalloadbalancer.Client]{createPool, createListener, deleteListener, deleteMember, deletePool}
+	deletePool.short = "Delete a listener-free pool with its member group and backend row; the vServer stays."
+	return []Op[globalloadbalancer.Client]{createPool, createListener, deleteListener, deletePool}
 }

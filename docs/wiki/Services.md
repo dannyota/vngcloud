@@ -331,7 +331,7 @@ glbClient.GetPoolMember(ctx, in)       // LoadBalancerID, PoolID, PoolMemberID (
 glbClient.ListUsageHistories(ctx, in)  // LoadBalancerID (required), From, To, Type
 glbClient.CreatePool(ctx, in)          // TCP pool, one private group, one vServer backend
 glbClient.CreateListener(ctx, in)      // TCP listener on that pool; AllowedCIDRs /8 to /32
-glbClient.DeleteListener(ctx, in)      // then DeletePoolMember, then DeletePool
+glbClient.DeleteListener(ctx, in)      // then DeletePool (with its group)
 ```
 
 Package and region catalog methods are global metadata calls. Inventory and
@@ -342,8 +342,8 @@ equal to the client's project. Each is sent once, never resent, and succeeds
 only on exact read-back (member health is reported, not required); an unconfirmed write returns `ErrNotSettled` with
 safe IDs. No quote exists; GreenNode bills child usage under the account's
 terms, and the SDK neither selects nor verifies the payment source. Deleting
-does not promise a refund. Deletes run listener, member group, then empty
-pool, and never cascade.
+does not promise a refund. Deletes run listener first, then the pool, which
+removes its member group and backend row, never the vServer.
 
 ## DNS
 

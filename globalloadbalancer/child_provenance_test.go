@@ -31,9 +31,8 @@ func TestChildWritesRejectUntrustedConfigWithZeroRequests(t *testing.T) {
 			_, e1 := c.CreatePool(bg(), poolInput())
 			_, e2 := c.CreateListener(bg(), listenerInput())
 			_, e3 := c.DeleteListener(bg(), &DeleteListenerInput{LoadBalancerID: fxGLB, ListenerID: fxListener})
-			_, e4 := c.DeletePoolMember(bg(), &DeletePoolMemberInput{LoadBalancerID: fxGLB, PoolID: fxPool, PoolMemberID: fxGroup})
-			_, e5 := c.DeletePool(bg(), &DeletePoolInput{LoadBalancerID: fxGLB, PoolID: fxPool})
-			for i, err := range []error{e1, e2, e3, e4, e5} {
+			_, e4 := c.DeletePool(bg(), &DeletePoolInput{LoadBalancerID: fxGLB, PoolID: fxPool})
+			for i, err := range []error{e1, e2, e3, e4} {
 				if !errors.Is(err, vngcloud.ErrInvalidConfig) {
 					t.Errorf("call %d err=%v", i, err)
 				}

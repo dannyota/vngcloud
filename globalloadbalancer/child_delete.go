@@ -144,59 +144,9 @@ func (c *Client) DeleteListener(ctx context.Context, in *DeleteListenerInput) (*
 	return finishDelete(out, plan.execute(ctx))
 }
 
-// DeletePoolMember deletes one member group of a listener-free pool and
-// confirms its absence. It never deletes the pool or the vServer. See
-// docs/design/glb-pool.md.
-func (c *Client) DeletePoolMember(ctx context.Context, in *DeletePoolMemberInput) (*DeletePoolMemberOutput, error) {
-	const op = "globalloadbalancer.DeletePoolMember"
-	if err := core.CheckRequired(op, in); err != nil {
-		return nil, err
-	}
-	r, err := c.deletePrelude(ctx, op, in.LoadBalancerID, map[string]string{"LoadBalancerID": in.LoadBalancerID, "PoolID": in.PoolID, "PoolMemberID": in.PoolMemberID})
-	if err != nil {
-		return nil, err
-	}
-	pool, err := r.inPool(ctx, in.LoadBalancerID, in.PoolID)
-	if err != nil {
-		return nil, err
-	}
-	if !deleteEligible(pool.Status) || pool.Health == nil || !deleteEligible(pool.Health.Status) {
-		return nil, refuse("the pool is not in a stable state")
-	}
-	if err := r.requireNoListeners(ctx, in.LoadBalancerID); err != nil {
-		return nil, err
-	}
-	groups, err := r.groups(ctx, in.LoadBalancerID, in.PoolID)
-	if err != nil {
-		return nil, err
-	}
-	if len(groups) != 1 || groups[0].ID != in.PoolMemberID {
-		return nil, refuse("the pool must hold exactly the expected member group")
-	}
-	g, err := r.group(ctx, in.LoadBalancerID, in.PoolID, in.PoolMemberID)
-	if err != nil {
-		return nil, err
-	}
-	if !checkGroup(g, in.LoadBalancerID, in.PoolID, in.PoolMemberID, nil) || !memberHealth(g.Status) || !memberHealth(g.Members[0].Status) {
-		return nil, refuse("the member group is not an eligible sole private group")
-	}
-	out := &DeletePoolMemberOutput{LoadBalancerID: in.LoadBalancerID, PoolID: in.PoolID, PoolMemberID: in.PoolMemberID}
-	plan := deletePlan{r: r, url: c.glbChildURL(in.LoadBalancerID, "global-pools", in.PoolID, "pool-members", in.PoolMemberID), id: in.PoolMemberID,
-		exact: func(ctx context.Context) (string, string, error) {
-			got, err := r.group(ctx, in.LoadBalancerID, in.PoolID, in.PoolMemberID)
-			return got.ID, got.Status, err
-		},
-		listed: func(ctx context.Context) (bool, error) {
-			rest, err := r.groups(ctx, in.LoadBalancerID, in.PoolID)
-			return slices.ContainsFunc(rest, func(x wireGroup) bool { return x.ID == in.PoolMemberID }), err
-		},
-		survivors: func(ctx context.Context) error { return r.survivors(ctx, in.LoadBalancerID, in.PoolID) },
-		settled:   func() { out.Deleted = true }}
-	return finishDelete(out, plan.execute(ctx))
-}
-
-// DeletePool deletes one empty, listener-free pool and confirms its absence.
-// It never cascades. See docs/design/glb-pool.md.
+// DeletePool deletes one listener-free pool together with its one private
+// member group and backend row, never the vServer, and confirms the pool's
+// absence. See docs/design/glb-pool.md.
 func (c *Client) DeletePool(ctx context.Context, in *DeletePoolInput) (*DeletePoolOutput, error) {
 	const op = "globalloadbalancer.DeletePool"
 	if err := core.CheckRequired(op, in); err != nil {
@@ -220,8 +170,15 @@ func (c *Client) DeletePool(ctx context.Context, in *DeletePoolInput) (*DeletePo
 	if err != nil {
 		return nil, err
 	}
-	if len(groups) != 0 {
-		return nil, refuse("the pool still holds a member group")
+	if len(groups) != 1 {
+		return nil, refuse("the pool must hold exactly one member group")
+	}
+	g, err := r.group(ctx, in.LoadBalancerID, in.PoolID, groups[0].ID)
+	if err != nil {
+		return nil, err
+	}
+	if !checkGroup(g, in.LoadBalancerID, in.PoolID, groups[0].ID, nil) || !memberHealth(g.Status) || !memberHealth(g.Members[0].Status) {
+		return nil, refuse("the member group is not the expected private group with one backend")
 	}
 	out := &DeletePoolOutput{LoadBalancerID: in.LoadBalancerID, PoolID: in.PoolID}
 	plan := deletePlan{r: r, url: c.glbChildURL(in.LoadBalancerID, "global-pools", in.PoolID), id: in.PoolID,

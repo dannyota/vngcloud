@@ -170,11 +170,8 @@ func (f *fixture) defaults(w http.ResponseWriter, key string) {
 	case "DELETE " + glbPrefix + "/global-listeners/" + fxListener:
 		f.listener = false
 		w.WriteHeader(f.acceptStatus)
-	case "DELETE " + glbPrefix + "/global-pools/" + fxPool + "/pool-members/" + fxGroup:
-		f.group = false
-		w.WriteHeader(f.acceptStatus)
 	case "DELETE " + glbPrefix + "/global-pools/" + fxPool:
-		f.pool = false
+		f.pool, f.group = false, false
 		w.WriteHeader(f.acceptStatus)
 	default:
 		f.t.Errorf("unexpected request %s", key)

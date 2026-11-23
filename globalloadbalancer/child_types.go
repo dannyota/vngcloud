@@ -68,24 +68,6 @@ type DeleteListenerOutput struct {
 	Deleted        bool
 }
 
-// DeletePoolMemberInput identifies a member group. It never names the vServer.
-type DeletePoolMemberInput struct {
-	// LoadBalancerID is required.
-	LoadBalancerID string `vngcloud:"required"`
-	// PoolID is required.
-	PoolID string `vngcloud:"required"`
-	// PoolMemberID is the member group ID and is required.
-	PoolMemberID string `vngcloud:"required"`
-}
-
-// DeletePoolMemberOutput identifies the member group and confirmed absence.
-type DeletePoolMemberOutput struct {
-	LoadBalancerID string
-	PoolID         string
-	PoolMemberID   string
-	Deleted        bool
-}
-
 // DeletePoolInput identifies an empty pool.
 type DeletePoolInput struct {
 	// LoadBalancerID is required.
