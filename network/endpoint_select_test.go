@@ -287,3 +287,28 @@ func TestEndpointRegionProjection(t *testing.T) {
 		})
 	}
 }
+
+func TestEndpointRowProjectScopeUsesVServerProjectID(t *testing.T) {
+	good := epRow(epOtherID, "other", "ACTIVE", epSubnet)
+	for name, tc := range map[string]struct {
+		row string
+		ok  bool
+	}{
+		"live shape, vpc.projectUuid null": {good, true},
+		"project key absent":               {strings.Replace(good, `"VServerProjectId"`, `"x"`, 1), false},
+		"project id null":                  {strings.Replace(good, `"VServerProjectId":"`+epProject+`"`, `"VServerProjectId":null`, 1), false},
+		"other project":                    {strings.Replace(good, `"VServerProjectId":"`+epProject, `"VServerProjectId":"pro-00000000-0000-0000-0000-0000000000ff`, 1), false},
+		"project object missing":           {strings.Replace(good, `"project":{`, `"projectx":{`, 1), false},
+		"vpc absent is fine":               {strings.Replace(good, `"vpc":{"uuid":"`+epVPC+`","projectUuid":null,"project":null,"projectId":"backend-1"},`, ``, 1), true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newEPFake()
+			f.list = func(int) string { return epList(tc.row) }
+			h := newEPHarness(t, f)
+			_, err := h.c.CreateEndpoint(context.Background(), epCreateInput())
+			if tc.ok != errors.Is(err, ErrNotSettled) {
+				t.Fatalf("err=%v", err)
+			}
+		})
+	}
+}

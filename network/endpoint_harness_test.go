@@ -60,7 +60,7 @@ func epList(rows ...string) string {
 }
 
 func epRow(id, name, status, subnet string) string {
-	return `{"uuid":"` + id + `","endpointName":"` + name + `","endpointServiceId":"` + epService + `","vpcId":"` + epVPC + `","status":"` + status + `","billingStatus":"provisioning","endpointType":"Gateway","zoneUuid":"HCM03-1C","enableDnsName":false,"endpointResource":null,"endpointDomains":[],"category":{},"service":{},"vpc":{"uuid":"` + epVPC + `","projectUuid":"` + epProject + `"},"subnet":{"uuid":"` + subnet + `"},"project":{},"packageId":{"uuid":"` + epPackage + `","monthlyPrice":712400,"currencyUnit":"VND"}}`
+	return `{"uuid":"` + id + `","endpointName":"` + name + `","endpointServiceId":"` + epService + `","vpcId":"` + epVPC + `","status":"` + status + `","billingStatus":"provisioning","endpointType":"Gateway","zoneUuid":"HCM03-1C","enableDnsName":false,"endpointResource":null,"endpointDomains":[],"category":{},"service":{},"vpc":{"uuid":"` + epVPC + `","projectUuid":null,"project":null,"projectId":"backend-1"},"subnet":{"uuid":"` + subnet + `"},"project":{"id":"1","backendProjectId":"2","portalUserId":"3","VServerProjectId":"` + epProject + `"},"packageId":{"uuid":"` + epPackage + `","monthlyPrice":712400,"currencyUnit":"VND"}}`
 }
 
 func newEPFake() *epFake {

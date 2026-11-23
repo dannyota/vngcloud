@@ -354,7 +354,7 @@ func TestEndpointCreateWaitOutcomes(t *testing.T) {
 			return strings.Replace(epRow(epID, "demo", "ACTIVE", epSubnet), `"packageId":{"uuid":"`+epPackage, `"packageId":{"uuid":"00000000-0000-0000-0000-0000000000b2`, 1)
 		}, false},
 		{"wrong project", func(int) string {
-			return strings.Replace(epRow(epID, "demo", "ACTIVE", epSubnet), `"projectUuid":"`+epProject, `"projectUuid":"pro-00000000-0000-0000-0000-0000000000ff`, 1)
+			return strings.Replace(epRow(epID, "demo", "ACTIVE", epSubnet), `"VServerProjectId":"`+epProject, `"VServerProjectId":"pro-00000000-0000-0000-0000-0000000000ff`, 1)
 		}, false},
 		{"wrong zone", func(int) string {
 			return strings.Replace(epRow(epID, "demo", "ACTIVE", epSubnet), `"zoneUuid":"HCM03-1C"`, `"zoneUuid":"HCM03-1B"`, 1)
