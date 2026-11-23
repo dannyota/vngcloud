@@ -50,6 +50,7 @@ type epFake struct {
 	listCalls                                            int
 	onCreate                                             func()
 	onDelete                                             func()
+	createRaw                                            func(w http.ResponseWriter, r *http.Request)
 	listStatus                                           func(n int) int
 	listDelay                                            func(n int)
 }
@@ -156,6 +157,10 @@ func (f *epFake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case p == epBase && r.Method == http.MethodPost:
 		if f.onCreate != nil {
 			f.onCreate()
+		}
+		if f.createRaw != nil {
+			f.createRaw(w, r)
+			return
 		}
 		write(f.createStatus, f.createBody)
 	case p == epBase:

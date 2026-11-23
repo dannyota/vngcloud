@@ -60,10 +60,8 @@ func endpointUnsettled(op string, causes ...error) error {
 
 func withoutNotFound(err error) error {
 	var api *core.APIError
-	if errors.As(err, &api) && errors.Is(api.Err, core.ErrNotFound) {
-		stripped := *api
-		stripped.Err = nil
-		return &stripped
+	if errors.As(err, &api) && (api.StatusCode == http.StatusNotFound || errors.Is(api.Err, core.ErrNotFound)) {
+		return &core.APIError{Operation: api.Operation, Message: "endpoint request failed"}
 	}
 	return err
 }
@@ -180,6 +178,8 @@ func (o *endpointOp) raw(ctx context.Context, req transport.Request) (json.RawMe
 		var api *core.APIError
 		retryable := errors.As(err, &api) && api.Retryable
 		switch {
+		case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
+			return nil, &notSent, endpointSafeError(o.op, err)
 		case status >= 400:
 			return nil, &notSent, endpointStatusError(o.op, status, retryable)
 		case errors.Is(err, transport.ErrBodyTooLarge) || (status > 0 && status < 300):

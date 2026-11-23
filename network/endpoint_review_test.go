@@ -231,7 +231,7 @@ func TestEndpointConfirmation404IsNotProvenAbsence(t *testing.T) {
 	}
 	h := newEPHarness(t, f)
 	out, err := h.c.DeleteEndpoint(context.Background(), epDeleteInput())
-	if !errors.Is(err, ErrNotSettled) || errors.Is(err, vngcloud.ErrNotFound) || out == nil || out.Deleted {
+	if !errors.Is(err, ErrNotSettled) || errors.Is(err, vngcloud.ErrNotFound) || vngcloud.IsNotFound(err) || out == nil || out.Deleted {
 		t.Fatalf("out=%v err=%v", out, err)
 	}
 }
@@ -280,5 +280,27 @@ func TestEndpointConfirmationWindowStartsAfterDispatch(t *testing.T) {
 	}
 	if total != 10*time.Minute {
 		t.Fatalf("delete waited %v", total)
+	}
+}
+
+func TestEndpointCreateCancelDuringReplyBodyKeepsContextCause(t *testing.T) {
+	f := epCreateFake()
+	ctx, cancel := context.WithCancel(context.Background())
+	f.createRaw = func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Length", "1000")
+		w.WriteHeader(201)
+		_, _ = w.Write([]byte(`{"code":0,`))
+		w.(http.Flusher).Flush()
+		cancel()
+		<-r.Context().Done()
+	}
+	h := newEPHarness(t, f)
+	out, err := h.c.CreateEndpoint(ctx, epCreateInput())
+	if !errors.Is(err, ErrNotSettled) || !errors.Is(err, context.Canceled) || out == nil || out.EndpointID != "" {
+		t.Fatalf("out=%#v err=%v", out, err)
+	}
+	if f.count(http.MethodPost, epBase) != 1 {
+		t.Fatal("create resent")
 	}
 }
