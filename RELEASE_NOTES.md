@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Unconfirmed writes now exit 1 even when confirmation returns 401 or 404;
+  reconcile inventory and billing before another mutation.
+
 - Add shared `vngcloud.ErrNotSettled` and `vngcloud.ErrFailed` identities; existing service names remain aliases.
 
 - `volume get-default-volume-type` (SDK `GetDefaultVolumeType`) now requires

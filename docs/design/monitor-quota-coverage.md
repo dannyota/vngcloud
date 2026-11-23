@@ -267,7 +267,7 @@ NoWait with nil error and the record open. A later matching call only
 reconciles. Definite 4xx or transport-proven not-sent errors return Output and
 their safe error under the outcome contract, without a new record or automatic
 retry. The early renewal 409 is Conflict, exit 1, not a skip or a hidden
-success. Every other possible-send failure wraps `dns.ErrNotSettled`;
+success. Every other possible-send failure wraps `vngcloud.ErrNotSettled`;
 `errors.As` retains safe APIError status/operation and `errors.Is` retains safe
 causes. Uncertainty wins CLI exit classification, including over a later 404 or
 cancellation.

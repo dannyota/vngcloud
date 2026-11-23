@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"danny.vn/vngcloud"
-	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/transport"
 )
@@ -195,11 +194,11 @@ func (c *Client) waitLogProjectActive(ctx context.Context, op, name string) (*Lo
 			return project.Status == LogProjectStatusActive, nil
 		},
 		func() error {
-			return fmt.Errorf("%w: %s: log project %q was ordered; do not order it again", dns.ErrNotSettled, op, name)
+			return fmt.Errorf("%w: %s: log project %q was ordered; do not order it again", core.ErrNotSettled, op, name)
 		},
 	)
-	if err != nil && !errors.Is(err, dns.ErrNotSettled) {
-		err = fmt.Errorf("%w: %s: log project %q: %w", dns.ErrNotSettled, op, name, err)
+	if err != nil && !errors.Is(err, core.ErrNotSettled) {
+		err = fmt.Errorf("%w: %s: log project %q: %w", core.ErrNotSettled, op, name, err)
 	}
 	return found, err
 }
@@ -256,7 +255,7 @@ type DeleteLogProjectOutput struct{}
 // returned unchanged, the ordinary not-found result any other delete in
 // this SDK returns for an already-gone resource. If the bound runs out, or
 // a read or a sleep in the wait fails, such as from a canceled ctx, the
-// returned error wraps dns.ErrNotSettled: the write must not be repeated.
+// returned error wraps core.ErrNotSettled: the write must not be repeated.
 // NoWait skips the baseline read and the wait, and returns as soon as the
 // delete (and the purge, when requested) succeeds.
 func (c *Client) DeleteLogProject(ctx context.Context, in *DeleteLogProjectInput) (*DeleteLogProjectOutput, error) {
@@ -348,11 +347,11 @@ func (c *Client) waitLogProjectTrashed(ctx context.Context, op, id string, befor
 			return false, nil
 		},
 		func() error {
-			return fmt.Errorf("%w: %s: log project %s was accepted; do not delete or purge it again", dns.ErrNotSettled, op, id)
+			return fmt.Errorf("%w: %s: log project %s was accepted; do not delete or purge it again", core.ErrNotSettled, op, id)
 		},
 	)
-	if err != nil && !errors.Is(err, dns.ErrNotSettled) {
-		err = fmt.Errorf("%w: %s: log project %s: %w", dns.ErrNotSettled, op, id, err)
+	if err != nil && !errors.Is(err, core.ErrNotSettled) {
+		err = fmt.Errorf("%w: %s: log project %s: %w", core.ErrNotSettled, op, id, err)
 	}
 	return err
 }

@@ -50,7 +50,7 @@ created, err := client.CreateLogAlarm(ctx, &monitor.CreateLogAlarmInput{
 	InAlarm:        []string{channelID},
 })
 switch {
-case errors.Is(err, dns.ErrNotSettled): // "danny.vn/vngcloud/dns"
+case errors.Is(err, vngcloud.ErrNotSettled): // "danny.vn/vngcloud"
 	log.Printf("log alarm %s was accepted; check it later, do not create it again", created.AlarmID)
 case err != nil:
 	log.Fatal(err)
@@ -100,12 +100,12 @@ the returned error says to list log alarms by `Name` before creating again.
 Unless `NoWait` is set, `CreateLogAlarm` waits up to 120 seconds for the
 alarm's `Status` to read `ACTIVE`, which takes about 30 seconds (the empty
 status right after create and `CREATING` keep it polling; `ERROR` or
-`FAILED` returns an error wrapping `dns.ErrFailed`): by `AlarmID` when the
+`FAILED` returns an error wrapping `vngcloud.ErrFailed`): by `AlarmID` when the
 create response carried one,
 else by listing log alarms for an exact `Name` match, the same way
 `CreateLogProject`'s own wait works before an id is known. The wait
 running out, or a read inside it failing, returns an error wrapping
-`dns.ErrNotSettled`, the same sentinel [Monitor
+`vngcloud.ErrNotSettled`, the same sentinel [Monitor
 Alerts](Monitor-Alerts.md#ordering-deleting-and-purging-a-log-project)
 covers for log projects: the write was accepted and must not be sent
 again. `NoWait` returns at once instead: `Output.AlarmID` is empty only

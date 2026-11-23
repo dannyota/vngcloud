@@ -135,7 +135,7 @@ confirmed live) stays on the server.
 
 ```go
 var ErrSystemTag  = errors.New("tagging: key is a system tag")
-var ErrNotSettled = errors.New("tagging: write accepted but not settled")
+var ErrNotSettled = vngcloud.ErrNotSettled
 ```
 
 `ErrSystemTag` means `Key` names a system tag, either by its `vng.` prefix or by

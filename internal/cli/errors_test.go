@@ -1079,3 +1079,10 @@ func TestOpenLoginSharedMappingAndSettlementPrecedence(t *testing.T) {
 		}
 	}
 }
+
+func TestSettlementUncertaintyPrecedesNestedFailure(t *testing.T) {
+	err := errors.Join(vngcloud.ErrNotSettled, vngcloud.ErrFailed)
+	if got := classify(err).Code; got != "NotSettled" || exitCode(err) != 1 {
+		t.Fatalf("code=%s exit=%d", got, exitCode(err))
+	}
+}

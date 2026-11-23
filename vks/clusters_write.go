@@ -215,7 +215,8 @@ func checkClusterID(op, field, id string) error {
 }
 
 // CreateCluster submits a single private cluster order and optionally waits for ACTIVE.
-func (c *Client) CreateCluster(ctx context.Context, in *CreateClusterInput) (*CreateClusterOutput, error) {
+func (c *Client) CreateCluster(ctx context.Context, in *CreateClusterInput) (settlementResult *CreateClusterOutput, settlementErr error) {
+	defer func() { settlementErr = settlementContext("vks.CreateCluster", settlementErr) }()
 	const op = "vks.CreateCluster"
 	if err := c.validate(); err != nil {
 		return nil, err
@@ -319,7 +320,8 @@ func (c *Client) CreateCluster(ctx context.Context, in *CreateClusterInput) (*Cr
 }
 
 // DeleteCluster sends one delete after reading the exact cluster.
-func (c *Client) DeleteCluster(ctx context.Context, in *DeleteClusterInput) (*DeleteClusterOutput, error) {
+func (c *Client) DeleteCluster(ctx context.Context, in *DeleteClusterInput) (settlementResult *DeleteClusterOutput, settlementErr error) {
+	defer func() { settlementErr = settlementContext("vks.DeleteCluster", settlementErr) }()
 	const op = "vks.DeleteCluster"
 	if err := c.validate(); err != nil {
 		return nil, err
@@ -355,4 +357,11 @@ func (c *Client) DeleteCluster(ctx context.Context, in *DeleteClusterInput) (*De
 		out.Deleted = true
 	}
 	return out, err
+}
+
+func settlementContext(op string, err error) error {
+	if errors.Is(err, ErrNotSettled) || errors.Is(err, ErrFailed) {
+		return fmt.Errorf("%s: inspect inventory and billing before another mutation: %w", op, err)
+	}
+	return err
 }

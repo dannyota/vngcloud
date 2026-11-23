@@ -423,8 +423,8 @@ var ErrSecurityGroupInUse = errors.New("network: security group in use")
 var ErrSystemGroup        = errors.New("network: system security group")
 var ErrInUse              = errors.New("network: resource in use")
 var ErrUnexpectedStatus   = errors.New("network: unexpected status")
-var ErrNotSettled         = errors.New("network: write accepted but not settled")
-var ErrFailed             = errors.New("network: write failed on the server")
+var ErrNotSettled         = vngcloud.ErrNotSettled
+var ErrFailed             = vngcloud.ErrFailed
 ```
 
 `ErrSystemGroup` means `UpdateSecurityGroup` or `DeleteSecurityGroup`

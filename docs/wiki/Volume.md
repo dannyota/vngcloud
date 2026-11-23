@@ -435,8 +435,8 @@ body. Snapshot history and policy writes have no SDK methods.
 ## Errors
 
 ```go
-var ErrNotSettled     = errors.New("volume: write accepted but not settled")
-var ErrFailed         = errors.New("volume: resource reached ERROR")
+var ErrNotSettled     = vngcloud.ErrNotSettled
+var ErrFailed         = vngcloud.ErrFailed
 var ErrVolumeInUse    = errors.New("volume: volume in use")
 var ErrBootVolume     = errors.New("volume: cannot detach the boot volume")
 var ErrServerRunning  = errors.New("volume: server is running")

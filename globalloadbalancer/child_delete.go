@@ -101,7 +101,8 @@ func (r *run) survivors(ctx context.Context, glb, poolID string) error {
 // DeleteListener deletes one listener of a pool-backed Layer 4 load balancer
 // and confirms its absence. It never deletes the pool. See
 // docs/design/glb-pool.md.
-func (c *Client) DeleteListener(ctx context.Context, in *DeleteListenerInput) (*DeleteListenerOutput, error) {
+func (c *Client) DeleteListener(ctx context.Context, in *DeleteListenerInput) (settlementResult *DeleteListenerOutput, settlementErr error) {
+	defer func() { settlementErr = settlementContext("globalloadbalancer.DeleteListener", settlementErr) }()
 	r := c.newRun("globalloadbalancer.DeleteListener")
 	out, err := c.delListener(ctx, r, in)
 	return finishOutput(r, out, err)
@@ -169,7 +170,8 @@ func (c *Client) delListener(ctx context.Context, r *run, in *DeleteListenerInpu
 // DeletePool deletes one listener-free pool together with its one private
 // member group and backend row, never the vServer, and confirms the pool's
 // absence. See docs/design/glb-pool.md.
-func (c *Client) DeletePool(ctx context.Context, in *DeletePoolInput) (*DeletePoolOutput, error) {
+func (c *Client) DeletePool(ctx context.Context, in *DeletePoolInput) (settlementResult *DeletePoolOutput, settlementErr error) {
+	defer func() { settlementErr = settlementContext("globalloadbalancer.DeletePool", settlementErr) }()
 	r := c.newRun("globalloadbalancer.DeletePool")
 	out, err := c.delPool(ctx, r, in)
 	return finishOutput(r, out, err)

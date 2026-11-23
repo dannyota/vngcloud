@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/testutil"
 )
@@ -88,12 +87,12 @@ func TestSyntheticDeleteSingleSend(t *testing.T) {
 					t.Fatalf("out=%+v err=%v", out, err)
 				}
 			default:
-				if !errors.Is(err, dns.ErrNotSettled) || out.Stage != "sent" {
+				if !errors.Is(err, core.ErrNotSettled) || out.Stage != "sent" {
 					t.Fatalf("out=%+v err=%v", out, err)
 				}
 				in.ExpectedQuotaID = "other"
 				again, e := c.DeleteSyntheticQuota(context.Background(), in)
-				if !errors.Is(e, dns.ErrNotSettled) || !errors.Is(e, core.ErrInvalidInput) || again.Stage != "sent" {
+				if !errors.Is(e, core.ErrNotSettled) || !errors.Is(e, core.ErrInvalidInput) || again.Stage != "sent" {
 					t.Fatalf("again=%+v err=%v", again, e)
 				}
 				settled = true
@@ -180,7 +179,7 @@ func TestSyntheticDeleteGuardsAndExactAbsence(t *testing.T) {
 				t.Fatalf("out=%+v err=%v", out, err)
 			}
 			if mode == "false-absence" {
-				if !errors.Is(err, dns.ErrNotSettled) || out.Stage != "sent" {
+				if !errors.Is(err, core.ErrNotSettled) || out.Stage != "sent" {
 					t.Fatal(err)
 				}
 			} else if sends.Load() != 0 {
@@ -221,7 +220,7 @@ func TestSyntheticDeleteSettlementBound(t *testing.T) {
 		return ctx.Err()
 	}
 	out, err := c.DeleteSyntheticQuota(context.Background(), &DeleteSyntheticQuotaInput{ExpectedQuotaID: "quota-syn-2"})
-	if !errors.Is(err, dns.ErrNotSettled) || out.Stage != "sent" || now.Sub(start) != 60*time.Second || sends.Load() != 1 || details.Load() != 2 {
+	if !errors.Is(err, core.ErrNotSettled) || out.Stage != "sent" || now.Sub(start) != 60*time.Second || sends.Load() != 1 || details.Load() != 2 {
 		t.Fatalf("out=%+v err=%v elapsed=%s sends=%d details=%d", out, err, now.Sub(start), sends.Load(), details.Load())
 	}
 }

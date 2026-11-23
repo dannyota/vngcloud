@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/testutil"
 )
@@ -310,7 +309,7 @@ func TestCreateLogProjectWaitFindsActiveByName(t *testing.T) {
 }
 
 // TestCreateLogProjectWaitTimesOut checks the wait gives up after its bound
-// and wraps dns.ErrNotSettled, per the design's reuse of the vDNS
+// and wraps core.ErrNotSettled, per the design's reuse of the vDNS
 // sentinels, when the project never reaches ACTIVE. The pre-order
 // duplicate-name check's own list call comes back empty, so it never
 // mistakes the CREATING project the wait later polls for a pre-existing
@@ -340,8 +339,8 @@ func TestCreateLogProjectWaitTimesOut(t *testing.T) {
 	})))
 
 	_, err := client.CreateLogProject(context.Background(), &CreateLogProjectInput{Name: "app"})
-	if !errors.Is(err, dns.ErrNotSettled) {
-		t.Fatalf("CreateLogProject() error = %v, want dns.ErrNotSettled", err)
+	if !errors.Is(err, core.ErrNotSettled) {
+		t.Fatalf("CreateLogProject() error = %v, want core.ErrNotSettled", err)
 	}
 }
 
@@ -734,7 +733,7 @@ func TestDeleteLogProjectWaitSettlesOnNotFound(t *testing.T) {
 	}
 }
 
-// TestDeleteLogProjectWaitTimesOut checks the wait wraps dns.ErrNotSettled
+// TestDeleteLogProjectWaitTimesOut checks the wait wraps core.ErrNotSettled
 // once its 60-second bound elapses without a 404 or a changed read.
 func TestDeleteLogProjectWaitTimesOut(t *testing.T) {
 	client := withInstantSleep(newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -750,8 +749,8 @@ func TestDeleteLogProjectWaitTimesOut(t *testing.T) {
 	})))
 
 	_, err := client.DeleteLogProject(context.Background(), &DeleteLogProjectInput{LogProjectID: "proj-1"})
-	if !errors.Is(err, dns.ErrNotSettled) {
-		t.Fatalf("DeleteLogProject() error = %v, want dns.ErrNotSettled", err)
+	if !errors.Is(err, core.ErrNotSettled) {
+		t.Fatalf("DeleteLogProject() error = %v, want core.ErrNotSettled", err)
 	}
 }
 

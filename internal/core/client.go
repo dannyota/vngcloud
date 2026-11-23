@@ -390,7 +390,7 @@ func wrapTransportErr(err error) error {
 	}
 	var terr *transport.APIError
 	if !errors.As(err, &terr) {
-		return err
+		return maskTransportSettlement(err)
 	}
 	apiErr := &APIError{
 		Operation:  terr.Operation,
@@ -405,7 +405,7 @@ func wrapTransportErr(err error) error {
 	} else if terr.KeptObservedStatus && terr.Err != nil {
 		apiErr.Err = errors.Join(apiErr.Err, terr.Err)
 	}
-	return apiErr
+	return maskTransportSettlement(apiErr)
 }
 
 func buildHTTPClient(cfg clientConfig) *http.Client {
@@ -552,3 +552,20 @@ func (h nopHandler) WithGroup(string) slog.Handler           { return h }
 
 // VNetworkOverride reports whether the caller supplied the vNetwork endpoint.
 func (c *Client) VNetworkOverride() bool { return c.vnetworkOverride }
+
+type transportSettlementCause struct{ cause error }
+
+func (e *transportSettlementCause) Error() string { return e.cause.Error() }
+func (e *transportSettlementCause) Is(target error) bool {
+	if target == ErrFailed || target == ErrNotSettled {
+		return false
+	} //nolint:errorlint
+	return errors.Is(e.cause, target)
+}
+func (e *transportSettlementCause) As(target any) bool { return errors.As(e.cause, target) }
+func maskTransportSettlement(err error) error {
+	if errors.Is(err, ErrFailed) || errors.Is(err, ErrNotSettled) {
+		return &transportSettlementCause{cause: err}
+	}
+	return err
+}

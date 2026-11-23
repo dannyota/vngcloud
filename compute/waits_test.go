@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"danny.vn/vngcloud"
 )
@@ -136,5 +138,34 @@ func TestWaitServerActiveMatchingIdentityKeepsStatusBehavior(t *testing.T) {
 				t.Fatalf("out=%+v err=%v", out, err)
 			}
 		})
+	}
+}
+
+type confirmationProvider struct{ ordered atomic.Bool }
+
+func (p *confirmationProvider) Token(context.Context) (vngcloud.Token, error) {
+	if p.ordered.Load() {
+		return vngcloud.Token{}, fmt.Errorf("provider refresh: %w", vngcloud.ErrFailed)
+	}
+	return vngcloud.Token{AccessToken: "synthetic", ExpiresAt: time.Now().Add(time.Second)}, nil
+}
+func (*confirmationProvider) Invalidate(string) {}
+func TestCreateServerProviderSettlementCollision(t *testing.T) {
+	provider := &confirmationProvider{}
+	server := httptest.NewServer(floatingCreateHandler(t, func() string { return floatingSafeRules }, func(w http.ResponseWriter, _ *http.Request) {
+		provider.ordered.Store(true)
+		w.WriteHeader(202)
+		_, _ = w.Write([]byte(`{"data":{"uuid":"server-1"}}`))
+	}, func(http.ResponseWriter, *http.Request) { t.Error("confirmation unexpectedly sent") }))
+	defer server.Close()
+	cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("hcm-3"), vngcloud.WithProjectID("project-1"), vngcloud.WithCredentialsProvider(provider), vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{VServer: server.URL, Portal: server.URL}), vngcloud.WithRetry(0, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := validCreateServerInput()
+	in.MaxPrice = 467800
+	out, err := New(cfg).CreateServer(context.Background(), in)
+	if !errors.Is(err, vngcloud.ErrNotSettled) || errors.Is(err, vngcloud.ErrFailed) || out == nil || out.Server.UUID != "server-1" {
+		t.Fatalf("out=%+v err=%v", out, err)
 	}
 }

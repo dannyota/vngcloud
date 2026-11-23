@@ -419,6 +419,9 @@ func TestCreateWaits(t *testing.T) {
 
 func notSettled(t *testing.T, _ *harness, out *CreateDatabaseInstanceOutput, err error) {
 	t.Helper()
+	if err != nil && (!strings.Contains(err.Error(), "database.CreateDatabaseInstance") || !strings.Contains(err.Error(), "inspect inventory and billing before another mutation")) {
+		t.Fatalf("missing guidance: %v", err)
+	}
 	if !errors.Is(err, ErrNotSettled) || errors.Is(err, ErrFailed) || out == nil || !reflect.DeepEqual(out.Instance, Instance{ID: "db-1"}) {
 		t.Fatalf("out=%v err=%v", out, err)
 	}

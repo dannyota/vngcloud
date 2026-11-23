@@ -302,8 +302,8 @@ returns the response at once. Other writes are synchronous.
 | Server refuses | The server's `*APIError` | 1, or 4 on 404 |
 
 The CLI error codes gain `OTPRejected` and `PriceAboveMax`. `ErrFailed` and
-`ErrNotSettled` reuse the vDNS sentinels and codes `WriteFailed` and
-`NotSettled` ([vDNS](dns.md#after-a-write)); no new names are added for them.
+`ErrNotSettled` use the shared sentinels and codes `WriteFailed` and
+`NotSettled`.
 
 ## CLI
 

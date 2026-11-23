@@ -300,7 +300,7 @@ created, err := client.CreateLogProject(ctx, &monitor.CreateLogProjectInput{
 switch {
 case errors.Is(err, monitor.ErrPriceAboveMax):
 	log.Fatal("quoted price exceeds MaxPrice; raise MaxPrice to order it anyway")
-case errors.Is(err, dns.ErrNotSettled): // "danny.vn/vngcloud/dns"
+case errors.Is(err, vngcloud.ErrNotSettled): // "danny.vn/vngcloud"
 	log.Printf("log project order %s was accepted; check it later, do not order again", created.OrderID)
 case err != nil:
 	log.Fatal(err)
@@ -353,9 +353,7 @@ might carry; `DeleteLogProject` waits up to 60 seconds for a read of the
 deleted project to either come back not-found or no longer match its
 pre-delete state. Either wait running out, or a read or a sleep inside it
 failing, such as from a canceled `ctx`, returns an error wrapping
-`dns.ErrNotSettled`: the design reuses vDNS's own sentinel here rather than
-adding a new one, so the same [DNS](DNS.md#errors) handling applies, and
-the write must not be repeated. `NoWait` returns at once instead:
+`vngcloud.ErrNotSettled`; the write must not be repeated. `NoWait` returns at once instead:
 `Output.LogProject` stays at its zero value and only `Output.OrderID` is
 set, from the order response's own `orderId`; `DeleteLogProject` skips its
 pre-delete baseline read too. The earlier caller or operation deadline

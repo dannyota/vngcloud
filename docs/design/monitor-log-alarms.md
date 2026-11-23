@@ -242,8 +242,8 @@ the injected clock, until `status` is `ACTIVE`. An empty `status` and
 `CREATING` keep polling: live, a created alarm reads `""` for about 30
 seconds (30 s in each of three tries) before `ACTIVE`. `ERROR` or `FAILED`
 returns `ErrFailed`. Before the ID is known, create polls the list by exact
-name. The bound returns `ErrNotSettled` (the vDNS sentinel): the write was accepted and must not be repeated. `NoWait`
-returns at once.
+name. The bound returns the shared `vngcloud.ErrNotSettled`: the write was
+accepted and must not be repeated. `NoWait` returns at once.
 
 ### Retries
 

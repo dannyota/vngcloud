@@ -93,11 +93,11 @@ type CreateLogAlarmOutput struct {
 //
 // Without NoWait, CreateLogAlarm waits up to 120 seconds for the alarm's
 // Status to become LogAlarmStatusActive (the empty status and CREATING keep
-// it polling; ERROR or FAILED returns an error wrapping dns.ErrFailed): by AlarmID when the create response carried one,
+// it polling; ERROR or FAILED returns an error wrapping core.ErrFailed): by AlarmID when the create response carried one,
 // else by listing log alarms for an exact Name match, the same way
 // CreateLogProject's own wait works before an id is known. If the bound
 // runs out, or a read in that wait fails, the returned error wraps
-// dns.ErrNotSettled: the write must not be repeated. NoWait skips that wait
+// core.ErrNotSettled: the write must not be repeated. NoWait skips that wait
 // and returns as soon as the create succeeds.
 func (c *Client) CreateLogAlarm(ctx context.Context, in *CreateLogAlarmInput) (*CreateLogAlarmOutput, error) {
 	const op = "monitor.CreateLogAlarm"
@@ -294,7 +294,7 @@ type UpdateLogAlarmOutput struct {
 //
 // Without NoWait, UpdateLogAlarm waits the same way CreateLogAlarm does,
 // always by AlarmID since it is already known. If the bound runs out, or a
-// read in that wait fails, the returned error wraps dns.ErrNotSettled.
+// read in that wait fails, the returned error wraps core.ErrNotSettled.
 // NoWait skips that wait and returns as soon as the PUT succeeds.
 func (c *Client) UpdateLogAlarm(ctx context.Context, in *UpdateLogAlarmInput) (*UpdateLogAlarmOutput, error) {
 	const op = "monitor.UpdateLogAlarm"

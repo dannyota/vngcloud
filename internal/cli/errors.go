@@ -302,11 +302,11 @@ func classify(err error) errorEnvelope {
 	if errors.Is(err, dns.ErrZoneBusy) {
 		return errorEnvelope{Code: "ZoneBusy", Message: err.Error()}
 	}
-	if errors.Is(err, core.ErrFailed) {
-		return errorEnvelope{Code: "WriteFailed", Message: err.Error()}
-	}
 	if errors.Is(err, core.ErrNotSettled) {
 		return errorEnvelope{Code: "NotSettled", Message: err.Error()}
+	}
+	if errors.Is(err, core.ErrFailed) {
+		return errorEnvelope{Code: "WriteFailed", Message: err.Error()}
 	}
 	if errors.Is(err, compute.ErrOpenLogin) {
 		return errorEnvelope{Code: "OpenLogin", Message: err.Error()}

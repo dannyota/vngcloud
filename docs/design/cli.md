@@ -361,8 +361,8 @@ zone stayed busy past the wait before a write, so nothing was sent),
 `WriteFailed` (a vDNS write went to status `ERROR`, or, per
 [vMonitor Alerts](monitor-alerts.md#errors), a vMonitor log project or
 alarm wait failed), or `NotSettled` (a vDNS write, a vMonitor Alerts write,
-or a [vStorage](storage.md#delete-bucket) bucket delete was accepted but did
-not settle within the wait; do not repeat it). vMonitor
+or a [vStorage](storage.md#delete-bucket) bucket delete has an unconfirmed
+outcome; reconcile before another mutation). vMonitor
 Alerts also adds `OTPRejected` (a channel OTP was wrong or expired, so no
 create was sent) and `PriceAboveMax` (a log project quote exceeded
 `--max-price`, so no order was sent); see
@@ -376,8 +376,9 @@ For `WriteFailed` and `NotSettled` the CLI also prints the Output on stdout;
 see [vDNS](dns.md#after-a-write). `UnexpectedStatus`, `StatusUnconfirmed`,
 `ZoneBusy`, `WriteFailed`, `NotSettled`, `OTPRejected`, `PriceAboveMax`,
 `BucketNotEmpty`, `SecretFileFailed`, `SelfChange`, `PrivilegedChange`, and
-`ManagedPolicy` exit 1. A not-found result that
-is not an `*APIError`, such as a lookup by listing, also prints `NotFound`
+`ManagedPolicy` exit 1. Settlement errors take precedence over a nested 401,
+404, or cancellation. A not-found result that is not an `*APIError`, such as
+a lookup by listing, also prints `NotFound`
 and exits 4. `QueryFailed` means
 `--query` failed after the operation succeeded; for a write, the message
 says the write succeeded, so an agent does not retry it.
@@ -438,7 +439,6 @@ Service-account SDK, CLI, cache, and public docs ship together under the
 [release contract](service-account-auth.md#owner-decisions-and-release-order).
 
 ## Configure under read-only
-
 `configure` and `configure set` refuse writes with exit code 2 when the flag,
 variable, or selected profile enables read-only. `configure get` and
 `configure list` still work. Clearing the profile setting requires editing

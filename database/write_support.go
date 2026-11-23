@@ -143,3 +143,10 @@ func definitiveWriteError(err error, notSent bool, status int) bool {
 	}
 	return status >= 400 && status < 500
 }
+
+func settlementContext(op string, err error) error {
+	if errors.Is(err, ErrNotSettled) || errors.Is(err, ErrFailed) {
+		return fmt.Errorf("%s: inspect inventory and billing before another mutation: %w", op, err)
+	}
+	return err
+}

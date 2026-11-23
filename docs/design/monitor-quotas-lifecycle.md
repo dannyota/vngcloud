@@ -174,12 +174,12 @@ is console, returns `ErrInvalidInput` naming the row before any request.
 4. Send `DELETE {kind}/quota` once with `Once`, accepting 204 (the recorded
    status) with an empty body. A 4xx or a failed dial returns that error;
    any other failure opens the delete record and returns
-   `dns.ErrNotSettled` at `Stage` `sent`.
+   `vngcloud.ErrNotSettled` at `Stage` `sent`.
 5. Settle by reading every 2 seconds for up to 60 seconds. The evidenced
    outcome for an active quota is a 404 on the kind read (live: about
    6 s). Any other change, such as an intermediate or error status, a
    different quota ID, or a different package, is not settlement; polling
-   continues to the bound and then returns `dns.ErrNotSettled` with the
+   continues to the bound and then returns `vngcloud.ErrNotSettled` with the
    partial Output. Settlement sets `Stage` `settled` and marks the delete
    phase complete; with `Purge` false that retires the record, with `Purge`
    true the record stays.
@@ -187,7 +187,7 @@ is console, returns `ErrInvalidInput` naming the row before any request.
 Reconciliation of an open record, by reads only: a record in the delete
 phase resolves to settled on the evidenced outcome; an unchanged read
 (same ID, status, `UpdatedAt`) never proves the server did not act, so it
-stays inconclusive, and the bound returns `dns.ErrNotSettled` again. A
+stays inconclusive, and the bound returns `vngcloud.ErrNotSettled` again. A
 record closes as rejected only on a definite refusal response at send time
 or on authoritative provider evidence the manager records.
 
@@ -215,7 +215,7 @@ live checks; the current release only proves that `Purge` sends nothing.
   `Once`, move the record to stage `purge`, and read the trash list every
   2 seconds for up to 60 seconds until the frozen ID is absent:
   `Purged: true`, `Stage` `purged`. A purge 404 or any other non-accepted
-  answer, or the bound, is `dns.ErrNotSettled` at `Stage` `purge-sent`. A
+  answer, or the bound, is `vngcloud.ErrNotSettled` at `Stage` `purge-sent`. A
   second entry can still appear between the listing and the send; that
   kind-wide race has no server-side guard and the wiki says so.
 - A record with the delete phase complete and `Purge` true resumes purge
@@ -272,24 +272,24 @@ live renewal quote.
    path ID is the frozen quota ID after `core.CheckPathID`; the body
    repeats it as `resourceId`. Accept 200 (the recorded status) with an
    empty body. A 4xx or a failed dial returns that error; any other failure
-   opens the record and returns `dns.ErrNotSettled` at `Stage` `sent`.
+   opens the record and returns `vngcloud.ErrNotSettled` at `Stage` `sent`.
 7. Confirm by reading every 2 seconds for up to 30 seconds until the read
    shows the same quota ID and package with the target: enabled means
    `AutoRenew` true with `AutoRenewPeriod` 1, disabled means `AutoRenew`
    false with `AutoRenewPeriod` 0 (live: both within 3 s). A different
    quota ID or package never confirms, whatever its setting. The bound
-   returns `dns.ErrNotSettled`. A 200 that never shows the target is
+   returns `vngcloud.ErrNotSettled`. A 200 that never shows the target is
    reported, not retried.
 
 Reconciliation of an open auto-renew record: the same quota and package
 showing the target resolves it as applied. The same quota showing the
 opposite, with or without an unchanged `UpdatedAt`, never proves the
 server did not act, so it stays open and the bound returns
-`dns.ErrNotSettled` again; only a definite refusal response at send time
+`vngcloud.ErrNotSettled` again; only a definite refusal response at send time
 or authoritative provider evidence closes it as rejected. An
 opposing-setting call while a record is open reconciles first and, per
 the parent rule, returns `ErrInvalidInput` naming the prior attempt once
-it resolves, and `dns.ErrNotSettled` while it stays open; the caller
+it resolves, and `vngcloud.ErrNotSettled` while it stays open; the caller
 reruns the opposing call deliberately only after a resolution.
 
 The CLI commands `set-notification-quota-auto-renew` and
@@ -310,7 +310,7 @@ page owns its active-delete output and uncertainty precedence.
 | Delete on a status the SDK does not know | `monitor.ErrUnexpectedStatus`, no request | `UnexpectedStatus`, 1 |
 | Enable above the guard, or a zero quote for a priced package | `ErrPriceAboveMax`, `ErrUnpriced`, no request | `PriceAboveMax`, `Unpriced`, 1 |
 | Free quota auto-renew refused by the server | `*APIError` status 400, code `BadRequest`, operation set | `BadRequest`, 1 |
-| Sent but not settled, not confirmed, or purge uncertain | `dns.ErrNotSettled` with partial Output and `Stage` | `NotSettled`, 1 |
+| Sent but not settled, not confirmed, or purge uncertain | `vngcloud.ErrNotSettled` with partial Output and `Stage` | `NotSettled`, 1 |
 | Server refuses otherwise | The `*APIError` | 1, or 4 on 404 |
 
 ## Threat notes

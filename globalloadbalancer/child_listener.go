@@ -12,7 +12,8 @@ import (
 // CreateListener sends one TCP listener create request bound to the load
 // balancer's only pool, then waits for exact read-back. See
 // docs/design/glb-pool.md.
-func (c *Client) CreateListener(ctx context.Context, in *CreateListenerInput) (*CreateListenerOutput, error) {
+func (c *Client) CreateListener(ctx context.Context, in *CreateListenerInput) (settlementResult *CreateListenerOutput, settlementErr error) {
+	defer func() { settlementErr = settlementContext("globalloadbalancer.CreateListener", settlementErr) }()
 	r := c.newRun("globalloadbalancer.CreateListener")
 	out, err := c.createListener(ctx, r, in)
 	return finishOutput(r, out, err)

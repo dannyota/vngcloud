@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"danny.vn/vngcloud"
-	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/endpoints"
 	"danny.vn/vngcloud/internal/testutil"
@@ -189,11 +188,11 @@ func TestLifecycleSingleSendHTTPAndAmbiguousReconciliation(t *testing.T) {
 							}
 						}
 					case ambiguous:
-						if !errors.Is(err, dns.ErrNotSettled) || len(c.quotaAttempts) != 1 {
+						if !errors.Is(err, core.ErrNotSettled) || len(c.quotaAttempts) != 1 {
 							t.Fatalf("out=%v err=%v", out, err)
 						}
 						_, err = lifecycleCall(c, kind, del)
-						if !errors.Is(err, dns.ErrNotSettled) || s.sends.Load() != 1 {
+						if !errors.Is(err, core.ErrNotSettled) || s.sends.Load() != 1 {
 							t.Fatalf("repeat err=%v sends=%d", err, s.sends.Load())
 						}
 					default:
@@ -344,7 +343,7 @@ func TestLifecycleExpectedIDBeforeNoOpAndOpenRecord(t *testing.T) {
 	s.send = func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(502) }
 	emailFakeClock(c)
 	_, e = c.DeleteNotificationQuota(context.Background(), &DeleteNotificationQuotaInput{Kind: "SMS"})
-	if !errors.Is(e, dns.ErrNotSettled) {
+	if !errors.Is(e, core.ErrNotSettled) {
 		t.Fatal(e)
 	}
 	reads := s.reads.Load()
@@ -412,7 +411,7 @@ func TestLifecycleSettlementBoundsAndReadOnlyReconciliation(t *testing.T) {
 			if del {
 				bound = 60 * time.Second
 			}
-			if !errors.Is(e, dns.ErrNotSettled) || now.Sub(time.Unix(0, 0)) != bound || s.sends.Load() != 1 || len(c.quotaAttempts) != 1 {
+			if !errors.Is(e, core.ErrNotSettled) || now.Sub(time.Unix(0, 0)) != bound || s.sends.Load() != 1 || len(c.quotaAttempts) != 1 {
 				t.Fatalf("out=%v err=%v elapsed=%v", out, e, now.Sub(time.Unix(0, 0)))
 			}
 			// An unchanged baseline never proves a rejection.
@@ -424,7 +423,7 @@ func TestLifecycleSettlementBoundsAndReadOnlyReconciliation(t *testing.T) {
 				return lifecycleFixture(t, "sms", baseline)
 			}
 			_, e = lifecycleCall(c, "sms", del)
-			if !errors.Is(e, dns.ErrNotSettled) || s.sends.Load() != 1 || len(c.quotaAttempts) != 1 {
+			if !errors.Is(e, core.ErrNotSettled) || s.sends.Load() != 1 || len(c.quotaAttempts) != 1 {
 				t.Fatal(e)
 			}
 			s.quota = func(int32) string {
@@ -452,11 +451,11 @@ func TestLifecycleCrossOperationNeverSendsAfterUncertainty(t *testing.T) {
 	c := New(testutil.NewRetryConfig(t, s.handler(t)))
 	emailFakeClock(c)
 	_, e := lifecycleCall(c, "sms", true)
-	if !errors.Is(e, dns.ErrNotSettled) {
+	if !errors.Is(e, core.ErrNotSettled) {
 		t.Fatal(e)
 	}
 	_, e = lifecycleCall(c, "sms", false)
-	if !errors.Is(e, dns.ErrNotSettled) || s.sends.Load() != 1 {
+	if !errors.Is(e, core.ErrNotSettled) || s.sends.Load() != 1 {
 		t.Fatal(e)
 	}
 	absent.Store(true)
@@ -472,7 +471,7 @@ func TestLifecycleMalformedSuccessRemainsUnresolved(t *testing.T) {
 	emailFakeClock(c)
 	out, e := c.SetNotificationQuotaAutoRenew(context.Background(), &SetNotificationQuotaAutoRenewInput{Kind: "SMS", Enabled: boolPointer(false)})
 	var api *core.APIError
-	if out == nil || out.Stage != "sent" || !errors.Is(e, dns.ErrNotSettled) || !errors.As(e, &api) || api.Code != "InvalidResponse" || len(c.quotaAttempts) != 1 || s.sends.Load() != 1 || s.reads.Load() != 2 {
+	if out == nil || out.Stage != "sent" || !errors.Is(e, core.ErrNotSettled) || !errors.As(e, &api) || api.Code != "InvalidResponse" || len(c.quotaAttempts) != 1 || s.sends.Load() != 1 || s.reads.Load() != 2 {
 		t.Fatalf("out=%v err=%v reads=%d", out, e, s.reads.Load())
 	}
 }
@@ -568,7 +567,7 @@ func TestLifecycleNotSentDialFailureZeroMutations(t *testing.T) {
 		}}
 		c := New(core.NewTestConfig("hcm-3", "", endpoints.Set{Monitor: server.URL + "/"}, transport.New(transport.Config{HTTPClient: &http.Client{Transport: httpTransport}, RetryCount: 3})))
 		_, e := lifecycleCall(c, "sms", del)
-		if e == nil || errors.Is(e, dns.ErrNotSettled) || s.sends.Load() != 0 || dials.Load() != 3 || len(c.quotaAttempts) != 0 {
+		if e == nil || errors.Is(e, core.ErrNotSettled) || s.sends.Load() != 0 || dials.Load() != 3 || len(c.quotaAttempts) != 0 {
 			t.Fatalf("err=%v sends=%d dials=%d", e, s.sends.Load(), dials.Load())
 		}
 		httpTransport.CloseIdleConnections()

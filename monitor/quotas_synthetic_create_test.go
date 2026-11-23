@@ -15,7 +15,6 @@ import (
 	"testing"
 	"time"
 
-	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/testutil"
 )
@@ -161,11 +160,11 @@ func TestSyntheticCreateSingleSend(t *testing.T) {
 					t.Fatalf("out=%+v err=%v", out, err)
 				}
 			default:
-				if !errors.Is(err, dns.ErrNotSettled) || out.Stage != "unconfirmed" {
+				if !errors.Is(err, core.ErrNotSettled) || out.Stage != "unconfirmed" {
 					t.Fatalf("out=%+v err=%v", out, err)
 				}
 				again, e := c.CreateSyntheticQuota(context.Background(), syntheticCreateInput())
-				if !errors.Is(e, dns.ErrNotSettled) || again.Sent != out.Sent || s.sends.Load() != 1 {
+				if !errors.Is(e, core.ErrNotSettled) || again.Sent != out.Sent || s.sends.Load() != 1 {
 					t.Fatalf("again=%+v err=%v sends=%d", again, e, s.sends.Load())
 				}
 			}
@@ -211,7 +210,7 @@ func TestSyntheticCreateConfirmationAndReconciliation(t *testing.T) {
 					t.Fatalf("again=%+v err=%v", again, err)
 				}
 			default:
-				if !errors.Is(err, dns.ErrNotSettled) || again.Created {
+				if !errors.Is(err, core.ErrNotSettled) || again.Created {
 					t.Fatalf("again=%+v err=%v", again, err)
 				}
 			}
@@ -371,7 +370,7 @@ func TestSyntheticCreateTolerantResponse(t *testing.T) {
 			if (err == nil) != valid || out.Created || out.Quota != nil || s.sends.Load() != 1 {
 				t.Fatalf("out=%+v err=%v", out, err)
 			}
-			if err != nil && !errors.Is(err, dns.ErrNotSettled) {
+			if err != nil && !errors.Is(err, core.ErrNotSettled) {
 				t.Fatal(err)
 			}
 			if strings.Contains(fmt.Sprint(out), "peer-canary") {
@@ -528,12 +527,12 @@ func TestSyntheticLifecycleEarlyErrorsRetainEvidence(t *testing.T) {
 					var sentAt *time.Time
 					if deleting {
 						_, err := c.DeleteSyntheticQuota(context.Background(), deleteIn)
-						if !errors.Is(err, dns.ErrNotSettled) {
+						if !errors.Is(err, core.ErrNotSettled) {
 							t.Fatal(err)
 						}
 					} else {
 						out, err := c.CreateSyntheticQuota(context.Background(), createIn)
-						if err != nil && !errors.Is(err, dns.ErrNotSettled) {
+						if err != nil && !errors.Is(err, core.ErrNotSettled) {
 							t.Fatal(err)
 						}
 						sentAt = out.SentAt
@@ -579,7 +578,7 @@ func TestSyntheticLifecycleEarlyErrorsRetainEvidence(t *testing.T) {
 							t.Fatalf("out=%+v err=%v", out, err)
 						}
 					}
-					if !errors.Is(err, dns.ErrNotSettled) || s.sends.Load() != 1 {
+					if !errors.Is(err, core.ErrNotSettled) || s.sends.Load() != 1 {
 						t.Fatalf("err=%v sends=%d", err, s.sends.Load())
 					}
 					cause := core.ErrInvalidInput
@@ -618,7 +617,7 @@ func TestSyntheticCreateNonEncodablePeerTime(t *testing.T) {
 			in := syntheticCreateInput()
 			in.NoWait = false
 			out, err := c.CreateSyntheticQuota(context.Background(), in)
-			if !errors.Is(err, dns.ErrNotSettled) || out.Created || out.Quota != nil || out.Sent != "yes" || out.Error.Code != "NotSettled" || s.sends.Load() != 1 {
+			if !errors.Is(err, core.ErrNotSettled) || out.Created || out.Quota != nil || out.Sent != "yes" || out.Error.Code != "NotSettled" || s.sends.Load() != 1 {
 				t.Fatalf("out=%+v err=%v", out, err)
 			}
 		})

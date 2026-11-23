@@ -12,7 +12,8 @@ import (
 // CreatePool sends one pool create request with one private member group and
 // one vServer backend, then waits for exact read-back. See
 // docs/design/glb-pool.md.
-func (c *Client) CreatePool(ctx context.Context, in *CreatePoolInput) (*CreatePoolOutput, error) {
+func (c *Client) CreatePool(ctx context.Context, in *CreatePoolInput) (settlementResult *CreatePoolOutput, settlementErr error) {
+	defer func() { settlementErr = settlementContext("globalloadbalancer.CreatePool", settlementErr) }()
 	r := c.newRun("globalloadbalancer.CreatePool")
 	out, err := c.createPool(ctx, r, in)
 	return finishOutput(r, out, err)

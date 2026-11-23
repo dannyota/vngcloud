@@ -195,6 +195,9 @@ func TestCreateRejectsDuplicateID(t *testing.T) {
 		t.Error("unexpected detail request")
 	}))
 	_, err := c.CreateLoadBalancer(context.Background(), &CreateLoadBalancerInput{Name: "demo", PackageID: "pkg-1"})
+	if err != nil && (!strings.Contains(err.Error(), "globalloadbalancer.CreateLoadBalancer") || !strings.Contains(err.Error(), "inspect inventory and billing before another mutation")) {
+		t.Fatalf("missing guidance: %v", err)
+	}
 	if !errors.Is(err, ErrNotSettled) || requests != 1 {
 		t.Fatalf("err=%v requests=%d", err, requests)
 	}

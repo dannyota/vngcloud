@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/endpoints"
 	"danny.vn/vngcloud/internal/testutil"
@@ -61,7 +60,7 @@ func TestCreateNotificationQuotaSettlementBoundAndPackage(t *testing.T) {
 			c := New(testutil.NewRetryConfig(t, s.handler(t)))
 			now := emailFakeClock(c)
 			out, err := c.CreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "Email"})
-			if out == nil || out.Quota != nil || !errors.Is(err, dns.ErrNotSettled) || now.Sub(time.Unix(0, 0)) > 120*time.Second || s.mutations.Load() != 1 {
+			if out == nil || out.Quota != nil || !errors.Is(err, core.ErrNotSettled) || now.Sub(time.Unix(0, 0)) > 120*time.Second || s.mutations.Load() != 1 {
 				t.Fatalf("out=%+v err=%v elapsed=%v", out, err, *now)
 			}
 		})
@@ -89,7 +88,7 @@ func TestCreateNotificationQuotaSettlementReadFailureAndCancellation(t *testing.
 				handler(w, r)
 			})))
 			out, err := c.CreateNotificationQuota(ctx, &CreateNotificationQuotaInput{Kind: "Email"})
-			if out == nil || !errors.Is(err, dns.ErrNotSettled) {
+			if out == nil || !errors.Is(err, core.ErrNotSettled) {
 				t.Fatalf("out=%+v err=%v", out, err)
 			}
 			if cancelWait && !errors.Is(err, context.Canceled) {
@@ -118,7 +117,7 @@ func TestQuotaSettlementHardDeadlineDuringRead(t *testing.T) {
 		<-ctx.Done()
 		return quotaAttemptResolution{}, ctx.Err()
 	}, 20*time.Millisecond)
-	if !seen || !errors.Is(err, dns.ErrNotSettled) || !errors.Is(err, context.DeadlineExceeded) {
+	if !seen || !errors.Is(err, core.ErrNotSettled) || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("seen=%v err=%v", seen, err)
 	}
 }
@@ -180,7 +179,7 @@ func TestQuotaAttemptInconclusiveAndKnownRejection(t *testing.T) {
 			t.Fatal("attempt ignored")
 		}
 		if rejected == nil {
-			if !errors.Is(err, dns.ErrNotSettled) || len(c.quotaAttempts) != 1 {
+			if !errors.Is(err, core.ErrNotSettled) || len(c.quotaAttempts) != 1 {
 				t.Fatal(err)
 			}
 		} else if !errors.Is(err, rejection) || len(c.quotaAttempts) != 0 {
@@ -298,7 +297,7 @@ func TestQuotaAttemptReadErrorNeverClearsRecord(t *testing.T) {
 		return quotaAttemptResolution{}, core.ErrNotFound
 	}}}
 	_, err, handled := c.reconcileQuotaAttempt(context.Background(), key)
-	if !handled || !errors.Is(err, dns.ErrNotSettled) || !errors.Is(err, core.ErrNotFound) || len(c.quotaAttempts) != 1 {
+	if !handled || !errors.Is(err, core.ErrNotSettled) || !errors.Is(err, core.ErrNotFound) || len(c.quotaAttempts) != 1 {
 		t.Fatalf("err=%v handled=%v", err, handled)
 	}
 }
@@ -325,7 +324,7 @@ func TestQuotaAttemptRenewalBaselineAndOperationReconciliation(t *testing.T) {
 					if !errors.Is(err, core.ErrInvalidInput) || len(c.quotaAttempts) != 0 {
 						t.Fatal(err)
 					}
-				} else if !errors.Is(err, dns.ErrNotSettled) || len(c.quotaAttempts) != 1 {
+				} else if !errors.Is(err, core.ErrNotSettled) || len(c.quotaAttempts) != 1 {
 					t.Fatal(err)
 				}
 			})
@@ -427,7 +426,7 @@ func TestQuotaAttemptCredentialLimitWithholdsRetainedOutput(t *testing.T) {
 	}
 	c.recordQuotaAttempt(attempt)
 	out, err := c.CreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "Email", PackageID: "p"})
-	if out == nil || out.Quota != nil || !errors.Is(err, dns.ErrNotSettled) || len(credentials) != 256 {
+	if out == nil || out.Quota != nil || !errors.Is(err, core.ErrNotSettled) || len(credentials) != 256 {
 		t.Fatalf("out=%v err=%v credentials=%d", out, err, len(credentials))
 	}
 	assertMonitorCredentialsAbsent(t, out, err, first, second)

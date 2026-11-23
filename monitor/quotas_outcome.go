@@ -3,7 +3,6 @@ package monitor
 import (
 	"errors"
 
-	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/internal/core"
 )
 
@@ -40,7 +39,7 @@ func quotaOutcomeError(op string, err error, status int) *QuotaOutcomeError {
 		}
 	}
 	switch {
-	case errors.Is(err, dns.ErrNotSettled):
+	case errors.Is(err, core.ErrNotSettled):
 		code = "NotSettled"
 	case errors.Is(err, ErrQuotaChanged):
 		code = "QuotaChanged"
@@ -63,7 +62,7 @@ func quotaOutcomeError(op string, err error, status int) *QuotaOutcomeError {
 		code = "TokenCacheFailed"
 	}
 	var login *core.ServiceAccountLoginError
-	if !errors.Is(err, dns.ErrNotSettled) && errors.As(err, &login) {
+	if !errors.Is(err, core.ErrNotSettled) && errors.As(err, &login) {
 		code = "ServiceAccountLoginFailed"
 		if status == 0 {
 			status = login.Status

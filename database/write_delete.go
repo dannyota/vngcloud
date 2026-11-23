@@ -82,7 +82,8 @@ func (c *Client) deletePreflight(ctx context.Context, id string) error {
 // DeleteDatabaseInstance deletes one backup-free, replica-free MySQL instance
 // after an exact-ID preflight, sending the delete once and waiting for
 // confirmed absence. Deleted is true only after that confirmation.
-func (c *Client) DeleteDatabaseInstance(ctx context.Context, in *DeleteDatabaseInstanceInput) (*DeleteDatabaseInstanceOutput, error) {
+func (c *Client) DeleteDatabaseInstance(ctx context.Context, in *DeleteDatabaseInstanceInput) (settlementResult *DeleteDatabaseInstanceOutput, settlementErr error) {
+	defer func() { settlementErr = settlementContext("database.DeleteDatabaseInstance", settlementErr) }()
 	if in == nil {
 		return nil, fmt.Errorf("%w: %s: input is required", core.ErrInvalidInput, deleteOp)
 	}

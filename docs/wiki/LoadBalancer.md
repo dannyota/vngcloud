@@ -425,8 +425,8 @@ updates and deletes keep the transport's normal retries.
 var ErrPriceAboveMax = vngcloud.ErrPriceAboveMax
 var ErrBusy          = errors.New("loadbalancer: resource busy")
 var ErrInUse         = errors.New("loadbalancer: resource in use")
-var ErrFailed        = errors.New("loadbalancer: write failed on the server")
-var ErrNotSettled    = errors.New("loadbalancer: write accepted but not settled")
+var ErrFailed        = vngcloud.ErrFailed
+var ErrNotSettled    = vngcloud.ErrNotSettled
 ```
 
 `ErrPriceAboveMax` means a create or resize quoted above `MaxPrice`;

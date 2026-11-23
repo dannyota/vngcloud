@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/testutil"
 )
@@ -153,7 +152,7 @@ func TestEnsureSyntheticQuotaRetainedAction(t *testing.T) {
 				action := out.Action
 				in.ExpectedQuotaID = "other"
 				out, err = c.EnsureSyntheticQuota(context.Background(), in)
-				if !errors.Is(err, dns.ErrNotSettled) || !errors.Is(err, ErrQuotaChanged) || out.Sent != sent || out.Action != action || s.sends.Load() != 1 {
+				if !errors.Is(err, core.ErrNotSettled) || !errors.Is(err, ErrQuotaChanged) || out.Sent != sent || out.Action != action || s.sends.Load() != 1 {
 					t.Fatalf("out=%+v err=%v", out, err)
 				}
 				in.ExpectedQuotaID = ""
@@ -221,7 +220,7 @@ func TestEnsureSyntheticQuotaSharedLedger(t *testing.T) {
 				t.Fatal(err)
 			}
 			out, confirmed, err := call(!ensureFirst)
-			if !errors.Is(err, dns.ErrNotSettled) || out.Sent != "yes" || confirmed || s.sends.Load() != 1 {
+			if !errors.Is(err, core.ErrNotSettled) || out.Sent != "yes" || confirmed || s.sends.Load() != 1 {
 				t.Fatalf("out=%+v err=%v", out, err)
 			}
 			settled = true
@@ -251,7 +250,7 @@ func TestEnsureSyntheticQuotaReconcileErrorOperation(t *testing.T) {
 	failRead = true
 	out, err := c.EnsureSyntheticQuota(context.Background(), &EnsureSyntheticQuotaInput{})
 	var api *core.APIError
-	if !errors.Is(err, dns.ErrNotSettled) || !errors.As(err, &api) || api.Operation != "monitor.EnsureSyntheticQuota" || out.Error.Operation != "monitor.EnsureSyntheticQuota" || out.Action != "none" || out.Sent != "yes" || s.sends.Load() != 1 {
+	if !errors.Is(err, core.ErrNotSettled) || !errors.As(err, &api) || api.Operation != "monitor.EnsureSyntheticQuota" || out.Error.Operation != "monitor.EnsureSyntheticQuota" || out.Action != "none" || out.Sent != "yes" || s.sends.Load() != 1 {
 		t.Fatalf("out=%+v api=%+v err=%v", out, api, err)
 	}
 }
@@ -440,7 +439,7 @@ func TestSyntheticReconciliationCallerOperation(t *testing.T) {
 						}
 					}
 					_, err := invoke(origin)
-					if err != nil && !errors.Is(err, dns.ErrNotSettled) {
+					if err != nil && !errors.Is(err, core.ErrNotSettled) {
 						t.Fatal(err)
 					}
 					attempt := c.quotaAttempts["synthetic"]
@@ -452,7 +451,7 @@ func TestSyntheticReconciliationCallerOperation(t *testing.T) {
 					for repeat := int32(1); repeat <= 2; repeat++ {
 						outcome, err := invoke(caller)
 						var api *core.APIError
-						if !errors.Is(err, dns.ErrNotSettled) || !errors.Is(err, core.ErrPermission) || !errors.As(err, &api) || api.Operation != "monitor."+caller || api.Code != "Forbidden" || api.StatusCode != 403 || strings.Contains(err.Error(), "peer-canary") {
+						if !errors.Is(err, core.ErrNotSettled) || !errors.Is(err, core.ErrPermission) || !errors.As(err, &api) || api.Operation != "monitor."+caller || api.Code != "Forbidden" || api.StatusCode != 403 || strings.Contains(err.Error(), "peer-canary") {
 							t.Fatalf("caller=%s api=%+v err=%v", caller, api, err)
 						}
 						if c.quotaAttempts["synthetic"] != attempt || !attempt.key.matches(key) || attempt.result != result || c.quotaMu.syntheticEvidence != evidence || sends.Load() != 1 || denied.Load() != repeat {

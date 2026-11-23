@@ -414,8 +414,8 @@ or a `CreateServer` call naming an existing server's exact name. An
 unknown server fails with `vngcloud.IsNotFound(err) == true`.
 
 ```go
-var ErrNotSettled       = errors.New("compute: write accepted but not settled")
-var ErrFailed           = errors.New("compute: resource reached ERROR")
+var ErrNotSettled       = vngcloud.ErrNotSettled
+var ErrFailed           = vngcloud.ErrFailed
 var ErrUnexpectedStatus = errors.New("compute: unexpected status")
 ```
 

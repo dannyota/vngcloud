@@ -307,3 +307,14 @@ func TestWrapTransportOverflowChain(t *testing.T) {
 		server.Close()
 	}
 }
+
+func TestTransportSettlementIdentityMask(t *testing.T) {
+	for _, sentinel := range []error{ErrFailed, ErrNotSettled} {
+		underlying := &url.Error{Op: "read", URL: "https://example.invalid", Err: context.Canceled}
+		err := wrapTransportErr(errors.Join(sentinel, underlying))
+		var got *url.Error
+		if errors.Is(err, sentinel) || !errors.Is(err, context.Canceled) || !errors.As(err, &got) || got != underlying {
+			t.Fatalf("error=%v underlying=%v", err, got)
+		}
+	}
+}

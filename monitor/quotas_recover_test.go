@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/testutil"
 )
@@ -56,7 +55,7 @@ func TestRecoverSyntheticQuotaOnceOutcomes(t *testing.T) {
 				t.Fatalf("out=%+v err=%v", out, err)
 			}
 			uncertain := status < 400 || status >= 500
-			if errors.Is(err, dns.ErrNotSettled) != uncertain {
+			if errors.Is(err, core.ErrNotSettled) != uncertain {
 				t.Fatalf("err=%v", err)
 			}
 			if uncertain && (out.Stage != "unconfirmed" || out.Error.Code != "NotSettled") {
@@ -141,7 +140,7 @@ func TestSyntheticAutoRenewReconcilesMismatchedOpenRecovery(t *testing.T) {
 	}
 	on := true
 	_, err = c.SetSyntheticQuotaAutoRenew(context.Background(), &SetSyntheticQuotaAutoRenewInput{Enabled: &on, ExpectedQuotaID: "other"})
-	if !errors.Is(err, dns.ErrNotSettled) || !errors.Is(err, ErrQuotaChanged) || s.sends.Load() != 1 || len(c.quotaAttempts) != 1 {
+	if !errors.Is(err, core.ErrNotSettled) || !errors.Is(err, ErrQuotaChanged) || s.sends.Load() != 1 || len(c.quotaAttempts) != 1 {
 		t.Fatalf("err=%v sends=%d", err, s.sends.Load())
 	}
 }

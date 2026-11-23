@@ -374,7 +374,7 @@ group fails with `vngcloud.IsNotFound(err) == true`. Server write errors
 
 ```go
 var ErrServerGroupInUse = errors.New("compute: server group in use")
-var ErrNotSettled       = errors.New("compute: write accepted but not settled")
+var ErrNotSettled       = vngcloud.ErrNotSettled
 ```
 
 `ErrServerGroupInUse` means `DeleteServerGroup` sent nothing because the

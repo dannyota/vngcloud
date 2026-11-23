@@ -262,7 +262,7 @@ means confirmed new expiry, not merely sent. NoWait returns immediately after a
 valid response with Quota nil and Renewed false; it does not skip preparation.
 For evidenced order envelopes, PaymentPending means paymentUrl was nonempty and
 differed from the sent redirectUrl (a free order echoes it). Then return partial
-Output with `dns.ErrNotSettled` and stop; never follow or expose that URL or
+Output with `vngcloud.ErrNotSettled` and stop; never follow or expose that URL or
 reorder.
 
 Synthetic create, renewal, and recovery use the
@@ -281,7 +281,7 @@ notification create errors stay unchanged. The focused page owns additions.
 Definite 4xx refusal or a proven failed dial returns its sanitized error.
 Any other send failure, oversized/malformed success, cancellation after
 possible send, or failed wait returns partial Output and an error wrapping
-`dns.ErrNotSettled` plus the safe cause; `errors.As` keeps the APIError
+`vngcloud.ErrNotSettled` plus the safe cause; `errors.As` keeps the APIError
 status and `errors.Is` the sentinel. A failed read never proves no order.
 
 Hold a context-aware per-Client lock across preparation, send, and

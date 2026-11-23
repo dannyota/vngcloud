@@ -66,7 +66,8 @@ func buildCreate(in *CreateLoadBalancerInput) (createBody, error) {
 }
 
 // CreateLoadBalancer submits one create request and waits for active status.
-func (c *Client) CreateLoadBalancer(ctx context.Context, in *CreateLoadBalancerInput) (*CreateLoadBalancerOutput, error) {
+func (c *Client) CreateLoadBalancer(ctx context.Context, in *CreateLoadBalancerInput) (settlementResult *CreateLoadBalancerOutput, settlementErr error) {
+	defer func() { settlementErr = settlementContext("globalloadbalancer.CreateLoadBalancer", settlementErr) }()
 	body, err := buildCreate(in)
 	if err != nil {
 		return nil, err
@@ -120,7 +121,8 @@ func (c *Client) CreateLoadBalancer(ctx context.Context, in *CreateLoadBalancerI
 }
 
 // DeleteLoadBalancer deletes one load balancer and confirms its absence.
-func (c *Client) DeleteLoadBalancer(ctx context.Context, in *DeleteLoadBalancerInput) (*DeleteLoadBalancerOutput, error) {
+func (c *Client) DeleteLoadBalancer(ctx context.Context, in *DeleteLoadBalancerInput) (settlementResult *DeleteLoadBalancerOutput, settlementErr error) {
+	defer func() { settlementErr = settlementContext("globalloadbalancer.DeleteLoadBalancer", settlementErr) }()
 	const op = "globalloadbalancer.DeleteLoadBalancer"
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
@@ -223,4 +225,11 @@ func pause(ctx context.Context) bool {
 	case <-timer.C:
 		return true
 	}
+}
+
+func settlementContext(op string, err error) error {
+	if errors.Is(err, ErrNotSettled) || errors.Is(err, ErrFailed) {
+		return fmt.Errorf("%s: inspect inventory and billing before another mutation: %w", op, err)
+	}
+	return err
 }

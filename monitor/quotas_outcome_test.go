@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	"danny.vn/vngcloud"
-	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/internal/core"
 )
 
@@ -33,7 +32,7 @@ func TestQuotaOutcomeClassification(t *testing.T) {
 		{&core.ServiceAccountLoginError{Status: 401, Reason: "token exchange failed"}, 0, "ServiceAccountLoginFailed", 401},
 		{context.Canceled, 0, "RequestFailed", 0},
 		{ErrUnexpectedStatus, 0, "UnexpectedStatus", 0},
-		{errors.Join(dns.ErrNotSettled, ErrQuotaChanged, &core.APIError{StatusCode: 404, Code: "NotFound"}), 200, "NotSettled", 200},
+		{errors.Join(core.ErrNotSettled, ErrQuotaChanged, &core.APIError{StatusCode: 404, Code: "NotFound"}), 200, "NotSettled", 200},
 	} {
 		got := quotaOutcomeError("monitor.RecoverSyntheticQuota", tc.err, tc.status)
 		if got.Code != tc.code || got.Status != tc.wantStatus || got.Operation != "monitor.RecoverSyntheticQuota" {

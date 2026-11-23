@@ -206,7 +206,8 @@ func hasMatch[T any](rows []T, match func(T) bool) bool {
 // output holds only the ID until the instance is confirmed ACTIVE. It never
 // resends the request: an unconfirmed result returns ErrNotSettled with the
 // instance ID when one is known.
-func (c *Client) CreateDatabaseInstance(ctx context.Context, in *CreateDatabaseInstanceInput) (*CreateDatabaseInstanceOutput, error) {
+func (c *Client) CreateDatabaseInstance(ctx context.Context, in *CreateDatabaseInstanceInput) (settlementResult *CreateDatabaseInstanceOutput, settlementErr error) {
+	defer func() { settlementErr = settlementContext("database.CreateDatabaseInstance", settlementErr) }()
 	if err := validateCreate(in); err != nil {
 		return nil, err
 	}

@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/internal/core"
 )
 
@@ -413,17 +412,17 @@ func logAlarmFailed(status string) bool {
 }
 
 // logAlarmWaitStep turns one read of a log alarm into a poll step result:
-// stop on ACTIVE, stop with dns.ErrFailed on a failed status, else go on.
+// stop on ACTIVE, stop with core.ErrFailed on a failed status, else go on.
 func logAlarmWaitStep(op, ref string, status string) (bool, error) {
 	if logAlarmFailed(status) {
-		return true, fmt.Errorf("%w: %s: log alarm %s reached status %s", dns.ErrFailed, op, ref, status)
+		return true, fmt.Errorf("%w: %s: log alarm %s reached status %s", core.ErrFailed, op, ref, status)
 	}
 	return logAlarmSettled(status), nil
 }
 
 // waitLogAlarmByID polls GetAlarm(id) every logAlarmPollInterval, up to
 // logAlarmWaitBound, until its Status settles. Any error, including the
-// bound running out, is wrapped in dns.ErrNotSettled unless it already is
+// bound running out, is wrapped in core.ErrNotSettled unless it already is
 // one: once id is known to exist, any further uncertainty here means the
 // write must not be sent again.
 func (c *Client) waitLogAlarmByID(ctx context.Context, op, id string) (*Alarm, error) {
@@ -438,11 +437,11 @@ func (c *Client) waitLogAlarmByID(ctx context.Context, op, id string) (*Alarm, e
 			return logAlarmWaitStep(op, id, alarm.Status)
 		},
 		func() error {
-			return fmt.Errorf("%w: %s: log alarm %s was accepted; do not send the same write again", dns.ErrNotSettled, op, id)
+			return fmt.Errorf("%w: %s: log alarm %s was accepted; do not send the same write again", core.ErrNotSettled, op, id)
 		},
 	)
-	if err != nil && !errors.Is(err, dns.ErrNotSettled) && !errors.Is(err, dns.ErrFailed) {
-		err = fmt.Errorf("%w: %s: log alarm %s: %w", dns.ErrNotSettled, op, id, err)
+	if err != nil && !errors.Is(err, core.ErrNotSettled) && !errors.Is(err, core.ErrFailed) {
+		err = fmt.Errorf("%w: %s: log alarm %s: %w", core.ErrNotSettled, op, id, err)
 	}
 	return found, err
 }
@@ -466,11 +465,11 @@ func (c *Client) waitLogAlarmByName(ctx context.Context, op, name string) (*Alar
 			return logAlarmWaitStep(op, strconv.Quote(name), alarm.Status)
 		},
 		func() error {
-			return fmt.Errorf("%w: %s: log alarm %q was accepted; do not send the same write again", dns.ErrNotSettled, op, name)
+			return fmt.Errorf("%w: %s: log alarm %q was accepted; do not send the same write again", core.ErrNotSettled, op, name)
 		},
 	)
-	if err != nil && !errors.Is(err, dns.ErrNotSettled) && !errors.Is(err, dns.ErrFailed) {
-		err = fmt.Errorf("%w: %s: log alarm %q: %w", dns.ErrNotSettled, op, name, err)
+	if err != nil && !errors.Is(err, core.ErrNotSettled) && !errors.Is(err, core.ErrFailed) {
+		err = fmt.Errorf("%w: %s: log alarm %q: %w", core.ErrNotSettled, op, name, err)
 	}
 	return found, err
 }

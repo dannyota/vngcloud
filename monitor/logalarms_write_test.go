@@ -13,7 +13,6 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/testutil"
 )
@@ -604,7 +603,7 @@ func TestCreateLogAlarmWaitTimesOut(t *testing.T) {
 			out, err := client.CreateLogAlarm(context.Background(), &CreateLogAlarmInput{
 				Name: "my-alarm", LogProjectID: "proj-1", ThresholdValue: ptrFloat(1),
 			})
-			if !errors.Is(err, dns.ErrNotSettled) {
+			if !errors.Is(err, core.ErrNotSettled) {
 				t.Fatalf("CreateLogAlarm() error = %v, want ErrNotSettled", err)
 			}
 			if out == nil || out.Alarm.Status != status {
@@ -639,7 +638,7 @@ func TestCreateLogAlarmWaitFailedStatus(t *testing.T) {
 			out, err := client.CreateLogAlarm(context.Background(), &CreateLogAlarmInput{
 				Name: "my-alarm", LogProjectID: "proj-1", ThresholdValue: ptrFloat(1),
 			})
-			if !errors.Is(err, dns.ErrFailed) {
+			if !errors.Is(err, core.ErrFailed) {
 				t.Fatalf("CreateLogAlarm() error = %v, want ErrFailed", err)
 			}
 			if out == nil || out.Alarm.Status != status {
@@ -1420,7 +1419,7 @@ func TestUpdateLogAlarmWaitTimesOut(t *testing.T) {
 	_, err := client.UpdateLogAlarm(context.Background(), &UpdateLogAlarmInput{
 		AlarmID: "alarm-1", Description: ptrStr("x"),
 	})
-	if !errors.Is(err, dns.ErrNotSettled) {
+	if !errors.Is(err, core.ErrNotSettled) {
 		t.Fatalf("UpdateLogAlarm() error = %v, want ErrNotSettled", err)
 	}
 }

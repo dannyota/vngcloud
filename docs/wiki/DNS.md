@@ -311,8 +311,8 @@ field still have the last one win.
 
 ```go
 var ErrZoneBusy   = errors.New("dns: zone busy")
-var ErrNotSettled = errors.New("dns: write accepted but not settled")
-var ErrFailed     = errors.New("dns: write failed on the server")
+var ErrNotSettled = vngcloud.ErrNotSettled
+var ErrFailed     = vngcloud.ErrFailed
 ```
 
 `ErrZoneBusy` means the pre-write wait never saw the zone leave `CREATING`

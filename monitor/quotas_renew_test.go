@@ -14,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/testutil"
 )
@@ -114,14 +113,14 @@ func TestSyntheticMutationResponsePolicy(t *testing.T) {
 				if (err == nil) != valid || out.outcome.Sent != "yes" || out.confirmed || out.quota != nil || s.sends.Load() != 1 {
 					t.Fatalf("out=%+v err=%v", out, err)
 				}
-				if err != nil && (!errors.Is(err, dns.ErrNotSettled) || out.outcome.Error.Status != 200) {
+				if err != nil && (!errors.Is(err, core.ErrNotSettled) || out.outcome.Error.Status != 200) {
 					t.Fatalf("out=%+v err=%v", out, err)
 				}
 				if strings.Contains(body, "private-canary") && !out.paymentPending {
 					t.Fatal("missing payment pending")
 				}
 				again, e := syntheticCall(c, recovery, true)
-				if !errors.Is(e, dns.ErrNotSettled) || again.outcome.Sent != "yes" || s.sends.Load() != 1 {
+				if !errors.Is(e, core.ErrNotSettled) || again.outcome.Sent != "yes" || s.sends.Load() != 1 {
 					t.Fatalf("again=%+v err=%v", again, e)
 				}
 			})
@@ -164,7 +163,7 @@ func TestSyntheticMutationReadbackAndGuardMismatch(t *testing.T) {
 					in = syntheticMutationInput{op: "monitor.RecoverSyntheticQuota", recover: true, expectedID: "other"}
 				}
 				changed, e := c.runSyntheticMutation(context.Background(), in)
-				if !errors.Is(e, ErrQuotaChanged) || errors.Is(e, dns.ErrNotSettled) == confirmed || s.sends.Load() != 1 {
+				if !errors.Is(e, ErrQuotaChanged) || errors.Is(e, core.ErrNotSettled) == confirmed || s.sends.Load() != 1 {
 					t.Fatalf("out=%+v err=%v sends=%d", changed, e, s.sends.Load())
 				}
 				if !confirmed && changed.outcome.Sent != "yes" {
@@ -284,7 +283,7 @@ func TestSyntheticMutationUnknownEvidenceAndChangedIntent(t *testing.T) {
 					other = syntheticMutationInput{op: "monitor.RenewSyntheticQuota", expectedEnd: "2026-12-02T05:19:45Z"}
 				}
 				result, err := c.runSyntheticMutation(context.Background(), other)
-				if !errors.Is(err, dns.ErrNotSettled) || !errors.Is(err, ErrQuotaChanged) || result.outcome.Sent != sent || result.outcome.Stage != "unconfirmed" || s.sends.Load() != 1 || c.quotaAttempts["synthetic"] != a {
+				if !errors.Is(err, core.ErrNotSettled) || !errors.Is(err, ErrQuotaChanged) || result.outcome.Sent != sent || result.outcome.Stage != "unconfirmed" || s.sends.Load() != 1 || c.quotaAttempts["synthetic"] != a {
 					t.Fatalf("result=%+v err=%v", result, err)
 				}
 			})
@@ -326,7 +325,7 @@ func TestSyntheticMutationDisconnectRetainsUnknown(t *testing.T) {
 		c := syntheticTestClient(t, s)
 		for range 2 {
 			out, err := syntheticCall(c, recovery, true)
-			if !errors.Is(err, dns.ErrNotSettled) || out.outcome.Sent != "unknown" || out.outcome.Stage != "unconfirmed" || s.sends.Load() != 1 {
+			if !errors.Is(err, core.ErrNotSettled) || out.outcome.Sent != "unknown" || out.outcome.Stage != "unconfirmed" || s.sends.Load() != 1 {
 				t.Fatalf("out=%+v err=%v sends=%d", out, err, s.sends.Load())
 			}
 		}
@@ -469,7 +468,7 @@ func TestSyntheticMutationEarlyErrorsRetainSendEvidence(t *testing.T) {
 					}}
 					c := syntheticTestClient(t, s)
 					first, firstErr := syntheticCall(c, recovery, true)
-					if firstErr != nil && !errors.Is(firstErr, dns.ErrNotSettled) {
+					if firstErr != nil && !errors.Is(firstErr, core.ErrNotSettled) {
 						t.Fatal(firstErr)
 					}
 					in := syntheticMutationInput{op: "monitor.RenewSyntheticQuota", expectedEnd: "2026-12-01T05:19:45Z", noWait: true}
@@ -494,7 +493,7 @@ func TestSyntheticMutationEarlyErrorsRetainSendEvidence(t *testing.T) {
 						in.maxPrice = -1
 					}
 					out, err := c.runSyntheticMutation(ctx, in)
-					if !errors.Is(err, dns.ErrNotSettled) || out.outcome.Sent != first.outcome.Sent || out.outcome.Stage != "unconfirmed" || out.outcome.Error.Code != "NotSettled" || out.outcome.Error.Status != map[bool]int{false: 200, true: 0}[unknown] || s.sends.Load() != 1 || out.previous == nil || !out.previous.Equal(*first.previous) {
+					if !errors.Is(err, core.ErrNotSettled) || out.outcome.Sent != first.outcome.Sent || out.outcome.Stage != "unconfirmed" || out.outcome.Error.Code != "NotSettled" || out.outcome.Error.Status != map[bool]int{false: 200, true: 0}[unknown] || s.sends.Load() != 1 || out.previous == nil || !out.previous.Equal(*first.previous) {
 						t.Fatalf("out=%+v error=%+v err=%v sends=%d", out, out.outcome.Error, err, s.sends.Load())
 					}
 					if strings.HasPrefix(failure, "canceled") && !errors.Is(err, context.Canceled) {
@@ -530,13 +529,13 @@ func TestSyntheticMutationEarlyEvidenceConcurrentMembership(t *testing.T) {
 		if !errors.Is(err, core.ErrInvalidInput) || out.outcome.Error == nil {
 			t.Fatalf("out=%+v err=%v", out, err)
 		}
-		if out.outcome.Sent != "no" && (out.outcome.Sent != "yes" || !errors.Is(err, dns.ErrNotSettled)) {
+		if out.outcome.Sent != "no" && (out.outcome.Sent != "yes" || !errors.Is(err, core.ErrNotSettled)) {
 			t.Fatalf("out=%+v err=%v", out, err)
 		}
 	}
 	<-done
 	out, err := c.runSyntheticMutation(context.Background(), syntheticMutationInput{op: "monitor.RenewSyntheticQuota"})
-	if out.outcome.Sent != "no" || errors.Is(err, dns.ErrNotSettled) {
+	if out.outcome.Sent != "no" || errors.Is(err, core.ErrNotSettled) {
 		t.Fatalf("retired evidence survived: out=%+v err=%v", out, err)
 	}
 }
