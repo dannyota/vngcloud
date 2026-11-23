@@ -36,10 +36,10 @@ del, err := client.DeleteEndpoint(ctx, &network.DeleteEndpointInput{EndpointID: 
   and sends one POST. The body requests auto-renew off and private DNS off.
   The cap bounds the quote, not the debit, and is not a price lock. The call
   waits up to 15 minutes for `ACTIVE`. The output has the endpoint ID, the
-  last verified status, and the quote. GreenNode billing recorded a created
-  endpoint as `AUTO-RENEW` despite the request, and no read can confirm its
-  renewal setting. Check billing after create. Use a fresh, unique name for
-  every create.
+  last verified status, and the quote. No endpoint read returns the renewal
+  setting, and `billing list-resources` reported a created endpoint's
+  `RenewType` as `AUTO-RENEW` despite the request. Check `billing
+  list-resources` after create. Use a fresh, unique name for every create.
 - `DeleteEndpoint` requires exactly one ACTIVE endpoint of the named VPC and
   offer with no attached resource and no domain, sends one DELETE, and
   waits up to 10 minutes for the ID to leave a complete list. `Deleted` is

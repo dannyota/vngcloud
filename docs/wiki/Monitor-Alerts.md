@@ -60,7 +60,7 @@ for an unknown ID and for an account with no channels at all.
 
 `Email`, `Slack`, `SMS`, and `Telegram` each need a one-time code before a
 create or an `Address` update; `Webhook` needs none. For a negative Telegram
-chat ID, prefer `--address=-<id>`; a supergroup upgrade gives a new `-100…` ID,
+chat ID, prefer `--address=-<id>`; a supergroup upgrade gives a new ID starting with `-100`,
 so update `Address` with a new OTP via `--cli-input-json file://channel.json`.
 `SendChannelOTP` messages `Address` with the code and returns a `Ref`; pass
 both to `CreateChannel` or `UpdateChannel` as `OTPRef` and `OTP`.
