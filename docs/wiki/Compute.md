@@ -103,7 +103,7 @@ follow the flavor zone order, then the API's order inside each flavor zone.
 A row's `FlavorZoneID` identifies the flavor zone used for its request, in
 the same form as a `--zone-id` value, for example `HCM03-1B`. The provider's
 `ZoneID` is an internal zone UUID. If the API omits `ZoneID`, the SDK fills
-it from the request's flavor zone ID instead.
+it from the input `ZoneID`. With only `FlavorZoneID` set, it stays empty.
 
 Each row carries its `FlavorZoneID`; the SDK fills it when the API leaves it
 empty. A flavor zone with no flavors adds no rows, a flavor listed in two

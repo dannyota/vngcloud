@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/portal"
 	"danny.vn/vngcloud/volume"
 )
 
@@ -46,20 +47,23 @@ func showVolume(ctx context.Context, cfg vngcloud.Config, outputs *sdkOutputStor
 	}
 	record(outputs, cfg, "volume/type_zone", "volume type zones", typeZones, err)
 
+	zonesOut, zonesErr := portal.New(cfg).ListZones(ctx, nil)
 	zoneID := ""
-	for _, zone := range typeZones {
-		if zone.Zone.UUID != "" {
-			zoneID = zone.Zone.UUID
-			break
+	if zonesOut != nil {
+		for _, zone := range zonesOut.Items {
+			if zone.IsEnabled != nil && *zone.IsEnabled && zone.UUID != nil && *zone.UUID != "" {
+				zoneID = *zone.UUID
+				break
+			}
 		}
 	}
 	var defaultType *volume.VolumeType
 	var defaultErr error
 	switch {
-	case err != nil:
-		defaultErr = fmt.Errorf("default volume type skipped: volume type zones: %w", err)
+	case zonesErr != nil:
+		defaultErr = fmt.Errorf("default volume type skipped: portal zones: %w", zonesErr)
 	case zoneID == "":
-		defaultErr = errors.New("default volume type skipped: no volume type zone has a zone ID")
+		defaultErr = errors.New("default volume type skipped: no enabled portal zone with a zone ID")
 	default:
 		out, callErr := volumeClient.GetDefaultVolumeType(ctx, &volume.GetDefaultVolumeTypeInput{ZoneID: zoneID})
 		defaultErr = callErr

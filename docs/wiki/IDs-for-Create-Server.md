@@ -108,8 +108,8 @@ vngcloud compute list-server-groups --query "Items[].[UUID,Name]"
 
 `--zone-id` on `list-flavors` and `list-volume-types` makes one request for
 the zone's flavor zones or volume type zones, then one per flavor zone or
-volume type zone. `--name` and `--iops` match exactly. A flavor row's `ZoneID`
-is an internal zone UUID, not the zone ID requests use; match a zone by
-`FlavorZoneID` (flavors) or `VolumeTypeZoneID` (volume types). See
+volume type zone. `--name` and `--iops` match exactly. Compare a flavor row's
+`FlavorZoneID` with the zone used for its request, not its `ZoneID`, which can
+be the provider's internal UUID. For volume types use `VolumeTypeZoneID`. See
 [CLI: Compute](CLI-Compute.md#list-flavors) and
 [CLI: Volume](CLI-Volume.md#list-volume-types).

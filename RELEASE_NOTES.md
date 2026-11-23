@@ -8,8 +8,9 @@
 - `network list-nat-instances` no longer fails with `invalid regions
   envelope` in `hcm-3` and `han-1`; it ignores region fields it does not use.
 - Document that `compute list-flavors` returns `FlavorZoneID` in request
-  zone ID form and the provider's internal zone UUID in `ZoneID`, with a
-  request flavor zone ID fallback when the API omits `ZoneID`.
+  zone ID form and the provider's internal zone UUID in `ZoneID`. When the
+  API omits `ZoneID`, it falls back to the input `ZoneID`, which is empty
+  when only `FlavorZoneID` is supplied.
 
 ## v0.103.0 - Private endpoint create
 
