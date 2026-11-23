@@ -226,7 +226,7 @@ class BrowserDirectoryTest(unittest.TestCase):
     def test_creates_private_browser_directory_and_removes_script_on_timeout(self):
         self.assertFalse(self.base.exists())
         _, _, error, called = self.run_helper(self.inspect_script)
-        self.assertEqual(error, "")
+        self.assertEqual(error, "browser-creds: the login script never ran; its capability expired unused\n")
         self.assertTrue(called)
         self.assertFalse(self.script.parent.exists())
         self.assertEqual(list(self.base.iterdir()), [])
@@ -266,7 +266,7 @@ class BrowserDirectoryTest(unittest.TestCase):
         self.base.mkdir(mode=0o755)
         self.base.chmod(0o755)
         _, _, error, called = self.run_helper(self.inspect_script)
-        self.assertEqual(error, "")
+        self.assertEqual(error, "browser-creds: the login script never ran; its capability expired unused\n")
         self.assertTrue(called)
         self.assertFalse(self.script.parent.exists())
 
