@@ -9,7 +9,10 @@ import (
 	"danny.vn/vngcloud/internal/transport"
 )
 
+//nolint:revive
 var (
+	ErrNotSettled = errors.New("vngcloud: write accepted but not settled")
+	ErrFailed     = errors.New("vngcloud: write failed")
 	// ErrTokenCache reports service-account cache availability failures without paths or causes.
 	ErrTokenCache = errors.New("vngcloud: token cache unavailable")
 	// ErrAuth marks an authentication failure.

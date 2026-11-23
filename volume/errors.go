@@ -21,10 +21,10 @@ var (
 	// create must not be repeated once this is returned for it, since the
 	// resource exists; every other write that returns it reads first and is
 	// safe to run again.
-	ErrNotSettled = errors.New("volume: write accepted but not settled")
+	ErrNotSettled = core.ErrNotSettled
 
 	// ErrFailed means a wait observed the resource reach ERROR.
-	ErrFailed = errors.New("volume: resource reached ERROR")
+	ErrFailed = core.ErrFailed
 
 	// ErrVolumeInUse means a write was refused because a pre-write read
 	// showed the volume attached to a server: DeleteVolume when the volume

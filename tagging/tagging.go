@@ -44,7 +44,7 @@ var (
 	// in between. The returned Output still holds the last tags a read
 	// returned, so the caller reads the tags again before writing once
 	// more, rather than repeating this same call blind.
-	ErrNotSettled = errors.New("tagging: write accepted but not settled")
+	ErrNotSettled = core.ErrNotSettled
 )
 
 // ResourceTypeVirtualIPAddress is the recorded accepted resource type for a

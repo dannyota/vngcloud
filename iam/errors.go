@@ -1,6 +1,10 @@
 package iam
 
-import "errors"
+import (
+	"errors"
+
+	"danny.vn/vngcloud/internal/core"
+)
 
 // ErrSelfChange is returned, with no request sent, when a guarded write's
 // target is the caller itself, such as a service account resetting its own
@@ -35,7 +39,7 @@ var ErrCreateUnconfirmed = errors.New("iam: created but not confirmed by a read"
 // replacement may have reached the server. Partial output retains a safe ID
 // or generated credential. Check settlement before nested HTTP or context
 // errors, and reconcile with reads before another write.
-var ErrNotSettled = errors.New("iam: write accepted but not confirmed by a read")
+var ErrNotSettled = core.ErrNotSettled
 
 // ErrManagedPolicy is returned, with no request sent, by UpdatePolicy and
 // DeletePolicy when the target policy is managed (Policy.Managed() is

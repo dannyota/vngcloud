@@ -20,7 +20,7 @@ import (
 var (
 	// ErrFailed means reads proved a terminal provisioning failure. No failure
 	// status is classified until the API contract establishes one.
-	ErrFailed = errors.New("storage: write failed")
+	ErrFailed = core.ErrFailed
 	// ErrPaymentRequired means an order needs console reconciliation before
 	// another purchase. It does not establish whether money moved.
 	ErrPaymentRequired = errors.New("storage: payment requires console reconciliation")

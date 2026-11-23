@@ -23,7 +23,7 @@ var (
 	// itself failed to read or sleep, such as from a canceled ctx. For a
 	// create, the repository exists and must not be created again; for a
 	// delete, the delete was sent and a rerun is safe.
-	ErrNotSettled = errors.New("containerregistry: write accepted but not settled")
+	ErrNotSettled = core.ErrNotSettled
 )
 
 // isVCRServerError reports whether err is a *core.APIError with a 5xx

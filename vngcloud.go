@@ -57,7 +57,10 @@ const (
 	DefaultPageSize = core.DefaultPageSize
 )
 
+//nolint:revive
 var (
+	ErrNotSettled = core.ErrNotSettled
+	ErrFailed     = core.ErrFailed
 	// ErrAuth marks an authentication failure.
 	ErrAuth = core.ErrAuth
 	// ErrTokenCache marks a token cache or TOTP marker failure.

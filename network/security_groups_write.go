@@ -36,11 +36,11 @@ var (
 	// again with the same input; an update's PUT is idempotent and may be
 	// repeated safely. The returned Output still holds the resource the
 	// SDK last read, so the caller keeps its id to check again later.
-	ErrNotSettled = errors.New("network: write accepted but not settled")
+	ErrNotSettled = core.ErrNotSettled
 
 	// ErrFailed means a created security group reached ERROR. The returned
 	// Output still holds the resource the SDK last read.
-	ErrFailed = errors.New("network: write failed on the server")
+	ErrFailed = core.ErrFailed
 )
 
 // securityGroupWriteBody is the request body CreateSecurityGroup's POST and

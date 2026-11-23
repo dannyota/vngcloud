@@ -3,6 +3,7 @@ package compute
 import (
 	"errors"
 
+	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/floatingip"
 )
 
@@ -11,7 +12,7 @@ var (
 	ErrOpenLogin = floatingip.ErrOpenLogin
 
 	// ErrFailed means a wait observed a server reach ERROR.
-	ErrFailed = errors.New("compute: resource reached ERROR")
+	ErrFailed = core.ErrFailed
 
 	// ErrUnexpectedStatus means StartServer, StopServer, or RebootServer
 	// read a server Status this SDK does not act on for that call, such as

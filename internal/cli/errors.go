@@ -10,17 +10,15 @@ import (
 	"danny.vn/vngcloud/cdn"
 	"danny.vn/vngcloud/compute"
 	"danny.vn/vngcloud/containerregistry"
-	"danny.vn/vngcloud/database"
 	"danny.vn/vngcloud/dns"
-	"danny.vn/vngcloud/globalloadbalancer"
 	"danny.vn/vngcloud/iam"
+	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/loadbalancer"
 	"danny.vn/vngcloud/monitor"
 	"danny.vn/vngcloud/network"
 	"danny.vn/vngcloud/pricing"
 	"danny.vn/vngcloud/storage"
 	"danny.vn/vngcloud/tagging"
-	"danny.vn/vngcloud/vks"
 	"danny.vn/vngcloud/volume"
 )
 
@@ -207,7 +205,7 @@ func classify(err error) errorEnvelope {
 		}
 		return result
 	}
-	if errors.Is(err, monitor.ErrQuotaChanged) && !errors.Is(err, dns.ErrNotSettled) {
+	if errors.Is(err, monitor.ErrQuotaChanged) && !errors.Is(err, core.ErrNotSettled) {
 		return errorEnvelope{Code: "QuotaChanged", Message: "quota guard changed"}
 	}
 	if errors.Is(err, monitor.ErrQuotaStatusIncomplete) {
@@ -269,12 +267,7 @@ func classify(err error) errorEnvelope {
 	if errors.Is(err, cdn.ErrUnexpectedStatus) {
 		return errorEnvelope{Code: "UnexpectedStatus", Message: err.Error()}
 	}
-	if errors.Is(err, globalloadbalancer.ErrNotSettled) || errors.Is(err, database.ErrNotSettled) {
-		return errorEnvelope{Code: "NotSettled", Message: err.Error()}
-	}
-	if errors.Is(err, cdn.ErrNotSettled) {
-		return errorEnvelope{Code: "NotSettled", Message: err.Error()}
-	}
+
 	if errors.Is(err, cdn.ErrBusy) {
 		return errorEnvelope{Code: "ResourceBusy", Message: err.Error()}
 	}
@@ -309,32 +302,10 @@ func classify(err error) errorEnvelope {
 	if errors.Is(err, dns.ErrZoneBusy) {
 		return errorEnvelope{Code: "ZoneBusy", Message: err.Error()}
 	}
-	// volume.ErrFailed and compute.ErrFailed join dns.ErrFailed and
-	// network.ErrFailed here: a vServer paid write's own post-write wait
-	// (server create, delete, start, stop, reboot, or resize; volume
-	// create, delete, resize, attach, or detach) reaching ERROR reports the
-	// same WriteFailed class, as does loadbalancer.ErrFailed from every vLB
-	// write's post-write wait.
-	if errors.Is(err, dns.ErrFailed) || errors.Is(err, network.ErrFailed) || errors.Is(err, volume.ErrFailed) || errors.Is(err, compute.ErrFailed) ||
-		errors.Is(err, loadbalancer.ErrFailed) || errors.Is(err, storage.ErrFailed) || errors.Is(err, globalloadbalancer.ErrFailed) || errors.Is(err, vks.ErrFailed) || errors.Is(err, database.ErrFailed) {
+	if errors.Is(err, core.ErrFailed) {
 		return errorEnvelope{Code: "WriteFailed", Message: err.Error()}
 	}
-	// compute.ErrNotSettled, containerregistry.ErrNotSettled,
-	// iam.ErrNotSettled, and tagging.ErrNotSettled join dns.ErrNotSettled and
-	// network.ErrNotSettled here for the same reason they all do:
-	// UpdateServerGroup's confirm read, GetRepository's own 5xx-confirm path
-	// inside the containerregistry wait, CreatePolicy's and UpdatePolicy's own
-	// confirm GetPolicy read, and TagResource's and UntagResource's own
-	// confirm read after their PUT, can each wrap an inner *core.APIError or a
-	// canceled context, and this check must win over the generic *APIError
-	// branch below. volume.ErrNotSettled joins them for the same vServer
-	// paid write wait bound reason ErrFailed does above, and
-	// loadbalancer.ErrNotSettled for the vLB writes' own post-write waits.
-	// storage.ErrNotSettled marks a bucket delete the server accepted but
-	// still showed when the wait ended; it must not be repeated.
-	if errors.Is(err, dns.ErrNotSettled) || errors.Is(err, network.ErrNotSettled) || errors.Is(err, compute.ErrNotSettled) ||
-		errors.Is(err, containerregistry.ErrNotSettled) || errors.Is(err, iam.ErrNotSettled) || errors.Is(err, volume.ErrNotSettled) ||
-		errors.Is(err, tagging.ErrNotSettled) || errors.Is(err, loadbalancer.ErrNotSettled) || errors.Is(err, storage.ErrNotSettled) || errors.Is(err, vks.ErrNotSettled) {
+	if errors.Is(err, core.ErrNotSettled) {
 		return errorEnvelope{Code: "NotSettled", Message: err.Error()}
 	}
 	if errors.Is(err, compute.ErrOpenLogin) {

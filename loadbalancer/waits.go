@@ -104,14 +104,14 @@ var (
 	// ErrFailed means a write's post-write wait saw the load balancer or
 	// its child reach ERROR. The Output, when the call returns one, still
 	// holds the last resource a read returned.
-	ErrFailed = errors.New("loadbalancer: write failed on the server")
+	ErrFailed = core.ErrFailed
 
 	// ErrNotSettled means a write was sent, and may have reached the
 	// server, but no read confirmed its result within the write's bound, or
 	// a confirming read did not match what was sent. A create or a resize
 	// must not be repeated; every other write in this package always reads
 	// first, so rerunning it is safe.
-	ErrNotSettled = errors.New("loadbalancer: write accepted but not settled")
+	ErrNotSettled = core.ErrNotSettled
 )
 
 // Load balancer progressStatus values this package acts on. Any other value,

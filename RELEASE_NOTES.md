@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add shared `vngcloud.ErrNotSettled` and `vngcloud.ErrFailed` identities; existing service names remain aliases.
+
 - `volume get-default-volume-type` (SDK `GetDefaultVolumeType`) now requires
   `--zone-id` (`ZoneID`). Without it the API used the region's first zone,
   which is disabled in `hcm-3` and returned 404.

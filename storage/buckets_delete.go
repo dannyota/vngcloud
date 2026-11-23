@@ -21,7 +21,7 @@ var (
 
 	// ErrNotSettled means a storage write has an unconfirmed outcome.
 	// Read resource and payment state before attempting another write.
-	ErrNotSettled = errors.New("storage: write accepted but not settled")
+	ErrNotSettled = core.ErrNotSettled
 )
 
 // deletePollInterval and deletePollBound set the delete wait: a read at

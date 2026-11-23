@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"danny.vn/vngcloud/dns"
+	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/endpoints"
 	"danny.vn/vngcloud/internal/testutil"
@@ -109,7 +109,7 @@ func TestCreateNotificationQuotaEmailFixtureAndNoWait(t *testing.T) {
 		t.Fatalf("out=%+v err=%v sends=%d reads=%d", out, err, s.mutations.Load(), s.reads.Load())
 	}
 	out, err = c.CreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "Email", NoWait: true})
-	if out == nil || !errors.Is(err, dns.ErrNotSettled) || s.mutations.Load() != 1 {
+	if out == nil || !errors.Is(err, vngcloud.ErrNotSettled) || s.mutations.Load() != 1 {
 		t.Fatalf("repeated out=%+v err=%v sends=%d", out, err, s.mutations.Load())
 	}
 }
@@ -129,12 +129,12 @@ func TestCreateNotificationQuotaOnceHTTPStatusesAndRedirects(t *testing.T) {
 				t.Fatalf("out=%+v err=%v sends=%d", out, err, s.mutations.Load())
 			}
 			ambiguous := status < 400 || status >= 500
-			if errors.Is(err, dns.ErrNotSettled) != ambiguous || (out != nil) != ambiguous {
+			if errors.Is(err, vngcloud.ErrNotSettled) != ambiguous || (out != nil) != ambiguous {
 				t.Fatalf("out=%+v err=%v", out, err)
 			}
 			if ambiguous {
 				_, err = c.CreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "Email"})
-				if !errors.Is(err, dns.ErrNotSettled) || s.mutations.Load() != 1 {
+				if !errors.Is(err, vngcloud.ErrNotSettled) || s.mutations.Load() != 1 {
 					t.Fatalf("repeated err=%v sends=%d", err, s.mutations.Load())
 				}
 			}
@@ -157,11 +157,11 @@ func TestCreateNotificationQuotaOnceDisconnectAfterBodyRead(t *testing.T) {
 	c := New(testutil.NewRetryConfig(t, s.handler(t)))
 	out, err := c.CreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "Email"})
 	<-received
-	if out == nil || !errors.Is(err, dns.ErrNotSettled) || s.mutations.Load() != 1 {
+	if out == nil || !errors.Is(err, vngcloud.ErrNotSettled) || s.mutations.Load() != 1 {
 		t.Fatalf("out=%+v err=%v sends=%d", out, err, s.mutations.Load())
 	}
 	_, err = c.CreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "Email"})
-	if !errors.Is(err, dns.ErrNotSettled) || s.mutations.Load() != 1 {
+	if !errors.Is(err, vngcloud.ErrNotSettled) || s.mutations.Load() != 1 {
 		t.Fatalf("second err=%v sends=%d", err, s.mutations.Load())
 	}
 }
@@ -187,7 +187,7 @@ func TestCreateNotificationQuotaOnceFailedDialBeforeServer(t *testing.T) {
 	t.Cleanup(rt.CloseIdleConnections)
 	c := emailTransportClient(t, s, &http.Client{Transport: rt})
 	out, err := c.CreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "Email", NoWait: true})
-	if out != nil || err == nil || errors.Is(err, dns.ErrNotSettled) || s.mutations.Load() != 0 || dials.Load() != 5 || strings.Contains(err.Error(), "private-canary") {
+	if out != nil || err == nil || errors.Is(err, vngcloud.ErrNotSettled) || s.mutations.Load() != 0 || dials.Load() != 5 || strings.Contains(err.Error(), "private-canary") {
 		t.Fatalf("out=%+v err=%v sends=%d dials=%d", out, err, s.mutations.Load(), dials.Load())
 	}
 	out, err = c.CreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "Email", NoWait: true})
@@ -211,11 +211,11 @@ func TestCreateNotificationQuotaOnceResponseTimeoutAfterBodyRead(t *testing.T) {
 	out, err := c.CreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "Email"})
 	<-received
 	close(release)
-	if out == nil || !errors.Is(err, dns.ErrNotSettled) || s.mutations.Load() != 1 {
+	if out == nil || !errors.Is(err, vngcloud.ErrNotSettled) || s.mutations.Load() != 1 {
 		t.Fatalf("out=%+v err=%v sends=%d", out, err, s.mutations.Load())
 	}
 	_, err = c.CreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "Email"})
-	if !errors.Is(err, dns.ErrNotSettled) || s.mutations.Load() != 1 {
+	if !errors.Is(err, vngcloud.ErrNotSettled) || s.mutations.Load() != 1 {
 		t.Fatalf("second err=%v sends=%d", err, s.mutations.Load())
 	}
 }
@@ -230,11 +230,11 @@ func TestCreateNotificationQuotaOnceCancellationAfterBodyRead(t *testing.T) {
 	}}
 	c := New(testutil.NewRetryConfig(t, s.handler(t)))
 	out, err := c.CreateNotificationQuota(ctx, &CreateNotificationQuotaInput{Kind: "Email"})
-	if out == nil || !errors.Is(err, dns.ErrNotSettled) || !errors.Is(err, context.Canceled) || s.mutations.Load() != 1 {
+	if out == nil || !errors.Is(err, vngcloud.ErrNotSettled) || !errors.Is(err, context.Canceled) || s.mutations.Load() != 1 {
 		t.Fatalf("out=%+v err=%v sends=%d", out, err, s.mutations.Load())
 	}
 	_, err = c.CreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "Email"})
-	if !errors.Is(err, dns.ErrNotSettled) || s.mutations.Load() != 1 {
+	if !errors.Is(err, vngcloud.ErrNotSettled) || s.mutations.Load() != 1 {
 		t.Fatalf("second err=%v sends=%d", err, s.mutations.Load())
 	}
 }
@@ -324,7 +324,7 @@ func TestCreateNotificationQuotaPaymentPending(t *testing.T) {
 			c := New(testutil.NewRetryConfig(t, s.handler(t)))
 			out, err := c.CreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "Email", NoWait: true})
 			pending := payment != "" && payment != emailRedirect
-			if out == nil || out.PaymentPending != pending || errors.Is(err, dns.ErrNotSettled) != pending {
+			if out == nil || out.PaymentPending != pending || errors.Is(err, vngcloud.ErrNotSettled) != pending {
 				t.Fatalf("out=%+v err=%v", out, err)
 			}
 			encoded, _ := json.Marshal(out)
@@ -341,11 +341,11 @@ func TestCreateNotificationQuotaMalformedSuccessRemainsUnresolved(t *testing.T) 
 		c := New(testutil.NewRetryConfig(t, s.handler(t)))
 		out, err := c.CreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "Email"})
 		var api *core.APIError
-		if out == nil || !errors.Is(err, dns.ErrNotSettled) || !errors.As(err, &api) || strings.Contains(err.Error(), "private-canary") {
+		if out == nil || !errors.Is(err, vngcloud.ErrNotSettled) || !errors.As(err, &api) || strings.Contains(err.Error(), "private-canary") {
 			t.Fatalf("out=%+v err=%v", out, err)
 		}
 		_, err = c.CreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "Email"})
-		if !errors.Is(err, dns.ErrNotSettled) || s.mutations.Load() != 1 {
+		if !errors.Is(err, vngcloud.ErrNotSettled) || s.mutations.Load() != 1 {
 			t.Fatalf("err=%v sends=%d", err, s.mutations.Load())
 		}
 	}
@@ -386,7 +386,7 @@ func TestCreateNotificationQuotaSentCredentialsAndCaptures(t *testing.T) {
 	captures := atomic.Int32{}
 	c := New(core.NewTestConfig("hcm-3", "", endpoints.Set{Monitor: server.URL + "/"}, transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: &monitorRefreshTokens{first: token}, Capture: func(transport.Capture) { captures.Add(1) }})))
 	out, err := c.CreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "Email"})
-	if out == nil || !out.PaymentPending || !errors.Is(err, dns.ErrNotSettled) || captures.Load() != 0 {
+	if out == nil || !out.PaymentPending || !errors.Is(err, vngcloud.ErrNotSettled) || captures.Load() != 0 {
 		t.Fatalf("out=%+v err=%v captures=%d", out, err, captures.Load())
 	}
 	assertMonitorCredentialsAbsent(t, out, err, token, "private-canary")
@@ -471,7 +471,7 @@ func TestCreateNotificationQuotaOperationCredentialRedaction(t *testing.T) {
 				t.Fatalf("out=%v err=%v sends=%d", out, err, s.mutations.Load())
 			}
 			if strings.Contains(stage, "error") || strings.Contains(stage, "decode") {
-				if !errors.Is(err, dns.ErrNotSettled) {
+				if !errors.Is(err, vngcloud.ErrNotSettled) {
 					t.Fatal(err)
 				}
 			} else if err != nil {
@@ -515,7 +515,7 @@ func TestCreateNotificationQuotaAuthBeforeSend(t *testing.T) {
 			source := &quotaPreSendTokens{failure: failure}
 			c := New(core.NewTestConfig("hcm-3", "", endpoints.Set{Monitor: server.URL + "/"}, transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: source, RetryCount: 3})))
 			out, err := c.CreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "Email", NoWait: true})
-			if out != nil || err == nil || errors.Is(err, dns.ErrNotSettled) || len(c.quotaAttempts) != 0 || s.mutations.Load() != 0 || source.calls != 5 {
+			if out != nil || err == nil || errors.Is(err, vngcloud.ErrNotSettled) || len(c.quotaAttempts) != 0 || s.mutations.Load() != 0 || source.calls != 5 {
 				t.Errorf("out=%+v err=%v attempts=%d sends=%d tokens=%d", out, err, len(c.quotaAttempts), s.mutations.Load(), source.calls)
 			}
 			if monitorReadSDKError(failure) && err != failure { //nolint:errorlint // Safe pre-send errors must pass through unchanged.
@@ -547,7 +547,7 @@ func TestCreateNotificationQuotaAPIErrorBeforeSend(t *testing.T) {
 			source := &quotaPreSendTokens{failure: tc.failure}
 			c := New(core.NewTestConfig("hcm-3", "", endpoints.Set{Monitor: server.URL + "/"}, transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: source, RetryCount: 3})))
 			out, err := c.CreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "Email", NoWait: true})
-			if out != nil || err == nil || errors.Is(err, dns.ErrNotSettled) || len(c.quotaAttempts) != 0 || s.mutations.Load() != 0 || source.calls != 5 {
+			if out != nil || err == nil || errors.Is(err, vngcloud.ErrNotSettled) || len(c.quotaAttempts) != 0 || s.mutations.Load() != 0 || source.calls != 5 {
 				t.Errorf("out=%+v err=%v attempts=%d sends=%d tokens=%d", out, err, len(c.quotaAttempts), s.mutations.Load(), source.calls)
 			}
 			if err != nil && strings.Contains(err.Error(), "private-provider-canary") {
@@ -578,11 +578,11 @@ func TestCreateNotificationQuotaAuthAfterSendRemainsUnresolved(t *testing.T) {
 			source := &quotaInvalidateTokens{failure: failure}
 			c := New(core.NewTestConfig("hcm-3", "", endpoints.Set{Monitor: server.URL + "/"}, transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: source})))
 			out, err := c.CreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "Email", NoWait: true})
-			if out == nil || !errors.Is(err, dns.ErrNotSettled) || len(c.quotaAttempts) != 1 || s.mutations.Load() != 1 {
+			if out == nil || !errors.Is(err, vngcloud.ErrNotSettled) || len(c.quotaAttempts) != 1 || s.mutations.Load() != 1 {
 				t.Fatalf("out=%+v err=%v attempts=%d sends=%d", out, err, len(c.quotaAttempts), s.mutations.Load())
 			}
 			_, err = c.CreateNotificationQuota(context.Background(), &CreateNotificationQuotaInput{Kind: "Email", NoWait: true})
-			if !errors.Is(err, dns.ErrNotSettled) || s.mutations.Load() != 1 {
+			if !errors.Is(err, vngcloud.ErrNotSettled) || s.mutations.Load() != 1 {
 				t.Fatalf("next err=%v sends=%d", err, s.mutations.Load())
 			}
 		})
@@ -690,7 +690,7 @@ func TestQuotaUnsettledRebindsAPIErrorWithoutLosingCauses(t *testing.T) {
 	if !errors.As(err, &api) || api == original || api.Operation != "monitor.RenewSyntheticQuota" || api.Code != original.Code || api.StatusCode != original.StatusCode || api.Message != original.Message || api.Retryable != original.Retryable {
 		t.Fatalf("api=%+v err=%v", api, err)
 	}
-	for _, sentinel := range []error{dns.ErrNotSettled, core.ErrPermission, ErrQuotaChanged, context.Canceled, custom} {
+	for _, sentinel := range []error{vngcloud.ErrNotSettled, core.ErrPermission, ErrQuotaChanged, context.Canceled, custom} {
 		if !errors.Is(err, sentinel) {
 			t.Fatalf("lost cause %v in %v", sentinel, err)
 		}

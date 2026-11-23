@@ -11,21 +11,10 @@ import (
 	"github.com/spf13/cobra"
 
 	"danny.vn/vngcloud"
-	"danny.vn/vngcloud/cdn"
-	"danny.vn/vngcloud/compute"
 	"danny.vn/vngcloud/containerregistry"
-	"danny.vn/vngcloud/database"
-	"danny.vn/vngcloud/dns"
-	"danny.vn/vngcloud/globalloadbalancer"
-	"danny.vn/vngcloud/iam"
-	"danny.vn/vngcloud/loadbalancer"
+	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/monitor"
-	"danny.vn/vngcloud/network"
 	"danny.vn/vngcloud/pricing"
-	"danny.vn/vngcloud/storage"
-	"danny.vn/vngcloud/tagging"
-	"danny.vn/vngcloud/vks"
-	"danny.vn/vngcloud/volume"
 )
 
 type opKind int
@@ -610,47 +599,7 @@ func runOp[C any](ctx context.Context, e *env, cmd *cobra.Command, serviceName s
 			}
 			return callErr
 		}
-		// A vDNS, network, compute, containerregistry, iam, or tagging write
-		// that reached the server still carries its Output: the resource's
-		// id, needed to clean up or check again later. --query is skipped
-		// here, unlike the success path below, so that id is never filtered
-		// out by a query the caller wrote for the success shape. A render
-		// failure is not reported over callErr, the call's own error,
-		// which already carries the right error class and exit code.
-		// containerregistry.ErrUserNotFound joins this same group:
-		// create-user's own create succeeded, so its Output (the redacted
-		// secret and, once written, SecretFile) must still print even
-		// though the post-create list could not confirm the new user by
-		// name. volume.ErrFailed and volume.ErrNotSettled join it too: a
-		// vServer volume write's own wait can fail after the request already
-		// reached the server, and its Output (the volume read before the
-		// write) is the caller's only way to see what it was doing.
-		// compute.ErrFailed joins compute.ErrNotSettled for the same reason
-		// on the server side: create-server's, delete-server's, and every
-		// server lifecycle write's own wait can report ERROR after the
-		// request already reached the server, and its Output (the server
-		// read before or during the wait) is the caller's only way to see
-		// what it was doing.
-		// tagging.ErrNotSettled joins it for the same reason as the
-		// others: TagResource's or UntagResource's PUT already replaced the
-		// resource's user tags, so the last tags a read returned are worth
-		// printing even though the confirm read itself failed or mismatched.
-		// loadbalancer.ErrFailed and loadbalancer.ErrNotSettled join it too:
-		// create-load-balancer's and delete-load-balancer's own post-write
-		// waits (and every child write's) still carry the last resource a
-		// read returned.
-		// storage.ErrNotSettled joins it: a delete-bucket the server accepted
-		// but still showed when the wait ended returns no Output, and a nil
-		// Output prints nothing rather than null.
-		if op.kind == kindWrite && (errors.Is(callErr, dns.ErrFailed) || errors.Is(callErr, dns.ErrNotSettled) ||
-			errors.Is(callErr, network.ErrFailed) || errors.Is(callErr, network.ErrNotSettled) ||
-			errors.Is(callErr, compute.ErrFailed) || errors.Is(callErr, compute.ErrNotSettled) ||
-			errors.Is(callErr, containerregistry.ErrNotSettled) ||
-			errors.Is(callErr, containerregistry.ErrUserNotFound) || errors.Is(callErr, iam.ErrNotSettled) ||
-			errors.Is(callErr, tagging.ErrNotSettled) ||
-			errors.Is(callErr, volume.ErrFailed) || errors.Is(callErr, volume.ErrNotSettled) ||
-			errors.Is(callErr, loadbalancer.ErrFailed) || errors.Is(callErr, loadbalancer.ErrNotSettled) ||
-			errors.Is(callErr, storage.ErrNotSettled) || errors.Is(callErr, cdn.ErrNotSettled) || errors.Is(callErr, globalloadbalancer.ErrNotSettled) || errors.Is(callErr, globalloadbalancer.ErrFailed) || errors.Is(callErr, vks.ErrNotSettled) || errors.Is(callErr, vks.ErrFailed) || errors.Is(callErr, database.ErrNotSettled) || errors.Is(callErr, database.ErrFailed)) && !isNilOutput(out) {
+		if op.kind == kindWrite && (errors.Is(callErr, core.ErrFailed) || errors.Is(callErr, core.ErrNotSettled) || errors.Is(callErr, containerregistry.ErrUserNotFound)) && !isNilOutput(out) {
 			_ = renderOutput(e.stdout, format, "", out, true)
 		}
 		return callErr

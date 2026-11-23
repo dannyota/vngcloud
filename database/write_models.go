@@ -4,13 +4,14 @@ import (
 	"errors"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/internal/core"
 )
 
 // ErrNotSettled means a write may have succeeded but has not been confirmed.
-var ErrNotSettled = errors.New("database: write not settled; inspect inventory and billing before another mutation")
+var ErrNotSettled = core.ErrNotSettled
 
 //nolint:revive
-var ErrFailed = errors.New("database: write failed; inspect inventory and billing before another mutation")
+var ErrFailed = core.ErrFailed
 
 // ErrDeleteRefused means a preflight check found the instance ineligible for deletion; nothing was sent.
 var ErrDeleteRefused = errors.New("database: delete refused")

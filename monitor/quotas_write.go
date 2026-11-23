@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"danny.vn/vngcloud/dns"
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/transport"
 )
@@ -122,9 +121,9 @@ func quotaUnsettled(op string, cause error) error {
 		cause = &safe
 	}
 	if cause == nil {
-		return fmt.Errorf("%s: quota attempt remains unresolved; reconcile reads and inspect billing before another write: %w", op, dns.ErrNotSettled)
+		return fmt.Errorf("%s: quota attempt remains unresolved; reconcile reads and inspect billing before another write: %w", op, core.ErrNotSettled)
 	}
-	return fmt.Errorf("%s: quota attempt remains unresolved; reconcile reads and inspect billing before another write: %w: %w", op, dns.ErrNotSettled, cause)
+	return fmt.Errorf("%s: quota attempt remains unresolved; reconcile reads and inspect billing before another write: %w: %w", op, core.ErrNotSettled, cause)
 }
 
 // reconcileQuotaAttempt runs under quotaMu, before preparation of any new write.

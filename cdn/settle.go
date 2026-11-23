@@ -22,7 +22,7 @@ var (
 	// ErrNotSettled means the server accepted a write, but the CDN did not
 	// reach its final status within the wait. The write must not be
 	// repeated. The call's Output holds the last good read.
-	ErrNotSettled = errors.New("cdn: CDN not settled")
+	ErrNotSettled = core.ErrNotSettled
 
 	// ErrStatusUnconfirmed means an enable or disable was sent, or may have
 	// been, but no read showed the CDN changing. Do not retry the call in a

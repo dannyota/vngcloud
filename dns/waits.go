@@ -37,12 +37,12 @@ var (
 	// The write must not be repeated; the returned Output still holds the
 	// resource the SDK last read, so the caller keeps its id to check again
 	// later.
-	ErrNotSettled = errors.New("dns: write accepted but not settled")
+	ErrNotSettled = core.ErrNotSettled
 
 	// ErrFailed means the written resource reached StatusError after a
 	// write. The returned Output still holds the resource the SDK last
 	// read.
-	ErrFailed = errors.New("dns: write failed on the server")
+	ErrFailed = core.ErrFailed
 )
 
 // pollInterval and pollBound set every wait's cadence: a wait reads with a

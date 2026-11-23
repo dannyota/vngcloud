@@ -15,6 +15,15 @@ import (
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/billing"
+	"danny.vn/vngcloud/compute"
+	"danny.vn/vngcloud/database"
+	"danny.vn/vngcloud/dns"
+	"danny.vn/vngcloud/globalloadbalancer"
+	"danny.vn/vngcloud/loadbalancer"
+	"danny.vn/vngcloud/network"
+	"danny.vn/vngcloud/storage"
+	"danny.vn/vngcloud/vks"
+	"danny.vn/vngcloud/volume"
 )
 
 // fakeClient is a small HTTP-calling service used only to exercise the Op,
@@ -738,5 +747,48 @@ func TestValidateOpsRejectsOptionalNamingNoField(t *testing.T) {
 func TestFuncNameRecoversMethodExpressionName(t *testing.T) {
 	if got := funcName((*billing.Client).ListBudgets); got != "ListBudgets" {
 		t.Fatalf("funcName = %q, want ListBudgets", got)
+	}
+}
+
+func TestSettlementPartialOutputFamilies(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		code string
+	}{
+		{"network/ErrNotSettled", network.ErrNotSettled, "NotSettled"},
+		{"network/ErrFailed", network.ErrFailed, "WriteFailed"},
+		{"compute/ErrNotSettled", compute.ErrNotSettled, "NotSettled"},
+		{"compute/ErrFailed", compute.ErrFailed, "WriteFailed"},
+		{"volume/ErrNotSettled", volume.ErrNotSettled, "NotSettled"},
+		{"volume/ErrFailed", volume.ErrFailed, "WriteFailed"},
+		{"database/ErrNotSettled", database.ErrNotSettled, "NotSettled"},
+		{"database/ErrFailed", database.ErrFailed, "WriteFailed"},
+		{"globalloadbalancer/ErrNotSettled", globalloadbalancer.ErrNotSettled, "NotSettled"},
+		{"globalloadbalancer/ErrFailed", globalloadbalancer.ErrFailed, "WriteFailed"},
+		{"vks/ErrNotSettled", vks.ErrNotSettled, "NotSettled"},
+		{"vks/ErrFailed", vks.ErrFailed, "WriteFailed"},
+		{"loadbalancer/ErrNotSettled", loadbalancer.ErrNotSettled, "NotSettled"},
+		{"loadbalancer/ErrFailed", loadbalancer.ErrFailed, "WriteFailed"},
+		{"storage/ErrNotSettled", storage.ErrNotSettled, "NotSettled"},
+		{"storage/ErrFailed", storage.ErrFailed, "WriteFailed"},
+		{"dns/ErrNotSettled", dns.ErrNotSettled, "NotSettled"},
+		{"dns/ErrFailed", dns.ErrFailed, "WriteFailed"},
+		{"monitor/unsettled", vngcloud.ErrNotSettled, "NotSettled"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newFakeHarness(t)
+			op := Write[fakeClient, fakeDeleteInput, fakeDeleteOutput]("fake-delete", (*fakeClient).FakeDelete)
+			op.call = func(*cobra.Command, *fakeClient, context.Context, any) (any, error) {
+				return &fakeGetOutput{Name: "partial-value"}, tc.err
+			}
+			root := newTestRoot(h.e)
+			root.AddCommand(Service(h.e, "fake", "test", h.newClient, op))
+			err := execCmd(t, root, []string{"--output", "json", "--yes", "fake", "fake-delete", "--id", "x"})
+			if classify(err).Code != tc.code || exitCode(err) != 1 || !strings.Contains(h.stdout.String(), "partial-value") {
+				t.Fatalf("error=%v stdout=%s", err, h.stdout)
+			}
+		})
 	}
 }

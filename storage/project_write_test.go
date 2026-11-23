@@ -654,7 +654,7 @@ func TestCreateProjectRejectsMalformedProjectIdentity(t *testing.T) {
 }
 
 func TestStorageNotSettledMessage(t *testing.T) {
-	if got := ErrNotSettled.Error(); got != "storage: write accepted but not settled" {
+	if got := ErrNotSettled.Error(); got != "vngcloud: write accepted but not settled" {
 		t.Fatalf("message = %q", got)
 	}
 }

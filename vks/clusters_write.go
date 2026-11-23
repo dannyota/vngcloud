@@ -19,10 +19,10 @@ import (
 )
 
 // ErrNotSettled means the write outcome is not confirmed.
-var ErrNotSettled = errors.New("vks write not settled")
+var ErrNotSettled = core.ErrNotSettled
 
 // ErrFailed means the cluster reported a terminal failure.
-var ErrFailed = errors.New("vks cluster failed")
+var ErrFailed = core.ErrFailed
 
 // CreateClusterInput describes a private cluster with one private node group.
 type CreateClusterInput struct {

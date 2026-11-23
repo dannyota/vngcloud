@@ -17,10 +17,10 @@ import (
 )
 
 // ErrNotSettled means a write may have succeeded but has not been confirmed.
-var ErrNotSettled = errors.New("globalloadbalancer: write not settled; inspect inventory and billing before another mutation")
+var ErrNotSettled = core.ErrNotSettled
 
 //nolint:revive
-var ErrFailed = errors.New("globalloadbalancer: write failed; inspect inventory and billing before another mutation")
+var ErrFailed = core.ErrFailed
 
 // CreateLoadBalancerInput selects a global load balancer configuration.
 type CreateLoadBalancerInput struct {

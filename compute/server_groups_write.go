@@ -26,7 +26,7 @@ var (
 	// converges on the same result. The returned Output holds the fields
 	// the PUT itself sent, so the caller keeps the group's id to check
 	// again later.
-	ErrNotSettled = errors.New("compute: write accepted but not settled")
+	ErrNotSettled = core.ErrNotSettled
 )
 
 // serverGroupWriteBody is the request body UpdateServerGroup's PUT sends.
