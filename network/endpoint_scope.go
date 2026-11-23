@@ -177,11 +177,18 @@ func (o *endpointOp) raw(ctx context.Context, req transport.Request) (json.RawMe
 	if err != nil {
 		var api *core.APIError
 		retryable := errors.As(err, &api) && api.Retryable
+		if status == 0 && api != nil {
+			status = api.StatusCode
+		}
 		switch {
+		case status >= 400:
+			refusal := endpointStatusError(o.op, status, retryable)
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil, &notSent, errors.Join(refusal, endpointSafeError(o.op, err))
+			}
+			return nil, &notSent, refusal
 		case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
 			return nil, &notSent, endpointSafeError(o.op, err)
-		case status >= 400:
-			return nil, &notSent, endpointStatusError(o.op, status, retryable)
 		case errors.Is(err, transport.ErrBodyTooLarge) || (status > 0 && status < 300):
 			return nil, &notSent, endpointInvalid(o.op)
 		}

@@ -50,6 +50,7 @@ type epFake struct {
 	listCalls                                            int
 	onCreate                                             func()
 	onDelete                                             func()
+	rewrap                                               func(r *http.Request, resp *http.Response)
 	createRaw                                            func(w http.ResponseWriter, r *http.Request)
 	listStatus                                           func(n int) int
 	listDelay                                            func(n int)
@@ -208,7 +209,11 @@ func newEPHarness(t *testing.T, fake *epFake, extra ...vngcloud.LoadOption) *epH
 		clone.URL.Scheme = target.Scheme
 		clone.URL.Host = target.Host
 		clone.Host = target.Host
-		return server.Client().Transport.RoundTrip(clone)
+		resp, err := server.Client().Transport.RoundTrip(clone)
+		if err == nil && fake.rewrap != nil {
+			fake.rewrap(r, resp)
+		}
+		return resp, err
 	})
 	auth := epRoundTrip(func(r *http.Request) (*http.Response, error) {
 		w := httptest.NewRecorder()

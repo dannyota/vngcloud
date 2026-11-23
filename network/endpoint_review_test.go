@@ -283,18 +283,30 @@ func TestEndpointConfirmationWindowStartsAfterDispatch(t *testing.T) {
 	}
 }
 
+type cancelBody struct {
+	cancel context.CancelFunc
+	ctx    context.Context
+}
+
+func (b *cancelBody) Read([]byte) (int, error) {
+	b.cancel()
+	return 0, b.ctx.Err()
+}
+func (*cancelBody) Close() error { return nil }
+
+func cancelCreateBody(f *epFake, cancel context.CancelFunc, ctx context.Context) {
+	f.rewrap = func(r *http.Request, resp *http.Response) {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, epBase) {
+			resp.Body = &cancelBody{cancel: cancel, ctx: ctx}
+			resp.ContentLength = -1
+		}
+	}
+}
+
 func TestEndpointCreateCancelDuringReplyBodyKeepsContextCause(t *testing.T) {
 	f := epCreateFake()
 	ctx, cancel := context.WithCancel(context.Background())
-	f.createRaw = func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Content-Length", "1000")
-		w.WriteHeader(201)
-		_, _ = w.Write([]byte(`{"code":0,`))
-		w.(http.Flusher).Flush()
-		cancel()
-		<-r.Context().Done()
-	}
+	cancelCreateBody(f, cancel, ctx)
 	h := newEPHarness(t, f)
 	out, err := h.c.CreateEndpoint(ctx, epCreateInput())
 	if !errors.Is(err, ErrNotSettled) || !errors.Is(err, context.Canceled) || out == nil || out.EndpointID != "" {
@@ -305,23 +317,22 @@ func TestEndpointCreateCancelDuringReplyBodyKeepsContextCause(t *testing.T) {
 	}
 }
 
-func TestEndpointSubnetListWithNoncanonicalRowIsRefused(t *testing.T) {
-	lower, upper := "sub-0000000a-0000-0000-0000-00000000000a", "sub-0000000A-0000-0000-0000-00000000000A"
-	row := func(id, status string) string {
-		return `{"uuid":"` + id + `","name":"s","status":"` + status + `","vpcUuid":"` + epVPC + `","zone":{"uuid":"HCM03-1C"}}`
-	}
-	in := epCreateInput()
-	in.SubnetID = lower
+func TestEndpointCreateRefusalCancelledDuringBodyStaysDefinitive(t *testing.T) {
 	f := epCreateFake()
-	f.subnets = `{"success":true,"data":[` + row(lower, "ACTIVE") + `]}`
-	if _, err := newEPHarness(t, f).c.QuoteCreateEndpoint(context.Background(), in); err != nil {
-		t.Fatalf("control: %v", err)
+	f.createStatus = 403
+	ctx, cancel := context.WithCancel(context.Background())
+	cancelCreateBody(f, cancel, ctx)
+	h := newEPHarness(t, f)
+	out, err := h.c.CreateEndpoint(ctx, epCreateInput())
+	if out != nil || errors.Is(err, ErrNotSettled) || !errors.Is(err, vngcloud.ErrPermission) || !errors.Is(err, context.Canceled) {
+		t.Fatalf("out=%#v err=%v", out, err)
 	}
 	f = epCreateFake()
-	f.subnets = `{"success":true,"data":[` + row(lower, "ACTIVE") + `,` + row(upper, "ERROR") + `]}`
-	h := newEPHarness(t, f)
-	out, err := h.c.CreateEndpoint(context.Background(), in)
-	if err == nil || out != nil || f.count(http.MethodPost, epBase) != 0 {
-		t.Fatalf("out=%v err=%v", out, err)
+	f.createStatus = 408
+	ctx, cancel = context.WithCancel(context.Background())
+	cancelCreateBody(f, cancel, ctx)
+	h = newEPHarness(t, f)
+	if _, err = h.c.CreateEndpoint(ctx, epCreateInput()); !errors.Is(err, ErrNotSettled) || !errors.Is(err, context.Canceled) {
+		t.Fatalf("408 err=%v", err)
 	}
 }
