@@ -249,3 +249,27 @@ func TestEndpointProjectRegionEvidence(t *testing.T) {
 		})
 	}
 }
+
+func TestEndpointRegionProjection(t *testing.T) {
+	row := func(extra string) string {
+		return `{"success":true,"data":[{"uuid":"` + epRegion + `","name":"HCM","code":"hcm-3","gatewayUrl":"https://hcm-3-vnetwork.console.greennode.ai/vnetwork-gateway","vnetworkDashboard":"https://hcm-3-vnetwork.console.greennode.ai","VServerEndpoint":"x","VLBEndpoint":"y"` + extra + `}]}`
+	}
+	for _, tc := range []struct {
+		name, regions string
+		ok            bool
+	}{
+		{"pascal extra keys ignored", row(``), true},
+		{"duplicate cased used key", row(`,"GatewayUrl":"https://hcm-3-vnetwork.console.greennode.ai/vnetwork-gateway"`), false},
+		{"duplicate key", row(`,"uuid":"` + epRegion + `"`), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newEPFake()
+			f.regions = tc.regions
+			h := newEPHarness(t, f)
+			_, err := h.c.QuoteCreateEndpoint(context.Background(), epCreateInput())
+			if (err == nil) != tc.ok {
+				t.Fatalf("err=%v", err)
+			}
+		})
+	}
+}

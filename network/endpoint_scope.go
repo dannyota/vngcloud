@@ -217,12 +217,16 @@ func (o *endpointOp) region(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var resp natRegionsResponse
-	if json.Unmarshal(raw, &resp) != nil || resp.Success == nil || !*resp.Success || len(resp.Data) == 0 || string(resp.Data) == "null" {
+	var env natEnvelope
+	if decodeNATEnvelope(raw, &env, reflect.TypeFor[map[string]json.RawMessage]()) != nil || env.Success == nil || !*env.Success || len(env.Data) == 0 || string(env.Data) == "null" {
 		return "", endpointInvalid(o.op)
 	}
-	var regions []VNetworkRegion
-	if json.Unmarshal(resp.Data, &regions) != nil {
+	var regions []struct {
+		UUID         string `json:"uuid"`
+		GatewayURL   string `json:"gatewayUrl"`
+		DashboardURL string `json:"vnetworkDashboard"`
+	}
+	if decodeNATEnvelope(env.Data, &regions, reflect.TypeOf(regions).Elem()) != nil {
 		return "", endpointInvalid(o.op)
 	}
 	id, matches := "", 0
