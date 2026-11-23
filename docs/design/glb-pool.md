@@ -15,7 +15,7 @@ record before landing.
    Do not accept a raw address or relax either guard when evidence is missing.
 3. Require `--yes` for both creates and all deletes. Accept HTTP 200 or 202
    for the supported writes, but return success only after scoped read-back.
-   Clean up listener, member group, then empty pool. Do not rely on cascade.
+   Clean up listener, then pool; owner decision 8 covers the pool's group.
 4. Child creates ship without a quote, under an [ADR 0002][writes] rule 8
    exception that this decision extends from the bare GLB to its listener and
    pool. No quote route exists and the child requests carry no price, SKU or
@@ -45,6 +45,12 @@ record before landing.
    Candidate wire values (health `3,3,30,5`, timeouts `50,5,50`, dial `100`,
    weight `1`) are confirmed or corrected from that probe. An unexplained 4xx
    is resolved by a console walk with writes blocked, not by guessing.
+
+8. The API refuses to delete a pool's sole member group (HTTP 403), and a
+   pool DELETE removes the pool with its nested group and backend row, never
+   the vServer. No `DeletePoolMember` ships. `DeletePool` deletes a
+   listener-free pool together with its one expected group, and confirms
+   that the pool and the group are absent.
 
 ## Scope and alternatives
 
@@ -82,7 +88,6 @@ all input and provider-derived path IDs with `^[A-Za-z0-9-]+$` before use.
 |`CreatePool` / `create-pool`|`Name`, `MemberName`, `BackendProjectID`, `BackendServerID`, `BackendVPCID`, `BackendSubnetID`, `BackendPort`|`Pool`, `PoolMember` (the group and its one backend)|
 |`CreateListener` / `create-listener`|`Name`, `PoolID`, `Port`, `AllowedCIDRs []string`, `BackendProjectID`, `BackendServerID`|`Listener`|
 |`DeleteListener` / `delete-listener`|`ListenerID`|GLB and listener IDs, `Deleted`|
-|`DeletePoolMember` / `delete-pool-member`|`PoolID`, `PoolMemberID`|GLB, pool and member group IDs, `Deleted`|
 |`DeletePool` / `delete-pool`|`PoolID`|GLB and pool IDs, `Deleted`|
 
 Use kebab-case flags (`--backend-server-id`, `--backend-vpc-id`,
@@ -295,30 +300,50 @@ stop; a name is not an idempotency key and the SDK cannot enforce exclusivity.
 
 ## Delete order and preflight
 
-Delete listener, then member group, then empty pool, then the GLB through
-its existing command. Before every child DELETE, re-read the exact owned
-Layer 4 parent and target, cross-check parent links and complete relevant
-inventories, and require a supported stable state for that target, including
-failed states only when the probe verifies cleanup. Require matching IDs,
-known TCP/private types and no extra affected children. In particular:
+Delete the listener, then the pool with its nested group, then the GLB
+through its existing command. Before every child DELETE, re-read the exact
+owned Layer 4 parent and target, cross-check parent links and complete
+relevant inventories, and require the pool `ACTIVE` with health `ACTIVE`.
+Member health (`ONLINE`, `OFFLINE`, `HEALTHY`, `UNHEALTHY`) is reported,
+never required. Require matching IDs, known TCP/private types and no extra
+affected children. In particular:
 
 - Listener: verify its sole pool binding and report which listener will
   stop receiving traffic. The operation must not delete its pool.
-- Member group: require no listener and the sole expected private group in
-  the exact pool. Enumerate its one nested row and confirm the group DELETE
-  removes that row, not the server or pool. No backend liveness requirement.
-- Pool: require no listener and a verified empty member collection. Refuse
-  attached or nonempty pools instead of triggering a cascade.
+- Pool: require no listener and exactly the one expected private group with
+  its one row. The pool DELETE removes both; the vServer stays.
 
 Never send after a preflight 404, ambiguous inventory or scope mismatch.
-Set `Deleted` only after the evidenced authoritative exact-ID absence
-response and corroborating collection absence under the same still-present
-parent; confirm intended survivors. A 403, parent disappearance, identity
-change, malformed read, transient 404 or 2xx alone is not absence. After an
-accepted DELETE, an unproven absence or a missing survivor returns
-`ErrNotSettled` with the ID and `Deleted=false`. If the API
-cannot remove the last group independently, stop and review an explicit
-cascade contract before implementing or landing. Do not change parent delete.
+`Deleted=true` requires the complete collection under the still-present
+exact parent to omit the ID (and, for a pool, its group), with intended
+survivors present. The exact-ID GET only corroborates: after an accepted
+DELETE, a 404 or an HTTP 500 `internal_error` is consistent with absence; a
+200 with the same ID keeps polling. A 403, parent loss, malformed read or a
+2xx alone is not absence, and an unproven absence returns `ErrNotSettled`
+with the ID and `Deleted=false`. Do not change parent delete.
+
+## Probe record
+
+One `hcm-3` run under decision 7: a fresh GNLB_4000 GLB, a private
+s2-general-1x2 vServer with only SSH listening, backend port 22, and the
+laptop's `/32` on listener port 2222.
+
+- **Pool create:** accepted and, after about 147 seconds, read back with
+  pool and health `ACTIVE`, health `TCP 3,3,30,5`, group `PRIVATE`, region
+  `hcm` (the `ListRegions` ID whose name is `HCM-3`; regions report an empty
+  `Status`), dial `100`, row weight `1`, port and monitor port equal.
+- **Member status is health:** `OFFLINE` before a listener, then
+  `UNHEALTHY`; it never gates provisioning.
+- **Listener create:** `ACTIVE` in 11 seconds with the CIDR set and
+  timeouts `50,5,50` echoed. A TCP connection from the allowed `/32` to the
+  GLB address was accepted; the private backend stayed `UNHEALTHY`, so no
+  backend bytes returned. Backend reachability from GLB health sources is
+  unproven and stays the operator's concern.
+- **Deletes:** the listener DELETE removed it (list empty; exact GET then
+  HTTP 500). The sole-group DELETE returned 403. The pool DELETE returned
+  202 and removed the pool and its group.
+- **Billing:** no child create or delete changed cash, available balance or
+  holding. The bare GLB holds 176,000 VND, still held after its delete.
 
 ## Billing, approvals and verification
 
