@@ -184,12 +184,12 @@ func TestEndpointRefusesBearerReflectedByEarlierStep(t *testing.T) {
 }
 
 func TestEndpointInventoryPagingRules(t *testing.T) {
-	page := func(p, pages, total int, ids ...string) string {
+	page := func(p, pages, total, size int, ids ...string) string {
 		rows := make([]string, 0, len(ids))
 		for _, id := range ids {
 			rows = append(rows, epRow(id, "n-"+id, "ACTIVE", epSubnet))
 		}
-		return `{"success":true,"page":` + itoaT(p) + `,"size":1000,"totalPage":` + itoaT(pages) + `,"total":` + itoaT(total) + `,"data":[` + strings.Join(rows, ",") + `]}`
+		return `{"success":true,"page":` + itoaT(p) + `,"size":` + itoaT(size) + `,"totalPage":` + itoaT(pages) + `,"total":` + itoaT(total) + `,"data":[` + strings.Join(rows, ",") + `]}`
 	}
 	for _, tc := range []struct {
 		name string
@@ -198,28 +198,28 @@ func TestEndpointInventoryPagingRules(t *testing.T) {
 	}{
 		{"two pages", func(n int) string {
 			if n == 1 {
-				return page(1, 2, 2, epOtherID)
+				return page(1, 2, 2, 1, epOtherID)
 			}
-			return page(2, 2, 2, "enp-00000000-0000-0000-0000-0000000000c3")
+			return page(2, 2, 2, 1, "enp-00000000-0000-0000-0000-0000000000c3")
 		}, true},
 		{"total changes", func(n int) string {
 			if n == 1 {
-				return page(1, 2, 2, epOtherID)
+				return page(1, 2, 2, 1, epOtherID)
 			}
-			return page(2, 2, 3, "enp-00000000-0000-0000-0000-0000000000c3")
+			return page(2, 2, 3, 1, "enp-00000000-0000-0000-0000-0000000000c3")
 		}, false},
 		{"duplicate across pages", func(n int) string {
 			if n == 1 {
-				return page(1, 2, 2, epOtherID)
+				return page(1, 2, 2, 1, epOtherID)
 			}
-			return page(2, 2, 2, epOtherID)
+			return page(2, 2, 2, 1, epOtherID)
 		}, false},
-		{"page number wrong", func(int) string { return page(2, 1, 1, epOtherID) }, false},
+		{"page number wrong", func(int) string { return page(2, 1, 1, 1, epOtherID) }, false},
 		{"missing metadata", func(int) string { return `{"success":true,"data":[]}` }, false},
-		{"total mismatch", func(int) string { return page(1, 1, 5, epOtherID) }, false},
+		{"total mismatch", func(int) string { return page(1, 1, 5, 1, epOtherID) }, false},
 		{"empty with total", func(int) string { return `{"success":true,"page":1,"size":1000,"totalPage":0,"total":1}` }, false},
 		{"endless pages", func(n int) string {
-			return page(n, 60, 60, "enp-00000000-0000-0000-0000-"+pad12(n))
+			return page(n, 60, 60, 1, "enp-00000000-0000-0000-0000-"+pad12(n))
 		}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

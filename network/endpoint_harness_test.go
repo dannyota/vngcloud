@@ -50,6 +50,7 @@ type epFake struct {
 	listCalls                                            int
 	onCreate                                             func()
 	onDelete                                             func()
+	listStatus                                           func(n int) int
 	listDelay                                            func(n int)
 }
 
@@ -165,7 +166,11 @@ func (f *epFake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if f.listDelay != nil {
 			f.listDelay(n)
 		}
-		write(200, f.list(n))
+		status := 200
+		if f.listStatus != nil {
+			status = f.listStatus(n)
+		}
+		write(status, f.list(n))
 	case p == epBase+"/"+epID && r.Method == http.MethodDelete:
 		if f.onDelete != nil {
 			f.onDelete()

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/transport"
@@ -125,10 +126,11 @@ func (o *endpointOp) resolveOffer(ctx context.Context) (endpointOffer, error) {
 		return endpointOffer{}, err
 	}
 	packages, err := endpointRows[struct {
-		UUID        string `json:"uuid"`
-		Name        string `json:"name"`
-		ServiceName string `json:"serviceName"`
-	}](o, env, "uuid", "name", "serviceName")
+		UUID         string `json:"uuid"`
+		Name         string `json:"name"`
+		ServiceName  string `json:"serviceName"`
+		CurrencyUnit string `json:"currencyUnit"`
+	}](o, env, "uuid", "name", "serviceName", "currencyUnit")
 	if err != nil {
 		return endpointOffer{}, err
 	}
@@ -139,6 +141,9 @@ func (o *endpointOp) resolveOffer(ctx context.Context) (endpointOffer, error) {
 			offer.pkg = p.UUID
 			if p.ServiceName != endpointService {
 				return refuse("package belongs to another service")
+			}
+			if p.CurrencyUnit != "VND" {
+				return refuse("package is not priced in VND")
 			}
 		}
 	}
@@ -161,7 +166,15 @@ func (o *endpointOp) checkPlacement(ctx context.Context, offer endpointOffer, vp
 	vpcs, err := endpointScan(ctx, o, []string{"endpoints", "vpcs"}, []endpointFilter{{"status", "ACTIVE"}, {"endpointServiceId", offer.service}, {"zoneType", "AVAILABILITY"}},
 		func(raw json.RawMessage) ([]vpcRow, error) {
 			rows, err := natDecodeRows[vpcRow](o.op, raw, "uuid", "status", "projectUuid", "regionUuid")
-			return rows, endpointSafeError(o.op, err)
+			if err != nil {
+				return nil, endpointSafeError(o.op, err)
+			}
+			for _, v := range rows {
+				if !vpcPattern.MatchString(v.UUID) {
+					return nil, endpointInvalid(o.op)
+				}
+			}
+			return rows, nil
 		}, func(v vpcRow) string { return v.UUID })
 	if err != nil {
 		return err
@@ -220,8 +233,18 @@ func (o *endpointOp) inventory(ctx context.Context) ([]endpointRow, error) {
 			return nil, endpointInvalid(o.op)
 		}
 		for i := range rows {
-			rows[i].resource, rows[i].domains = fields[i]["endpointResource"], fields[i]["endpointDomains"]
-			if rows[i].EndpointName == "" || !hex24Pattern.MatchString(rows[i].EndpointServiceID) || rows[i].Status == "" || rows[i].Project.VServerProjectID != o.scope.project {
+			for key := range fields[i] {
+				for _, name := range []string{"endpointResource", "endpointDomains"} {
+					if strings.EqualFold(key, name) && key != name {
+						return nil, endpointInvalid(o.op)
+					}
+				}
+			}
+			row := &rows[i]
+			row.resource, row.domains = fields[i]["endpointResource"], fields[i]["endpointDomains"]
+			if row.EndpointName == "" || row.Status == "" || row.Project.VServerProjectID != o.scope.project || !hex24Pattern.MatchString(row.EndpointServiceID) ||
+				!endpointIDForm.MatchString(row.UUID) || !vpcPattern.MatchString(row.VPCID) || !subnetPattern.MatchString(row.Subnet.UUID) ||
+				!uuidPattern.MatchString(row.Service.UUID) || !uuidPattern.MatchString(row.PackageID.UUID) {
 				return nil, endpointInvalid(o.op)
 			}
 		}

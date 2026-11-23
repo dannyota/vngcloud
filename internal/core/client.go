@@ -42,9 +42,10 @@ type Client struct {
 	// call fails with ErrInvalidConfig instead of a nil-pointer panic.
 	err error
 
-	projectMu     transport.Gate
-	projectID     string
-	projectUserID int
+	projectMu           transport.Gate
+	projectID           string
+	configuredProjectID string
+	projectUserID       int
 
 	storageTestClock func() time.Time
 }
@@ -172,6 +173,7 @@ func buildClient(settings clientConfig) (*Client, error) {
 		region:               settings.region,
 		vnetworkOverride:     settings.endpoints.VNetwork != "",
 		projectID:            settings.projectID,
+		configuredProjectID:  settings.projectID,
 		cdnAPIKey:            settings.cdnAPIKey,
 		endpoints:            resolvedEndpoints,
 		transport:            tc,
@@ -208,6 +210,10 @@ func (s staticTokenSource) Invalidate(string) {}
 func (c *Client) Region() string {
 	return c.region
 }
+
+// ConfiguredProjectID returns the project ID the caller configured, never one
+// discovered later.
+func (c *Client) ConfiguredProjectID() string { return c.configuredProjectID }
 
 // ProjectID returns the cached project ID without discovery.
 func (c *Client) ProjectID() string {

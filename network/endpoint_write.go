@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/transport"
@@ -62,7 +63,7 @@ func checkEndpointCreateInput(op string, in *CreateEndpointInput) error {
 	if math.IsNaN(in.MaxPrice) || math.IsInf(in.MaxPrice, 0) || in.MaxPrice < 0 {
 		return fmt.Errorf("%w: %s requires finite nonnegative MaxPrice", core.ErrInvalidInput, op)
 	}
-	if strings.TrimSpace(in.Name) == "" || strings.ContainsFunc(in.Name, unicode.IsControl) {
+	if !utf8.ValidString(in.Name) || strings.TrimSpace(in.Name) == "" || strings.ContainsFunc(in.Name, unicode.IsControl) {
 		return fmt.Errorf("%w: %s requires a nonblank Name without control characters", core.ErrInvalidInput, op)
 	}
 	if err := checkEndpointForm(op, "VPCID", in.VPCID, "net-<uuid>", vpcPattern); err != nil {
@@ -184,11 +185,8 @@ func (c *Client) CreateEndpoint(ctx context.Context, in *CreateEndpointInput) (*
 		return nil, fmt.Errorf("%w: %s: quote %.0f VND exceeds MaxPrice %.0f VND", core.ErrPriceAboveMax, op, amount, in.MaxPrice)
 	}
 	out := &CreateEndpointOutput{MonthlyPrice: amount, Currency: "VND"}
-	deadline := c.now().Add(15 * time.Minute)
-	waitCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
-	defer cancel()
 	code := 0
-	env, notSent, err := o.send(waitCtx, transport.Request{Method: http.MethodPost, URL: o.route("vnetwork/v1", []string{"endpoints"}, nil), Body: endpointCreateBody{endpointQuoteBody: endpointQuoteRequest(s.info), TagDetails: []struct{}{}}, OK: []int{http.StatusCreated}, Once: true}, &code)
+	env, notSent, err := o.send(ctx, transport.Request{Method: http.MethodPost, URL: o.route("vnetwork/v1", []string{"endpoints"}, nil), Body: endpointCreateBody{endpointQuoteBody: endpointQuoteRequest(s.info), TagDetails: []struct{}{}}, OK: []int{http.StatusCreated}, Once: true}, &code)
 	if err != nil {
 		if (notSent != nil && *notSent) || endpointDefiniteRefusal(err) {
 			return nil, err
@@ -203,6 +201,9 @@ func (c *Client) CreateEndpoint(ctx context.Context, in *CreateEndpointInput) (*
 		return out, endpointUnsettled(op, endpointInvalid(op))
 	}
 	out.EndpointID = accepted.UUID
+	deadline := c.now().Add(15 * time.Minute)
+	waitCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
+	defer cancel()
 	if err := o.waitCreate(waitCtx, s, baseline, out, deadline); err != nil {
 		return out, err
 	}
@@ -270,18 +271,18 @@ func (c *Client) DeleteEndpoint(ctx context.Context, in *DeleteEndpointInput) (*
 		return nil, err
 	}
 	out := &DeleteEndpointOutput{EndpointID: in.EndpointID}
-	deadline := c.now().Add(10 * time.Minute)
-	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
-	defer cancel()
 	code := 0
 	body := endpointDeleteBody{EndpointUUID: in.EndpointID, VPCUUID: in.VPCID, EndpointServiceUUID: row.Service.UUID, RegionUUID: o.scope.zone, ProjectUUID: o.scope.project}
-	_, notSent, err := o.send(waitCtx, transport.Request{Method: http.MethodDelete, URL: o.route("vnetwork/v1", []string{"endpoints", in.EndpointID}, nil), Body: body, OK: []int{http.StatusOK}, Once: true}, &code)
+	_, notSent, err := o.send(ctx, transport.Request{Method: http.MethodDelete, URL: o.route("vnetwork/v1", []string{"endpoints", in.EndpointID}, nil), Body: body, OK: []int{http.StatusOK}, Once: true}, &code)
 	if err != nil {
 		if (notSent != nil && *notSent) || endpointDefiniteRefusal(err) {
 			return nil, err
 		}
 		return out, endpointUnsettled(op, err)
 	}
+	deadline := c.now().Add(10 * time.Minute)
+	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
 	if err := o.waitDelete(waitCtx, in.EndpointID, deadline); err != nil {
 		return out, err
 	}

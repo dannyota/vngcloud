@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"reflect"
 	"regexp"
+	"slices"
+	"strings"
 	"time"
 
 	"danny.vn/vngcloud/internal/core"
@@ -27,8 +29,8 @@ const (
 )
 
 var (
-	uuidPart       = `[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`
-	hex24Pattern   = regexp.MustCompile(`^[0-9a-fA-F]{24}$`)
+	uuidPart       = `[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`
+	hex24Pattern   = regexp.MustCompile(`^[0-9a-f]{24}$`)
 	uuidPattern    = regexp.MustCompile(`^` + uuidPart + `$`)
 	projectPattern = regexp.MustCompile(`^pro-` + uuidPart + `$`)
 	vpcPattern     = regexp.MustCompile(`^net-` + uuidPart + `$`)
@@ -50,10 +52,20 @@ func endpointUnsettled(op string, causes ...error) error {
 	safe := []error{ErrNotSettled}
 	for _, cause := range causes {
 		if cause != nil {
-			safe = append(safe, endpointSafeError(op, cause))
+			safe = append(safe, withoutNotFound(endpointSafeError(op, cause)))
 		}
 	}
 	return &endpointUnsettledError{op: op, cause: errors.Join(safe...)}
+}
+
+func withoutNotFound(err error) error {
+	var api *core.APIError
+	if errors.As(err, &api) && errors.Is(api.Err, core.ErrNotFound) {
+		stripped := *api
+		stripped.Err = nil
+		return &stripped
+	}
+	return err
 }
 
 func endpointInvalid(op string) error {
@@ -71,26 +83,30 @@ func endpointSafeError(op string, err error) error {
 	}
 	var api *core.APIError
 	if errors.As(err, &api) {
-		if api.Code == "InvalidResponse" {
+		if api.Code == "InvalidResponse" && api.StatusCode < 400 {
 			return endpointInvalid(op)
 		}
-		var cause error
-		switch api.StatusCode {
-		case 401:
-			cause = core.ErrAuth
-		case 403:
-			cause = core.ErrPermission
-		case 404:
-			cause = core.ErrNotFound
-		case 429:
-			cause = core.ErrRateLimited
-		}
-		return &core.APIError{Operation: op, StatusCode: api.StatusCode, Code: core.ResolvedCode(api.StatusCode, ""), Message: "endpoint response withheld", Retryable: api.Retryable, Err: cause}
+		return endpointStatusError(op, api.StatusCode, api.Retryable)
 	}
 	if errors.Is(err, core.ErrAuth) {
 		return fmt.Errorf("%s: %w", op, core.ErrAuth)
 	}
 	return &core.APIError{Operation: op, Message: "endpoint request failed"}
+}
+
+func endpointStatusError(op string, status int, retryable bool) error {
+	var cause error
+	switch status {
+	case 401:
+		cause = core.ErrAuth
+	case 403:
+		cause = core.ErrPermission
+	case 404:
+		cause = core.ErrNotFound
+	case 429:
+		cause = core.ErrRateLimited
+	}
+	return &core.APIError{Operation: op, StatusCode: status, Code: core.ResolvedCode(status, ""), Message: "endpoint response withheld", Retryable: retryable, Err: cause}
 }
 
 func endpointDefiniteRefusal(err error) bool {
@@ -114,21 +130,59 @@ type endpointOp struct {
 	scope natScope
 }
 
+func (o *endpointOp) carriesCredential(req transport.Request) bool {
+	var body []byte
+	if req.Body != nil {
+		body, _ = json.Marshal(req.Body)
+	}
+	for _, credential := range o.creds {
+		if credential != "" && (strings.Contains(req.URL, credential) || (body != nil && natReflectsCredential(body, credential))) {
+			return true
+		}
+	}
+	return false
+}
+
 func (o *endpointOp) raw(ctx context.Context, req transport.Request) (json.RawMessage, *bool, error) {
 	req.Operation = o.op
 	req.Sensitive = true
 	req.NoRedirect = true
+	req.KeepObservedStatus = true
 	req.MaxBody = natMaxBody
 	req.WithholdMessage = "endpoint response withheld"
 	var sent []string
 	req.SentCredentials = &sent
 	notSent := false
 	req.NotSent = &notSent
+	carries := func() error {
+		notSent = true
+		return fmt.Errorf("%w: %s: the request would carry a credential", core.ErrInvalidInput, o.op)
+	}
+	if o.carriesCredential(req) {
+		return nil, &notSent, carries()
+	}
+	blocked := false
+	ctx = transport.WithCredentialObserver(ctx, func(credential string) ([]string, error) {
+		o.creds = appendDistinct(o.creds, credential)
+		if credential != "" && o.carriesCredential(req) {
+			blocked = true
+			return nil, errors.New("credential in request")
+		}
+		return o.creds, nil
+	})
 	var raw json.RawMessage
 	status, err := o.c.c.DoJSONStatus(ctx, req, &raw)
-	o.creds = append(o.creds, sent...)
+	o.creds = appendDistinct(o.creds, sent...)
+	if blocked {
+		return nil, &notSent, carries()
+	}
 	if err != nil {
-		if errors.Is(err, transport.ErrBodyTooLarge) || (status > 0 && status < 300) {
+		var api *core.APIError
+		retryable := errors.As(err, &api) && api.Retryable
+		switch {
+		case status >= 400:
+			return nil, &notSent, endpointStatusError(o.op, status, retryable)
+		case errors.Is(err, transport.ErrBodyTooLarge) || (status > 0 && status < 300):
 			return nil, &notSent, endpointInvalid(o.op)
 		}
 		return nil, &notSent, endpointSafeError(o.op, err)
@@ -161,11 +215,7 @@ func (o *endpointOp) route(version string, parts []string, query url.Values) str
 }
 
 func (o *endpointOp) discoverScope(ctx context.Context) error {
-	configured, err := o.c.c.ProjectIDContext(ctx)
-	if err != nil {
-		return endpointSafeError(o.op, err)
-	}
-	project, err := o.project(ctx, configured)
+	project, err := o.project(ctx, o.c.c.ConfiguredProjectID())
 	if err != nil {
 		return err
 	}
@@ -291,6 +341,9 @@ func endpointScan[T any](ctx context.Context, o *endpointOp, parts []string, sea
 		}
 		if page == 1 {
 			total, pages, size = *env.Total, *env.TotalPage, *env.Size
+			if pages != (total+size-1)/size {
+				return nil, endpointInvalid(o.op)
+			}
 		} else if total != *env.Total || pages != *env.TotalPage || size != *env.Size {
 			return nil, endpointInvalid(o.op)
 		}
@@ -302,7 +355,14 @@ func endpointScan[T any](ctx context.Context, o *endpointOp, parts []string, sea
 		} else if rows, err = decode(env.Data); err != nil {
 			return nil, err
 		}
-		if len(rows) > size || (total == 0 && (len(rows) != 0 || pages != 0)) || (total > 0 && (pages == 0 || len(rows) == 0)) {
+		expected := size
+		if page == pages {
+			expected = total - size*(pages-1)
+		}
+		if total == 0 {
+			expected = 0
+		}
+		if len(rows) != expected {
 			return nil, endpointInvalid(o.op)
 		}
 		for _, row := range rows {
@@ -324,4 +384,13 @@ func endpointScan[T any](ctx context.Context, o *endpointOp, parts []string, sea
 		}
 	}
 	return nil, endpointInvalid(o.op)
+}
+
+func appendDistinct(dst []string, add ...string) []string {
+	for _, value := range add {
+		if value != "" && !slices.Contains(dst, value) {
+			dst = append(dst, value)
+		}
+	}
+	return dst
 }
