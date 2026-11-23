@@ -306,7 +306,7 @@ func (c *Client) natProjectID(ctx context.Context, op string) (string, error) {
 			Region string `json:"region"`
 		} `json:"projects"`
 	}
-	if decodeNATEnvelope(raw, &wire, reflect.TypeFor[struct{}]()) != nil || wire.Projects == nil || checkNATNulls(raw, reflect.TypeOf(wire)) != nil {
+	if decodeNATEnvelope(raw, &wire, reflect.TypeFor[struct{}]()) != nil || wire.Projects == nil || checkNATNulls(raw, reflect.TypeOf(wire)) != nil || core.ProjectInventoryPaginated(raw) {
 		return "", natInvalid(op)
 	}
 	id = ""

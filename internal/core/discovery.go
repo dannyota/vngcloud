@@ -88,10 +88,8 @@ func decodeDiscoveryProjects(op string, status int, raw json.RawMessage) ([]Proj
 	if !ok || string(list) == "null" {
 		return nil, discoverySchemaError(op, status)
 	}
-	for _, key := range []string{"page", "pageSize", "paging", "pagination", "totalPage", "totalPages", "next", "nextPage", "isNext", "hasMore", "continuationToken"} {
-		if _, ok := envelope[key]; ok {
-			return nil, discoverySchemaError(op, status)
-		}
+	if ProjectInventoryPaginated(raw) {
+		return nil, discoverySchemaError(op, status)
 	}
 	var projects []Project
 	if json.Unmarshal(list, &projects) != nil {
@@ -105,6 +103,20 @@ func decodeDiscoveryProjects(op string, status int, raw json.RawMessage) ([]Proj
 		seen[p.ID] = true
 	}
 	return projects, nil
+}
+
+//nolint:revive
+func ProjectInventoryPaginated(raw json.RawMessage) bool {
+	var envelope map[string]json.RawMessage
+	if json.Unmarshal(raw, &envelope) != nil || envelope == nil {
+		return true
+	}
+	for _, key := range []string{"page", "pageSize", "paging", "pagination", "totalPage", "totalPages", "next", "nextPage", "isNext", "hasMore", "continuationToken"} {
+		if _, ok := envelope[key]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func discoverySchemaError(op string, status int) error {

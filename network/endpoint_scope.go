@@ -247,7 +247,7 @@ func (o *endpointOp) project(ctx context.Context, configured string) (string, er
 			Region string `json:"region"`
 		} `json:"projects"`
 	}
-	if decodeNATEnvelope(raw, &wire, reflect.TypeFor[struct{}]()) != nil || wire.Projects == nil || checkNATNulls(raw, reflect.TypeOf(wire)) != nil {
+	if decodeNATEnvelope(raw, &wire, reflect.TypeFor[struct{}]()) != nil || wire.Projects == nil || checkNATNulls(raw, reflect.TypeOf(wire)) != nil || core.ProjectInventoryPaginated(raw) {
 		return "", endpointInvalid(o.op)
 	}
 	id := ""

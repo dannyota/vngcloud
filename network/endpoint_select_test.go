@@ -64,6 +64,9 @@ func TestEndpointSelectionRefusals(t *testing.T) {
 		{"subnet absent", func(f *epFake) {
 			f.subnets = r(`"uuid":"`+epSubnet, `"uuid":"sub-00000000-0000-0000-0000-0000000000ff`).Replace(f.subnets)
 		}},
+		{"project paginated", func(f *epFake) {
+			f.projects = `{"projects":[{"projectId":"` + epProject + `","region":"hcm-3"}],"nextPage":1}`
+		}},
 		{"project discovery empty", func(f *epFake) { f.projects = `{"projects":[]}` }},
 		{"project ambiguous", func(f *epFake) {
 			f.projects = `{"projects":[{"projectId":"` + epProject + `","region":"hcm-3"},{"projectId":"pro-00000000-0000-0000-0000-0000000000ff","region":"hcm-3"}]}`

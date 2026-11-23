@@ -48,6 +48,25 @@ func natWriteTestClient(t *testing.T, h http.Handler, opts ...vngcloud.LoadOptio
 	c.sleep = func(ctx context.Context, d time.Duration) error { now = now.Add(d); return ctx.Err() }
 	return c
 }
+func TestNATCreateRejectsPaginatedProjectInventory(t *testing.T) {
+	s := &natScenario{}
+	writes := 0
+	c := natWriteTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/projects" {
+			_, _ = w.Write([]byte(`{"projects":[{"projectId":"pro-00000000-0000-0000-0000-000000000001","region":"han-1"}],"nextPage":1}`))
+			return
+		}
+		if r.Method != http.MethodGet {
+			writes++
+		}
+		s.serve(t, w, r)
+	}), vngcloud.WithProjectID(""))
+	out, err := c.CreateNATInstance(context.Background(), natTestInput())
+	if err == nil || out != nil || writes != 0 {
+		t.Fatalf("out=%v err=%v writes=%d", out, err, writes)
+	}
+}
+
 func natTestInput() *CreateNATInstanceInput {
 	return &CreateNATInstanceInput{Name: "example", ZoneID: "66b500000000000000000001", AvailabilityZoneID: "HAN01-1B", PackageID: "package-1", VPCID: "vpc-1", MaxPrice: 100}
 }

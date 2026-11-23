@@ -217,12 +217,11 @@ func TestLoadConfigProjectIDRegionPrecedence(t *testing.T) {
 			t.Setenv("VNGCLOUD_REGION", tc.envRegion)
 			t.Setenv("VNGCLOUD_PROJECT_ID", tc.envProject)
 			calls := 0
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			rt := serviceAccountRoundTripper(func(r *http.Request) (*http.Response, error) {
 				calls++
-				_, _ = w.Write([]byte(`{"projects":[{"projectId":"discovered-project","region":"han-1"}]}`))
-			}))
-			defer server.Close()
-			cfg, err := LoadConfig(context.Background(), WithStaticToken("tok"), WithRegion(tc.optionRegion), WithProjectID(tc.optionProject), WithEndpointOverrides(EndpointOverrides{VServer: server.URL}))
+				return serviceAccountResponse(http.StatusOK, `{"projects":[{"projectId":"discovered-project","region":"han-1"}]}`), nil
+			})
+			cfg, err := LoadConfig(context.Background(), WithStaticToken("tok"), WithRegion(tc.optionRegion), WithProjectID(tc.optionProject), WithHTTPClient(&http.Client{Transport: rt}))
 			if err != nil {
 				t.Fatal(err)
 			}
