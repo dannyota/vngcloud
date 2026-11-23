@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"danny.vn/vngcloud"
@@ -57,21 +56,19 @@ func showVolume(ctx context.Context, cfg vngcloud.Config, outputs *sdkOutputStor
 			}
 		}
 	}
-	var defaultType *volume.VolumeType
-	var defaultErr error
 	switch {
 	case zonesErr != nil:
-		defaultErr = fmt.Errorf("default volume type skipped: portal zones: %w", zonesErr)
+		fmt.Println("default volume type: skipped (portal zone lookup failed)")
 	case zoneID == "":
-		defaultErr = errors.New("default volume type skipped: no enabled portal zone with a zone ID")
+		fmt.Println("default volume type: skipped (no enabled portal zone with a zone ID)")
 	default:
 		out, callErr := volumeClient.GetDefaultVolumeType(ctx, &volume.GetDefaultVolumeTypeInput{ZoneID: zoneID})
-		defaultErr = callErr
+		var defaultType *volume.VolumeType
 		if out != nil {
 			defaultType = &out.VolumeType
 		}
+		recordOne(outputs, cfg, "volume/default_type", "default volume type", defaultType, callErr)
 	}
-	recordOne(outputs, cfg, "volume/default_type", "default volume type", defaultType, defaultErr)
 
 	typesOut, err := volumeClient.ListVolumeTypes(ctx, nil)
 	types := []volume.VolumeType(nil)

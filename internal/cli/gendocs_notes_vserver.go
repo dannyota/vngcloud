@@ -196,9 +196,9 @@ const computeListFlavorsNote = "Set exactly one of --flavor-zone-id and --zone-i
 	"with the SDK's message before any request. --flavor-zone-id makes one request. --zone-id (a network zone, " +
 	"from portal list-zones) first lists that zone's flavor zones, then lists the flavors of each, one at a " +
 	"time: 1+N requests for N flavor zones. --name keeps only flavors whose Name equals it exactly, case " +
-	"included; use --query with contains() for a partial match. Rows follow the flavor zone order, and each " +
-	"row's FlavorZoneID identifies the flavor zone used for its request, in the same form as --zone-id, " +
-	"for example HCM03-1B. The provider's ZoneID is an internal zone UUID; if omitted by the API, " +
+	"included; use --query with contains() for a partial match. Rows follow the flavor zone order. " +
+	"FlavorZoneID distinguishes flavor zones; the SDK preserves the API's value and fills an empty value " +
+	"from the flavor zone used for that request. The provider's ZoneID is an internal zone UUID; if omitted by the API, " +
 	"the SDK fills ZoneID from --zone-id; with only --flavor-zone-id, it stays empty. Sold-out flavors " +
 	"stay listed with IsSoldOut true; drop them with --query \"Items[?!IsSoldOut]\".\n\n" + idsForCreateServerLink
 
