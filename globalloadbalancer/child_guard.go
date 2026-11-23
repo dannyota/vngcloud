@@ -32,9 +32,7 @@ func (r *run) project(ctx context.Context, requested string) (string, error) {
 	if err := validID(r.op, "BackendProjectID", requested); err != nil {
 		return "", err
 	}
-	var sent []string
-	project, err := r.c.c.RequireProjectID(core.WithCredentialSink(ctx, &sent))
-	r.remember(sent)
+	project, err := r.c.c.RequireProjectID(r.guard(ctx))
 	if err != nil {
 		return "", err
 	}

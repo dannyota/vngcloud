@@ -108,6 +108,20 @@ func finishOutput[T any](r *run, out *T, err error) (*T, error) {
 	return out, err
 }
 
+var errTaintedRequest = errors.New("a request value contains a credential")
+
+func (r *run) guard(ctx context.Context, texts ...string) context.Context {
+	return transport.WithCredentialObserver(ctx, func(credential string) ([]string, error) {
+		if credential != "" {
+			r.remember([]string{credential})
+		}
+		if r.tainted(texts...) {
+			return nil, errTaintedRequest
+		}
+		return slices.Clone(r.creds), nil
+	})
+}
+
 func (r *run) remember(sent []string) {
 	for _, s := range sent {
 		if !slices.Contains(r.creds, s) {
@@ -128,17 +142,17 @@ func (r *run) get(ctx context.Context, url string, out any) error {
 	var sent []string
 	r.internalError = false
 	observe := func(status int, body []byte) {
-		var e struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
-		}
-		r.internalError = status == http.StatusInternalServerError && jsonresponse.ValidateStrict(body, &e) == nil && json.Unmarshal(body, &e) == nil && e.Code == "internal_error"
+		r.internalError = status == http.StatusInternalServerError && internalErrorEnvelope(body)
 	}
 	if r.tainted(url) {
 		return refuse("a request value contains a credential")
 	}
+	ctx = r.guard(ctx, url)
 	err := r.c.c.DoJSON(ctx, transport.Request{Operation: r.op, Method: http.MethodGet, URL: url, OK: []int{200}, NoRedirect: true, StrictJSON: true, Sensitive: true, WithholdMessage: wireProviderText, SentCredentials: &sent, ObserveErrorBody: observe}, &raw)
 	r.remember(sent)
+	if errors.Is(err, errTaintedRequest) {
+		return refuse(errTaintedRequest.Error())
+	}
 	if err != nil {
 		var api *vngcloud.APIError
 		if errors.As(err, &api) && api.StatusCode < 400 {
@@ -154,15 +168,20 @@ func (r *run) send(ctx context.Context, method, url string, body any, accept *js
 	if accept != nil {
 		dst = accept
 	}
-	if encoded, err := json.Marshal(body); err != nil || r.tainted(url, string(encoded)) {
+	encoded, err := json.Marshal(body)
+	if err != nil || r.tainted(url, string(encoded)) {
 		return refuse("a request value contains a credential")
 	}
+	ctx = r.guard(ctx, url, string(encoded))
 	notSent := false
 	var sent []string
-	err := r.c.c.DoJSON(ctx, transport.Request{Operation: r.op, Method: method, URL: url, Body: body, OK: []int{200, 202}, Once: true, NoRedirect: true, StrictJSON: accept != nil, Sensitive: true, KeepObservedStatus: true, WithholdMessage: wireProviderText, NotSent: &notSent, SentCredentials: &sent}, dst)
+	err = r.c.c.DoJSON(ctx, transport.Request{Operation: r.op, Method: method, URL: url, Body: body, OK: []int{200, 202}, Once: true, NoRedirect: true, StrictJSON: accept != nil, Sensitive: true, KeepObservedStatus: true, WithholdMessage: wireProviderText, NotSent: &notSent, SentCredentials: &sent}, dst)
 	r.remember(sent)
 	if err == nil {
 		return nil
+	}
+	if errors.Is(err, errTaintedRequest) {
+		return refuse(errTaintedRequest.Error())
 	}
 	if definitiveWriteError(err, notSent) {
 		return sanitizeChildError(err)
@@ -241,10 +260,30 @@ func (r *run) listener(ctx context.Context, glb, id string) (wireListener, error
 }
 
 func validIDs[T interface{ rowID() string }](rows []T) bool {
+	seen := make(map[string]bool, len(rows))
 	for _, row := range rows {
-		if core.CheckPathID("", "", row.rowID()) != nil {
+		id := row.rowID()
+		if core.CheckPathID("", "", id) != nil || seen[id] {
+			return false
+		}
+		seen[id] = true
+	}
+	return true
+}
+
+func internalErrorEnvelope(body []byte) bool {
+	if jsonresponse.Validate(body) != nil {
+		return false
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(body, &fields) != nil {
+		return false
+	}
+	for key := range fields {
+		if key != "code" && strings.EqualFold(key, "code") {
 			return false
 		}
 	}
-	return true
+	var code string
+	return json.Unmarshal(fields["code"], &code) == nil && code == "internal_error"
 }

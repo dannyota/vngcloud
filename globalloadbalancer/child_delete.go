@@ -53,23 +53,18 @@ func (p deletePlan) execute(ctx context.Context) error {
 	}
 }
 
-func (c *Client) deletePrelude(ctx context.Context, op, glb string, ids map[string]string) (*run, error) {
+func (c *Client) deletePrelude(ctx context.Context, r *run, glb string, ids map[string]string) error {
 	for field, value := range ids {
-		if err := validID(op, field, value); err != nil {
-			return nil, err
+		if err := validID(r.op, field, value); err != nil {
+			return err
 		}
 	}
 	if err := c.childProvenance(); err != nil {
-		return nil, err
+		return err
 	}
-	r := c.newRun(op)
-	if _, err := r.parent(ctx, glb); err != nil {
-		return nil, err
-	}
-	return r, nil
+	_, err := r.parent(ctx, glb)
+	return err
 }
-
-func unsettled(err error) bool { return errors.Is(err, ErrNotSettled) }
 
 func (r *run) inPool(ctx context.Context, glb, poolID string) (wirePool, error) {
 	pools, err := r.pools(ctx, glb)
@@ -107,11 +102,17 @@ func (r *run) survivors(ctx context.Context, glb, poolID string) error {
 // and confirms its absence. It never deletes the pool. See
 // docs/design/glb-pool.md.
 func (c *Client) DeleteListener(ctx context.Context, in *DeleteListenerInput) (*DeleteListenerOutput, error) {
+	r := c.newRun("globalloadbalancer.DeleteListener")
+	out, err := c.delListener(ctx, r, in)
+	return finishOutput(r, out, err)
+}
+
+func (c *Client) delListener(ctx context.Context, r *run, in *DeleteListenerInput) (*DeleteListenerOutput, error) {
 	const op = "globalloadbalancer.DeleteListener"
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
 	}
-	r, err := c.deletePrelude(ctx, op, in.LoadBalancerID, map[string]string{"LoadBalancerID": in.LoadBalancerID, "ListenerID": in.ListenerID})
+	err := c.deletePrelude(ctx, r, in.LoadBalancerID, map[string]string{"LoadBalancerID": in.LoadBalancerID, "ListenerID": in.ListenerID})
 	if err != nil {
 		return nil, err
 	}
@@ -169,11 +170,17 @@ func (c *Client) DeleteListener(ctx context.Context, in *DeleteListenerInput) (*
 // member group and backend row, never the vServer, and confirms the pool's
 // absence. See docs/design/glb-pool.md.
 func (c *Client) DeletePool(ctx context.Context, in *DeletePoolInput) (*DeletePoolOutput, error) {
+	r := c.newRun("globalloadbalancer.DeletePool")
+	out, err := c.delPool(ctx, r, in)
+	return finishOutput(r, out, err)
+}
+
+func (c *Client) delPool(ctx context.Context, r *run, in *DeletePoolInput) (*DeletePoolOutput, error) {
 	const op = "globalloadbalancer.DeletePool"
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
 	}
-	r, err := c.deletePrelude(ctx, op, in.LoadBalancerID, map[string]string{"LoadBalancerID": in.LoadBalancerID, "PoolID": in.PoolID})
+	err := c.deletePrelude(ctx, r, in.LoadBalancerID, map[string]string{"LoadBalancerID": in.LoadBalancerID, "PoolID": in.PoolID})
 	if err != nil {
 		return nil, err
 	}
@@ -245,3 +252,5 @@ func finishDelete[T any](out *T, err error) (*T, error) {
 func poolStable(p wirePool) bool {
 	return deleteEligible(p.Status) && p.Health != nil && deleteEligible(p.Health.Status)
 }
+
+func unsettled(err error) bool { return errors.Is(err, ErrNotSettled) }

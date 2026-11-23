@@ -15,7 +15,7 @@ import (
 	"danny.vn/vngcloud"
 )
 
-func newRotatingClient(t *testing.T, handler http.Handler) *Client {
+func newRotatingClient(t *testing.T, handler http.Handler, tokenFor func(int64) string, extra ...vngcloud.LoadOption) *Client {
 	t.Helper()
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
@@ -39,11 +39,16 @@ func newRotatingClient(t *testing.T, handler http.Handler) *Client {
 			w.Header().Set("Location", "https://dashboard.console.greennode.ai/?code=synthetic")
 			w.WriteHeader(http.StatusFound)
 		default:
-			_, _ = fmt.Fprintf(w, `{"accessToken":"tok-%d","expiresIn":31}`, tokens.Add(1))
+			n := tokens.Add(1)
+			token := fmt.Sprintf("tok-%d", n)
+			if tokenFor != nil {
+				token = tokenFor(n)
+			}
+			_, _ = fmt.Fprintf(w, `{"accessToken":%q,"expiresIn":31}`, token)
 		}
 		return w.Result(), nil
 	})
-	cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("hcm-3"), vngcloud.WithIAMUser(&vngcloud.IAMUserAuth{RootEmail: "root", Username: "user", Password: "synthetic", HTTPClient: &http.Client{Transport: auth}}), vngcloud.WithTransport(api), vngcloud.WithRetry(0, 0))
+	cfg, err := vngcloud.NewConfig(append([]vngcloud.LoadOption{vngcloud.WithRegion("hcm-3"), vngcloud.WithIAMUser(&vngcloud.IAMUserAuth{RootEmail: "root", Username: "user", Password: "synthetic", HTTPClient: &http.Client{Transport: auth}}), vngcloud.WithTransport(api), vngcloud.WithRetry(0, 0)}, extra...)...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,14 +66,14 @@ func TestDiscoveryBearerIsScreenedAfterRotation(t *testing.T) {
 	f := newFixture(t)
 	f.on("GET /vserver/iam-vserver-gateway/v1/projects", slowProjects)
 	f.on("GET "+glbPrefix, jsonBody(`{"id":"glb-1","package":"pkg-1","type":"Layer 4","status":"ACTIVE","note":"tok-1"}`))
-	_, err := newRotatingClient(t, f).CreatePool(bg(), poolInput())
+	_, err := newRotatingClient(t, f, nil).CreatePool(bg(), poolInput())
 	var api *vngcloud.APIError
 	if !errors.As(err, &api) || api.Code != "InvalidResponse" || f.writes() != 0 || strings.Contains(err.Error(), "tok-") {
 		t.Fatalf("err=%v calls=%v", err, f.calls)
 	}
 	f = newFixture(t)
 	f.on("GET /vserver/iam-vserver-gateway/v1/projects", slowProjects)
-	if _, err := newRotatingClient(t, f).CreatePool(bg(), poolInput()); err != nil {
+	if _, err := newRotatingClient(t, f, nil).CreatePool(bg(), poolInput()); err != nil {
 		t.Fatalf("clean rotation err=%v", err)
 	}
 }
@@ -272,5 +277,100 @@ func TestPartialOutputHoldsIDsOnly(t *testing.T) {
 	lout, err = g.client(t).CreateListener(bg(), listenerInput())
 	if !errors.Is(err, ErrFailed) || lout.Listener.ID != fxListener || lout.Listener.Status != "" {
 		t.Fatalf("failed listener create out=%+v", lout)
+	}
+}
+
+func TestRotatedBearerNeverRidesAHeldValue(t *testing.T) {
+	f := newFixture(t).withChildren()
+	var carried atomic.Int64
+	f.pool, f.group, f.listener = true, true, false
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path+r.URL.RawQuery, "gpool-1") && r.Header.Get("Authorization") == "Bearer gpool-1" {
+			carried.Add(1)
+		}
+		if r.Method == http.MethodGet && r.URL.Path == glbPrefix+"/global-listeners" {
+			time.Sleep(1100 * time.Millisecond)
+		}
+		f.ServeHTTP(w, r)
+	})
+	tokens := func(n int64) string {
+		if n == 1 {
+			return "tok-1"
+		}
+		return "gpool-1"
+	}
+	c := newRotatingClient(t, h, tokens, vngcloud.WithProjectID(fxProject))
+	out, err := c.DeletePool(bg(), &DeletePoolInput{LoadBalancerID: fxGLB, PoolID: fxPool})
+	if err == nil || carried.Load() != 0 || f.writes() != 0 || (out != nil && out.Deleted) {
+		t.Fatalf("out=%+v err=%v carried=%d calls=%v", out, err, carried.Load(), f.calls)
+	}
+}
+
+func TestDeleteOutputsAreScreened(t *testing.T) {
+	r := newFixture(t).client(t).newRun("op")
+	r.creds = []string{"glis-1"}
+	out, err := finishOutput(r, &DeleteListenerOutput{LoadBalancerID: fxGLB, ListenerID: "glis-1"}, nil)
+	if out != nil || !errors.Is(err, ErrNotSettled) {
+		t.Fatalf("out=%+v err=%v", out, err)
+	}
+}
+
+func TestDeleteAbsenceRejectsDuplicateRowsAndWrongKeyCase(t *testing.T) {
+	for _, tc := range deleteCases() {
+		exact, collection, _ := deleteKeys(tc.name)
+		after := func(f *fixture, h httpHandlerFunc) httpHandlerFunc {
+			return func(w httpResponseWriter, r *httpRequest) {
+				if f.count(tc.key) == 0 {
+					f.defaults(w, r.Method+" "+r.URL.Path)
+					return
+				}
+				h(w, r)
+			}
+		}
+		t.Run(tc.name+": duplicate rows", func(t *testing.T) {
+			f := newFixture(t)
+			tc.setup(f)
+			f.on(exact, after(f, status(404)))
+			f.on(collection, after(f, jsonBody(`[{"id":"other"},{"id":"other"}]`)))
+			deleted, _, err := tc.call(bg(), f.client(t))
+			if deleted || !errors.Is(err, ErrNotSettled) {
+				t.Fatalf("deleted=%v err=%v", deleted, err)
+			}
+		})
+		t.Run(tc.name+": capital Code", func(t *testing.T) {
+			f := newFixture(t)
+			tc.setup(f)
+			f.on(exact, after(f, func(w httpResponseWriter, _ *httpRequest) {
+				w.WriteHeader(500)
+				_, _ = w.Write([]byte(`{"Code":"internal_error"}`))
+			}))
+			deleted, _, err := tc.call(bg(), f.client(t))
+			if deleted || !errors.Is(err, ErrNotSettled) {
+				t.Fatalf("deleted=%v err=%v", deleted, err)
+			}
+		})
+	}
+}
+
+func TestGroupListErrorNeverProvesPoolAbsence(t *testing.T) {
+	f := newFixture(t)
+	f.pool, f.group = true, true
+	after := func(h httpHandlerFunc) httpHandlerFunc {
+		return func(w httpResponseWriter, r *httpRequest) {
+			if f.count("DELETE ") == 0 {
+				f.defaults(w, r.Method+" "+r.URL.Path)
+				return
+			}
+			h(w, r)
+		}
+	}
+	f.on("GET "+glbPrefix+"/global-pools/"+fxPool, after(status(404)))
+	f.on("GET "+glbPrefix+"/global-pools", after(jsonBody(`[{"id":"gpool-1"}]`)))
+	f.on("GET "+glbPrefix+"/global-pools/"+fxPool+"/pool-members", after(status(404)))
+	ctx, cancel := context.WithTimeout(bg(), 100*time.Millisecond)
+	defer cancel()
+	out, err := f.client(t).DeletePool(ctx, &DeletePoolInput{LoadBalancerID: fxGLB, PoolID: fxPool})
+	if !errors.Is(err, ErrNotSettled) || out == nil || out.Deleted {
+		t.Fatalf("out=%+v err=%v", out, err)
 	}
 }
