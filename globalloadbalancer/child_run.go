@@ -31,6 +31,9 @@ type run struct {
 func (c *Client) newRun(op string) *run { return &run{c: c, op: op} }
 
 func (c *Client) childProvenance() error {
+	if c.c.Region() != "hcm-3" {
+		return fmt.Errorf("%w: GLB child writes support only hcm-3", core.ErrInvalidConfig)
+	}
 	if err := c.writeProvenance(); err != nil {
 		return err
 	}
@@ -82,6 +85,29 @@ func leaksDecoded(raw []byte, secrets []string) bool {
 	}
 }
 
+func (r *run) tainted(texts ...string) bool {
+	for _, text := range texts {
+		for _, s := range r.creds {
+			if s != "" && strings.Contains(text, s) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (r *run) leaksOutput(out any) bool {
+	raw, err := json.Marshal(out)
+	return err != nil || r.tainted(string(raw))
+}
+
+func finishOutput[T any](r *run, out *T, err error) (*T, error) {
+	if out != nil && r.leaksOutput(out) {
+		return nil, notSettled("output withheld")
+	}
+	return out, err
+}
+
 func (r *run) remember(sent []string) {
 	for _, s := range sent {
 		if !slices.Contains(r.creds, s) {
@@ -103,9 +129,13 @@ func (r *run) get(ctx context.Context, url string, out any) error {
 	r.internalError = false
 	observe := func(status int, body []byte) {
 		var e struct {
-			Code string `json:"code"`
+			Code    string `json:"code"`
+			Message string `json:"message"`
 		}
-		r.internalError = status == http.StatusInternalServerError && json.Unmarshal(body, &e) == nil && e.Code == "internal_error"
+		r.internalError = status == http.StatusInternalServerError && jsonresponse.ValidateStrict(body, &e) == nil && json.Unmarshal(body, &e) == nil && e.Code == "internal_error"
+	}
+	if r.tainted(url) {
+		return refuse("a request value contains a credential")
 	}
 	err := r.c.c.DoJSON(ctx, transport.Request{Operation: r.op, Method: http.MethodGet, URL: url, OK: []int{200}, NoRedirect: true, StrictJSON: true, Sensitive: true, WithholdMessage: wireProviderText, SentCredentials: &sent, ObserveErrorBody: observe}, &raw)
 	r.remember(sent)
@@ -123,6 +153,9 @@ func (r *run) send(ctx context.Context, method, url string, body any, accept *js
 	var dst any
 	if accept != nil {
 		dst = accept
+	}
+	if encoded, err := json.Marshal(body); err != nil || r.tainted(url, string(encoded)) {
+		return refuse("a request value contains a credential")
 	}
 	notSent := false
 	var sent []string
@@ -161,7 +194,7 @@ func (r *run) pools(ctx context.Context, glb string) ([]wirePool, error) {
 	if err := r.get(ctx, r.c.glbChildURL(glb, "global-pools"), &out); err != nil {
 		return nil, err
 	}
-	if out == nil {
+	if out == nil || !validIDs(out) {
 		return nil, r.invalidResponse()
 	}
 	return out, nil
@@ -172,7 +205,7 @@ func (r *run) listeners(ctx context.Context, glb string) ([]wireListener, error)
 	if err := r.get(ctx, r.c.glbChildURL(glb, "global-listeners"), &out); err != nil {
 		return nil, err
 	}
-	if out == nil {
+	if out == nil || !validIDs(out) {
 		return nil, r.invalidResponse()
 	}
 	return out, nil
@@ -183,7 +216,7 @@ func (r *run) groups(ctx context.Context, glb, pool string) ([]wireGroup, error)
 	if err := r.get(ctx, r.c.glbChildURL(glb, "global-pools", pool, "pool-members"), &out); err != nil {
 		return nil, err
 	}
-	if out == nil {
+	if out == nil || !validIDs(out) {
 		return nil, r.invalidResponse()
 	}
 	return out, nil
@@ -205,4 +238,13 @@ func (r *run) listener(ctx context.Context, glb, id string) (wireListener, error
 	var out wireListener
 	err := r.get(ctx, r.c.glbChildURL(glb, "global-listeners", id), &out)
 	return out, err
+}
+
+func validIDs[T interface{ rowID() string }](rows []T) bool {
+	for _, row := range rows {
+		if core.CheckPathID("", "", row.rowID()) != nil {
+			return false
+		}
+	}
+	return true
 }

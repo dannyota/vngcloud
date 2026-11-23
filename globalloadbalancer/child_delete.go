@@ -126,9 +126,21 @@ func (c *Client) DeleteListener(ctx context.Context, in *DeleteListenerInput) (*
 	if l.ID != in.ListenerID || l.GlobalLoadBalancerID != in.LoadBalancerID || l.Protocol != wireProtocol || !deleteEligible(l.Status) || len(all) != 1 || all[0].ID != in.ListenerID || validID(op, "PoolID", l.GlobalPoolID) != nil {
 		return nil, refuse("the listener is not an eligible sole TCP listener")
 	}
-	if _, err := r.inPool(ctx, in.LoadBalancerID, l.GlobalPoolID); err != nil {
+	pool, err := r.inPool(ctx, in.LoadBalancerID, l.GlobalPoolID)
+	if err != nil {
 		return nil, err
 	}
+	if !poolStable(pool) {
+		return nil, refuse("the pool is not in a stable state")
+	}
+	groups, err := r.groups(ctx, in.LoadBalancerID, l.GlobalPoolID)
+	if err != nil {
+		return nil, err
+	}
+	if len(groups) != 1 {
+		return nil, refuse("the pool must hold exactly one member group")
+	}
+	groupID := groups[0].ID
 	out := &DeleteListenerOutput{LoadBalancerID: in.LoadBalancerID, ListenerID: in.ListenerID}
 	plan := deletePlan{r: r, url: c.glbChildURL(in.LoadBalancerID, "global-listeners", in.ListenerID), id: in.ListenerID,
 		exact: func(ctx context.Context) (string, string, error) {
@@ -139,8 +151,17 @@ func (c *Client) DeleteListener(ctx context.Context, in *DeleteListenerInput) (*
 			rest, err := r.listeners(ctx, in.LoadBalancerID)
 			return slices.ContainsFunc(rest, func(x wireListener) bool { return x.ID == in.ListenerID }), err
 		},
-		survivors: func(ctx context.Context) error { return r.survivors(ctx, in.LoadBalancerID, l.GlobalPoolID) },
-		settled:   func() { out.Deleted = true }}
+		survivors: func(ctx context.Context) error {
+			if err := r.survivors(ctx, in.LoadBalancerID, l.GlobalPoolID); err != nil {
+				return err
+			}
+			rest, err := r.groups(ctx, in.LoadBalancerID, l.GlobalPoolID)
+			if err != nil || !slices.ContainsFunc(rest, func(x wireGroup) bool { return x.ID == groupID }) {
+				return refuse("the member group did not survive")
+			}
+			return nil
+		},
+		settled: func() { out.Deleted = true }}
 	return finishDelete(out, plan.execute(ctx))
 }
 
@@ -160,7 +181,7 @@ func (c *Client) DeletePool(ctx context.Context, in *DeletePoolInput) (*DeletePo
 	if err != nil {
 		return nil, err
 	}
-	if !deleteEligible(p.Status) || p.Health == nil || !deleteEligible(p.Health.Status) {
+	if !poolStable(p) {
 		return nil, refuse("the pool is not in a stable state")
 	}
 	if err := r.requireNoListeners(ctx, in.LoadBalancerID); err != nil {
@@ -173,7 +194,11 @@ func (c *Client) DeletePool(ctx context.Context, in *DeletePoolInput) (*DeletePo
 	if len(groups) != 1 {
 		return nil, refuse("the pool must hold exactly one member group")
 	}
-	g, err := r.group(ctx, in.LoadBalancerID, in.PoolID, groups[0].ID)
+	if err := validID(op, "PoolMemberID", groups[0].ID); err != nil {
+		return nil, r.invalidResponse()
+	}
+	groupID := groups[0].ID
+	g, err := r.group(ctx, in.LoadBalancerID, in.PoolID, groupID)
 	if err != nil {
 		return nil, err
 	}
@@ -190,8 +215,20 @@ func (c *Client) DeletePool(ctx context.Context, in *DeletePoolInput) (*DeletePo
 			rest, err := r.pools(ctx, in.LoadBalancerID)
 			return slices.ContainsFunc(rest, func(x wirePool) bool { return x.ID == in.PoolID }), err
 		},
-		survivors: func(ctx context.Context) error { return r.survivors(ctx, in.LoadBalancerID, "") },
-		settled:   func() { out.Deleted = true }}
+		survivors: func(ctx context.Context) error {
+			if err := r.survivors(ctx, in.LoadBalancerID, ""); err != nil {
+				return err
+			}
+			rest, err := r.groups(ctx, in.LoadBalancerID, in.PoolID)
+			if err != nil && !core.IsNotFound(err) && !r.internalError {
+				return err
+			}
+			if slices.ContainsFunc(rest, func(x wireGroup) bool { return x.ID == groupID }) {
+				return refuse("the member group is still listed")
+			}
+			return nil
+		},
+		settled: func() { out.Deleted = true }}
 	return finishDelete(out, plan.execute(ctx))
 }
 
@@ -203,4 +240,8 @@ func finishDelete[T any](out *T, err error) (*T, error) {
 		return out, err
 	}
 	return nil, err
+}
+
+func poolStable(p wirePool) bool {
+	return deleteEligible(p.Status) && p.Health != nil && deleteEligible(p.Health.Status)
 }

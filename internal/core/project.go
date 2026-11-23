@@ -30,6 +30,14 @@ type listProjectsResponse struct {
 	Projects []Project `json:"projects"`
 }
 
+type credentialSinkKey struct{}
+
+// WithCredentialSink makes project discovery append every bearer it sends to
+// sink, so a caller can screen later responses against them.
+func WithCredentialSink(ctx context.Context, sink *[]string) context.Context {
+	return context.WithValue(ctx, credentialSinkKey{}, sink)
+}
+
 // ListProjects reads projects.
 func (c *Client) ListProjects(ctx context.Context, opts *ListProjectsOptions) ([]Project, error) {
 	if c.err != nil {
@@ -41,6 +49,7 @@ func (c *Client) ListProjects(ctx context.Context, opts *ListProjectsOptions) ([
 	}
 
 	var raw json.RawMessage
+	var sent []string
 	status, err := c.transport.DoProjectDiscoveryJSONStatus(ctx, transport.Request{
 		Operation: "project.ListProjects",
 		Method:    "GET",
@@ -49,8 +58,12 @@ func (c *Client) ListProjects(ctx context.Context, opts *ListProjectsOptions) ([
 			Version: "v1",
 			Parts:   []string{"projects"},
 		}),
-		OK: []int{200},
+		OK:              []int{200},
+		SentCredentials: &sent,
 	}, &raw, nil)
+	if sink, ok := ctx.Value(credentialSinkKey{}).(*[]string); ok && sink != nil {
+		*sink = append(*sink, sent...)
+	}
 	if err != nil {
 		return nil, wrapTransportErr(err)
 	}

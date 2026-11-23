@@ -83,7 +83,7 @@ type wireRow struct {
 	Weight               int    `json:"weight"`
 	Port                 int    `json:"port"`
 	MonitorPort          int    `json:"monitorPort"`
-	BackupRole           bool   `json:"backupRole"`
+	BackupRole           *bool  `json:"backupRole"`
 	Status               string `json:"status"`
 }
 
@@ -183,7 +183,7 @@ func (p wirePool) public() Pool {
 func (g wireGroup) public() PoolMember {
 	out := PoolMember{ID: g.ID, Name: g.Name, Region: g.Region, GlobalPoolID: g.GlobalPoolID, GlobalLoadBalancerID: g.GlobalLoadBalancerID, TrafficDial: g.TrafficDial, VPCID: g.VPCID, Type: g.Type, Status: g.Status}
 	for _, r := range g.Members {
-		out.Members = append(out.Members, PoolMemberDetail{ID: r.ID, Name: r.Name, GlobalPoolMemberID: r.GlobalPoolMemberID, GlobalLoadBalancerID: r.GlobalLoadBalancerID, SubnetID: r.SubnetID, Address: r.Address, Weight: r.Weight, Port: r.Port, MonitorPort: r.MonitorPort, BackupRole: r.BackupRole, Status: r.Status})
+		out.Members = append(out.Members, PoolMemberDetail{ID: r.ID, Name: r.Name, GlobalPoolMemberID: r.GlobalPoolMemberID, GlobalLoadBalancerID: r.GlobalLoadBalancerID, SubnetID: r.SubnetID, Address: r.Address, Weight: r.Weight, Port: r.Port, MonitorPort: r.MonitorPort, BackupRole: r.BackupRole != nil && *r.BackupRole, Status: r.Status})
 	}
 	return out
 }
@@ -191,3 +191,7 @@ func (g wireGroup) public() PoolMember {
 func (l wireListener) public() Listener {
 	return Listener{ID: l.ID, Name: l.Name, Protocol: l.Protocol, Port: l.Port, GlobalLoadBalancerID: l.GlobalLoadBalancerID, GlobalPoolID: l.GlobalPoolID, TimeoutClient: l.TimeoutClient, TimeoutConnection: l.TimeoutConnection, TimeoutMember: l.TimeoutMember, AllowedCIDRs: l.AllowedCIDRs, Status: l.Status}
 }
+
+func (p wirePool) rowID() string     { return p.ID }
+func (g wireGroup) rowID() string    { return g.ID }
+func (l wireListener) rowID() string { return l.ID }

@@ -32,7 +32,9 @@ func (r *run) project(ctx context.Context, requested string) (string, error) {
 	if err := validID(r.op, "BackendProjectID", requested); err != nil {
 		return "", err
 	}
-	project, err := r.c.c.RequireProjectID(ctx)
+	var sent []string
+	project, err := r.c.c.RequireProjectID(core.WithCredentialSink(ctx, &sent))
+	r.remember(sent)
 	if err != nil {
 		return "", err
 	}
@@ -61,12 +63,16 @@ func (r *run) region(ctx context.Context, packageID string) (string, error) {
 	if len(match) != 1 || match[0].ID == "" {
 		return "", refuse("the configured region does not match exactly one enabled GLB region")
 	}
+	var found []wirePackage
 	for _, p := range packages {
-		if p.ID == packageID && packageSupports(p, configured, match[0].ID) {
-			return match[0].ID, nil
+		if p.ID == packageID {
+			found = append(found, p)
 		}
 	}
-	return "", refuse("the load balancer package is not enabled for the configured region")
+	if len(found) != 1 || !packageSupports(found[0], configured, match[0].ID) {
+		return "", refuse("the load balancer package is not enabled for the configured region")
+	}
+	return match[0].ID, nil
 }
 
 func (r *run) placement(ctx context.Context, project, serverID, vpcID, subnetID string) (placement, error) {
@@ -155,7 +161,7 @@ func checkGroup(g wireGroup, glb, poolID, id string, want *backendWant) bool {
 		return false
 	}
 	row := g.Members[0]
-	if row.ID == "" || row.GlobalPoolMemberID != id || row.GlobalLoadBalancerID != glb || row.BackupRole || row.Weight != wireWeight || row.Port < 1 || row.Port > 65535 || row.MonitorPort != row.Port || row.SubnetID == "" || row.Address == "" {
+	if row.ID == "" || row.GlobalPoolMemberID != id || row.GlobalLoadBalancerID != glb || row.BackupRole == nil || *row.BackupRole || row.Weight != wireWeight || row.Port < 1 || row.Port > 65535 || row.MonitorPort != row.Port || row.SubnetID == "" || row.Address == "" {
 		return false
 	}
 	return want == nil || (g.Name == want.Name && row.Name == want.Name && g.Region == want.Region && g.VPCID == want.VPC && row.SubnetID == want.Subnet && row.Address == want.Address && row.Port == want.Port)

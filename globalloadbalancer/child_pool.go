@@ -13,6 +13,12 @@ import (
 // one vServer backend, then waits for exact read-back. See
 // docs/design/glb-pool.md.
 func (c *Client) CreatePool(ctx context.Context, in *CreatePoolInput) (*CreatePoolOutput, error) {
+	r := c.newRun("globalloadbalancer.CreatePool")
+	out, err := c.createPool(ctx, r, in)
+	return finishOutput(r, out, err)
+}
+
+func (c *Client) createPool(ctx context.Context, r *run, in *CreatePoolInput) (*CreatePoolOutput, error) {
 	const op = "globalloadbalancer.CreatePool"
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
@@ -28,7 +34,6 @@ func (c *Client) CreatePool(ctx context.Context, in *CreatePoolInput) (*CreatePo
 	if err := c.childProvenance(); err != nil {
 		return nil, err
 	}
-	r := c.newRun(op)
 	project, err := r.project(ctx, in.BackendProjectID)
 	if err != nil {
 		return nil, err
@@ -89,14 +94,12 @@ func (c *Client) CreatePool(ctx context.Context, in *CreatePoolInput) (*CreatePo
 			return out, notSettled("create confirmation could not be proven")
 		}
 		switch got.verdict {
-		case stateSuccess, stateFailed:
+		case stateSuccess:
 			out.Pool, out.PoolMember = got.pool.public(), got.group.public()
-			if got.verdict == stateFailed {
-				return out, ErrFailed
-			}
 			return out, nil
+		case stateFailed:
+			return out, ErrFailed
 		case stateTransitional:
-			out.Pool, out.PoolMember = got.pool.public(), got.group.public()
 		default:
 			return out, notSettled("create status unrecognized")
 		}

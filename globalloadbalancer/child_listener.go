@@ -13,6 +13,12 @@ import (
 // balancer's only pool, then waits for exact read-back. See
 // docs/design/glb-pool.md.
 func (c *Client) CreateListener(ctx context.Context, in *CreateListenerInput) (*CreateListenerOutput, error) {
+	r := c.newRun("globalloadbalancer.CreateListener")
+	out, err := c.createListener(ctx, r, in)
+	return finishOutput(r, out, err)
+}
+
+func (c *Client) createListener(ctx context.Context, r *run, in *CreateListenerInput) (*CreateListenerOutput, error) {
 	const op = "globalloadbalancer.CreateListener"
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
@@ -32,7 +38,6 @@ func (c *Client) CreateListener(ctx context.Context, in *CreateListenerInput) (*
 	if err := c.childProvenance(); err != nil {
 		return nil, err
 	}
-	r := c.newRun(op)
 	project, err := r.project(ctx, in.BackendProjectID)
 	if err != nil {
 		return nil, err
@@ -57,7 +62,8 @@ func (c *Client) CreateListener(ctx context.Context, in *CreateListenerInput) (*
 		return nil, refuse("the pool and member group are not settled in the verified region")
 	}
 	spec.groupID = got.group.ID
-	row := got.group.Members[0]
+	pre := got.group
+	row := pre.Members[0]
 	place, err := r.placement(ctx, project, in.BackendServerID, got.group.VPCID, row.SubnetID)
 	if err != nil {
 		return nil, err
@@ -87,7 +93,7 @@ func (c *Client) CreateListener(ctx context.Context, in *CreateListenerInput) (*
 		if err == nil {
 			again, err = r.readChain(wait, spec)
 		}
-		if err != nil || len(all) != 1 || all[0].ID != accept.ID || again.verdict != stateSuccess || again.group.Members[0].Address != place.Address ||
+		if err != nil || len(all) != 1 || all[0].ID != accept.ID || again.verdict != stateSuccess || !sameBackend(again.group, pre) ||
 			l.ID != accept.ID || l.GlobalLoadBalancerID != in.LoadBalancerID || l.GlobalPoolID != in.PoolID || l.Name != in.Name || l.Protocol != wireProtocol || l.Port != in.Port ||
 			l.TimeoutClient != wireTimeoutCli || l.TimeoutConnection != wireTimeoutConn || l.TimeoutMember != wireTimeoutMem || !cidrSetEqual(l.AllowedCIDRs, in.AllowedCIDRs) {
 			return out, notSettled("create confirmation could not be proven")
@@ -97,10 +103,8 @@ func (c *Client) CreateListener(ctx context.Context, in *CreateListenerInput) (*
 			out.Listener = l.public()
 			return out, nil
 		case stateFailed:
-			out.Listener = l.public()
 			return out, ErrFailed
 		case stateTransitional:
-			out.Listener = l.public()
 		default:
 			return out, notSettled("create status unrecognized")
 		}
@@ -108,4 +112,9 @@ func (c *Client) CreateListener(ctx context.Context, in *CreateListenerInput) (*
 			return out, notSettled("create confirmation interrupted")
 		}
 	}
+}
+
+func sameBackend(a, b wireGroup) bool {
+	x, y := a.Members[0], b.Members[0]
+	return a.ID == b.ID && a.Region == b.Region && a.VPCID == b.VPCID && x.ID == y.ID && x.SubnetID == y.SubnetID && x.Address == y.Address && x.Port == y.Port
 }
