@@ -92,3 +92,57 @@ func TestLoginResponseBoundaries(t *testing.T) {
 		}
 	}
 }
+
+type cancelOverflowReader struct {
+	count  int
+	cancel context.CancelFunc
+}
+
+func (r *cancelOverflowReader) Read(p []byte) (int, error) {
+	r.count += len(p)
+	if r.count == (1<<20)+1 {
+		r.cancel()
+		return len(p), errors.New("synthetic")
+	}
+	return len(p), nil
+}
+
+func TestLoginOverflowContextPrecedence(t *testing.T) {
+	for _, stage := range []string{"page", "token"} {
+		t.Run(stage, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			client := &http.Client{Transport: boundaryRoundTripper(func(r *http.Request) (*http.Response, error) {
+				status := http.StatusOK
+				body := io.NopCloser(strings.NewReader(`<input name="_csrf" value="csrf">`))
+				header := make(http.Header)
+				if stage == "page" || r.URL.Path == "/token" {
+					body = io.NopCloser(&cancelOverflowReader{cancel: cancel})
+				} else if r.Method == http.MethodPost {
+					status = http.StatusFound
+					header.Set("Location", "/callback?code=synthetic")
+				}
+				return &http.Response{StatusCode: status, Header: header, Body: body, Request: r}, nil
+			})}
+			_, err := Login(ctx, LoginRequest{SigninBaseURL: "http://example.test", TokenURL: "http://example.test/token", HTTPClient: client})
+			if !errors.Is(err, context.Canceled) || errors.Is(err, ErrResponseTooLarge) {
+				t.Fatalf("error %v", err)
+			}
+		})
+	}
+}
+
+type wrappedContextReader struct{ err error }
+
+func (r wrappedContextReader) Read([]byte) (int, error) {
+	return 0, fmt.Errorf("private value: %w", r.err)
+}
+
+func TestLoginReadContextErrorSanitized(t *testing.T) {
+	for _, want := range []error{context.Canceled, context.DeadlineExceeded} {
+		_, err := readLoginBody(wrappedContextReader{err: want})
+		if !errors.Is(err, want) || err.Error() != want.Error() || errors.Unwrap(err) != nil {
+			t.Fatalf("error %v", err)
+		}
+	}
+}

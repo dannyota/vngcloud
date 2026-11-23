@@ -405,8 +405,11 @@ func extractAuthCode(location string) string {
 func readLoginBody(body io.Reader) ([]byte, error) {
 	const limit = 1 << 20
 	raw, err := io.ReadAll(io.LimitReader(body, limit+1))
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return nil, err
+	if errors.Is(err, context.Canceled) {
+		return nil, context.Canceled
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return nil, context.DeadlineExceeded
 	}
 	if len(raw) > limit {
 		return nil, ErrResponseTooLarge
