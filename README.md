@@ -8,11 +8,13 @@
 
 A Go SDK and AWS-style command-line tool for
 [GreenNode](https://greennode.ai), formerly VNG Cloud. Inspect resources, get
-price quotes, and run selected management operations from Go, a terminal,
+price quotes, and create, change, and delete resources from Go, a terminal,
 or scripts.
 
 This is a personal, unofficial project, not affiliated with or endorsed by
-GreenNode or VNG. Expect breaking changes until `v1.0.0`.
+GreenNode or VNG. Since `v1.0.0` it follows semantic versioning: public SDK
+names, types, and fields, CLI flags, query keys, and exit codes change only
+in a new major version.
 
 [Tags](https://github.com/dannyota/vngcloud/tags) |
 [Release notes](RELEASE_NOTES.md)
@@ -24,7 +26,7 @@ configure an IAM-user profile, and read your budgets without creating or
 changing cloud resources:
 
 ```bash
-go install danny.vn/vngcloud/cmd/vngcloud@latest
+go install danny.vn/vngcloud/cmd/vngcloud@latest   # or @v1.0.0 to pin
 vngcloud configure
 vngcloud billing list-budgets --read-only
 ```
@@ -101,6 +103,11 @@ packages use only the Go standard library. See
 
 - Inspect resources and quotas across services. Use the canonical
   [service coverage][services] for supported operations and prerequisites.
+- Create and delete resources, including credit-paid servers, volumes, NAT
+  gateways, private VKS clusters, Global Load Balancers with TCP pools and
+  listeners, vDB MySQL instances, and private endpoints. Creates with a price
+  quote refuse a quote above `--max-price`; creates without a quote API
+  (Global Load Balancer, VKS, vDB) need explicit `--yes` consent.
 - Read budgets, costs, and balances, or get price quotes before an order.
   See [Billing and Pricing][billing].
 - Manage vStorage buckets and keys or transfer objects through the separate
