@@ -168,13 +168,23 @@ func TestListFlavorPricesRefreshWaiterDeadline(t *testing.T) {
 			}
 			holder := make(chan error, 1)
 			go func() { holder <- c.c.DoJSON(context.Background(), req, nil) }()
-			<-provider.entered
+			select {
+			case <-provider.entered:
+			case err := <-holder:
+				t.Fatalf("holder returned before token provider was entered: %v", err)
+			}
 			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 			defer cancel()
 			ctx, sessionContexts := observeDiscoveryContext(ctx)
 			waiter := make(chan error, 1)
 			go func() { _, err := c.ListFlavorPrices(ctx, nil); waiter <- err }()
-			sessionCtx := <-sessionContexts
+			var sessionCtx context.Context
+			select {
+			case sessionCtx = <-sessionContexts:
+			case err := <-waiter:
+				close(provider.release)
+				t.Fatalf("waiter returned before session was created: %v", err)
+			}
 			<-sessionCtx.Done()
 			close(provider.release)
 			if err := <-holder; err != nil {
@@ -222,13 +232,23 @@ func TestListFlavorPricesProjectWaiterDeadline(t *testing.T) {
 	c := New(cfg)
 	holder := make(chan error, 1)
 	go func() { _, err := c.ListFlavorZones(context.Background(), nil); holder <- err }()
-	<-entered
+	select {
+	case <-entered:
+	case err := <-holder:
+		t.Fatalf("holder returned before server was entered: %v", err)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	ctx, sessionContexts := observeDiscoveryContext(ctx)
 	waiter := make(chan error, 1)
 	go func() { _, err := c.ListFlavorPrices(ctx, nil); waiter <- err }()
-	sessionCtx := <-sessionContexts
+	var sessionCtx context.Context
+	select {
+	case sessionCtx = <-sessionContexts:
+	case err := <-waiter:
+		close(release)
+		t.Fatalf("waiter returned before session was created: %v", err)
+	}
 	<-sessionCtx.Done()
 	close(release)
 	if err := <-holder; err != nil {
@@ -285,13 +305,23 @@ func TestListFlavorPricesSharedIAMWaiterDeadline(t *testing.T) {
 	req := transport.Request{Operation: "test.Read", Method: http.MethodGet, URL: server.URL + "/holder", OK: []int{200}}
 	holder := make(chan error, 1)
 	go func() { holder <- holderClient.c.DoJSON(context.Background(), req, nil) }()
-	<-entered
+	select {
+	case <-entered:
+	case err := <-holder:
+		t.Fatalf("holder returned before server was entered: %v", err)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	ctx, sessionContexts := observeDiscoveryContext(ctx)
 	waiter := make(chan error, 1)
 	go func() { _, err := waiterClient.ListFlavorPrices(ctx, nil); waiter <- err }()
-	sessionCtx := <-sessionContexts
+	var sessionCtx context.Context
+	select {
+	case sessionCtx = <-sessionContexts:
+	case err := <-waiter:
+		close(release)
+		t.Fatalf("waiter returned before session was created: %v", err)
+	}
 	<-sessionCtx.Done()
 	select {
 	case err := <-waiter:

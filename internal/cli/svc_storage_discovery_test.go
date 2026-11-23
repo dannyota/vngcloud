@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"net/http"
 	"strings"
 	"testing"
@@ -32,7 +31,7 @@ func TestStorageDiscoveryCLIReadOnlyAndRegion(t *testing.T) {
 	fixture := newSvcFixture(storageDiscoveryRoutes(t))
 	root, stdout, _ := newSvcRoot(t, fixture)
 	root.SetArgs([]string{"--region", "hcm-3", "--read-only", "storage", "list-storage-prices", "--cli-input-json", `{"Region":"HAN02","Type":"Gold"}`})
-	if err := root.ExecuteContext(context.Background()); err != nil {
+	if err := root.ExecuteContext(discoveryTestContext()); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(stdout.String(), `"Region": "HAN02"`) {
@@ -44,7 +43,7 @@ func TestStorageDiscoveryCLIRejectsIrrelevantSortBeforeRequests(t *testing.T) {
 	fixture := newSvcFixture(nil)
 	root, _, _ := newSvcRoot(t, fixture)
 	root.SetArgs([]string{"--region", "hcm-3", "storage", "list-storage-prices", "--sort-by", "ram"})
-	err := root.ExecuteContext(context.Background())
+	err := root.ExecuteContext(discoveryTestContext())
 	if err == nil || exitCode(err) != 2 || fixture.requestCount() != 0 {
 		t.Fatalf("error %v requests %d", err, fixture.requestCount())
 	}
@@ -58,7 +57,7 @@ func TestStorageDiscoveryCLIReflectionFormatsAndQuery(t *testing.T) {
 			fixture := newSvcFixture(routes)
 			root, stdout, stderr := newSvcRoot(t, fixture)
 			root.SetArgs([]string{"--region", "hcm-3", "--output", format, "--query", query, "storage", "list-storage-prices", "--allow-partial", "--type", "Gold"})
-			err := root.ExecuteContext(context.Background())
+			err := root.ExecuteContext(discoveryTestContext())
 			if err == nil || exitCode(err) != 1 {
 				t.Fatalf("error %v", err)
 			}

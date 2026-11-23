@@ -45,19 +45,17 @@ func TestRedactionBoundedHTTPErrorCost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
-	started := time.Now()
-	status, err := core.ClientOf(cfg).DoJSONStatus(ctx, transport.Request{URL: "http://synthetic.invalid/", MaxBody: capBytes, Sensitive: true}, nil)
-	elapsed := time.Since(started)
-	t.Logf("body=%d token=%d elapsed=%s context=%v", len(payload), len(token), elapsed, ctx.Err())
+	var status int
+	var requestErr error
+	allocations := testing.AllocsPerRun(1, func() {
+		status, requestErr = core.ClientOf(cfg).DoJSONStatus(context.Background(), transport.Request{URL: "http://synthetic.invalid/", MaxBody: capBytes, Sensitive: true}, nil)
+	})
 	var api *vngcloud.APIError
-	if status != http.StatusForbidden || !errors.As(err, &api) || api.StatusCode != status || api.Message != "[redacted]" || !errors.Is(err, vngcloud.ErrPermission) {
+	if status != http.StatusForbidden || !errors.As(requestErr, &api) || api.StatusCode != status || api.Message != "[redacted]" || !errors.Is(requestErr, vngcloud.ErrPermission) {
 		t.Fatal("redaction changed the fixed HTTP error identity")
 	}
-	// Allow one second beyond the deadline for scheduling and race instrumentation.
-	if elapsed > 1500*time.Millisecond {
-		t.Fatal("bounded response redaction ran past the deadline margin")
+	if allocations > 500 {
+		t.Fatalf("redaction allocated %.0f times, want at most 500", allocations)
 	}
 }
 

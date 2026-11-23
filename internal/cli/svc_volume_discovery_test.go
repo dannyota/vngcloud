@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -38,7 +37,7 @@ func TestVolumeDiscoveryCLIReadOnlyAndPartialQuery(t *testing.T) {
 			fixture := newSvcFixture(volumeDiscoveryRoutes(t, status))
 			root, stdout, stderr := newSvcRoot(t, fixture)
 			root.SetArgs([]string{"--region", "hcm-3", "--project-id", "proj-1", "--read-only", "--output", "json", "--query", "Items[].SizeGB", "volume", "list-volume-prices", "--encryption", "none", "--iops", "3000", "--allow-partial"})
-			err := root.ExecuteContext(context.Background())
+			err := root.ExecuteContext(discoveryTestContext())
 			if status == 200 {
 				if err != nil {
 					t.Fatal(err)
@@ -58,7 +57,7 @@ func TestVolumeDiscoveryCLIFlagsBeforeRequests(t *testing.T) {
 		fixture := newSvcFixture(nil)
 		root, _, _ := newSvcRoot(t, fixture)
 		root.SetArgs(append([]string{"--region", "hcm-3", "--project-id", "proj-1", "volume", "list-volume-prices"}, flags...))
-		err := root.ExecuteContext(context.Background())
+		err := root.ExecuteContext(discoveryTestContext())
 		if err == nil || exitCode(err) != 2 || fixture.requestCount() != 0 {
 			t.Fatalf("error %v requests %d", err, fixture.requestCount())
 		}
@@ -84,7 +83,7 @@ func TestVolumeDiscoveryCLIReflectionFormatsAndQuery(t *testing.T) {
 			fixture := newSvcFixture(routes)
 			root, stdout, stderr := newSvcRoot(t, fixture)
 			root.SetArgs([]string{"--region", "hcm-3", "--project-id", "proj-1", "--output", format, "--query", query, "volume", "list-volume-prices", "--allow-partial", "--encryption", "none", "--iops", "3000"})
-			err := root.ExecuteContext(context.Background())
+			err := root.ExecuteContext(discoveryTestContext())
 			if err == nil || exitCode(err) != 1 {
 				t.Fatalf("error %v", err)
 			}

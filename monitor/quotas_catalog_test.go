@@ -331,6 +331,19 @@ func (b *quotaBudgetBody) Close() error {
 	return err
 }
 
+type quotaBudgetHandlerTransport struct{ handler http.Handler }
+
+func (r quotaBudgetHandlerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if err := req.Context().Err(); err != nil {
+		return nil, err
+	}
+	recorder := httptest.NewRecorder()
+	r.handler.ServeHTTP(recorder, req)
+	response := recorder.Result()
+	response.Request = req
+	return response, nil
+}
+
 type quotaBudgetTransport struct {
 	base     http.RoundTripper
 	attempts []*quotaBudgetAttempt
@@ -355,19 +368,19 @@ type quotaBudgetTokens struct {
 
 func (s *quotaBudgetTokens) Invalidate(string) { s.refreshes++ }
 
-// These are synthetic retry/refresh and overflow probes over real loopback
-// HTTP. Retained body bytes exclude decoded objects and allocator overhead.
 func TestQuotaCompositeRetainedBodyBudgetWithRetries(t *testing.T) {
 	t.Run("retained-counter", func(t *testing.T) {
 		calls := 0
 		body := quotaBudgetPaddedBody(t, `{"component":"synthetic mock"}`)
-		c := New(testutil.NewRetryConfig(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			calls++
 			if calls%4 != 0 {
 				w.WriteHeader(503)
 			}
 			_, _ = io.WriteString(w, body)
-		})))
+		})
+		httpClient := &http.Client{Transport: quotaBudgetHandlerTransport{handler: handler}}
+		c := New(core.NewTestConfig("hcm-3", "", endpoints.Set{Monitor: "http://quota.invalid/"}, transport.New(transport.Config{HTTPClient: httpClient, RetryCount: 3, RetryInterval: time.Millisecond})))
 		var credentials monitorReadCredentials
 		reader := quotaCompositeReader{client: c, credentials: &credentials}
 		for i := 1; i <= 8; i++ {
@@ -417,7 +430,7 @@ func TestQuotaCompositeRetainedBodyBudgetWithRetries(t *testing.T) {
 				retryBody := quotaBudgetPaddedBody(t, `{"message":"synthetic retry"}`)
 				var mu sync.Mutex
 				calls := map[string]int{}
-				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					mu.Lock()
 					calls[r.URL.Path]++
 					attempt := calls[r.URL.Path]
@@ -455,18 +468,16 @@ func TestQuotaCompositeRetainedBodyBudgetWithRetries(t *testing.T) {
 						body = retryBody
 					}
 					_, _ = io.WriteString(w, body)
-				}))
-				defer server.Close()
+				})
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
-				counted := &quotaBudgetTransport{base: server.Client().Transport}
+				counted := &quotaBudgetTransport{base: quotaBudgetHandlerTransport{handler: handler}}
 				if mode == "cancel" {
 					counted.cancel = cancel
 				}
 				tokens := &quotaBudgetTokens{}
-				httpClient := server.Client()
-				httpClient.Transport = counted
-				c := New(core.NewTestConfig("hcm-3", "", endpoints.Set{Monitor: server.URL + "/"}, transport.New(transport.Config{HTTPClient: httpClient, TokenSource: tokens, RetryCount: retries, RetryInterval: time.Millisecond})))
+				httpClient := &http.Client{Transport: counted}
+				c := New(core.NewTestConfig("hcm-3", "", endpoints.Set{Monitor: "http://quota.invalid/"}, transport.New(transport.Config{HTTPClient: httpClient, TokenSource: tokens, RetryCount: retries, RetryInterval: time.Millisecond})))
 				var catalog *ListSyntheticPackagesOutput
 				var status *GetQuotaStatusOutput
 				var err error
@@ -502,7 +513,7 @@ func TestQuotaCompositeRetainedBodyBudgetWithRetries(t *testing.T) {
 					components := 6
 					if operation == "status" {
 						components = 6
-						if !status.Complete {
+						if status == nil || !status.Complete {
 							t.Fatal("incomplete success")
 						}
 					}
@@ -533,8 +544,14 @@ func TestQuotaCompositeRetainedBodyBudgetWithRetries(t *testing.T) {
 				} else if status == nil || status.Complete || !errors.Is(err, ErrQuotaStatusIncomplete) {
 					t.Fatalf("status=%+v err=%v", status, err)
 				}
+				if status != nil && len(status.Items) != 3 {
+					t.Fatalf("status items=%d err=%v", len(status.Items), err)
+				}
 				switch mode {
 				case "oversize":
+					if len(counted.attempts) == 0 {
+						t.Fatalf("attempts=%d err=%v", len(counted.attempts), err)
+					}
 					if counted.attempts[0].read != quotaMaxBody+1 || !errors.Is(err, transport.ErrBodyTooLarge) {
 						t.Fatalf("oversize read=%d err=%v", counted.attempts[0].read, err)
 					}

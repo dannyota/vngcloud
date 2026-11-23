@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"danny.vn/vngcloud"
 )
@@ -107,6 +108,7 @@ func newFakeServer(t *testing.T, handler http.Handler) []vngcloud.LoadOption {
 		Storage:           base,
 	}
 	return []vngcloud.LoadOption{
+		vngcloud.WithRetry(3, time.Millisecond),
 		vngcloud.WithEndpointOverrides(overrides),
 		vngcloud.WithHTTPClient(&http.Client{Transport: refusingTransport{base: server.Client().Transport}}),
 	}

@@ -10,10 +10,12 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/internal/discovery"
 )
 
 func assertKindMatchesMethodName[C any](t *testing.T, serviceName string, ops []Op[C]) {
@@ -240,10 +242,14 @@ func jsonHandler(status int, body string) func(http.ResponseWriter, *http.Reques
 	}
 }
 
-// newSvcRoot builds a real production root command wired at fixture through
-// the same test hook every other test in this package uses. Each test still
-// passes --region and --project-id explicitly, exactly like a real command
-// line, since there is no default here.
+func discoveryTestContext() context.Context {
+	now := time.Unix(1, 0)
+	return discovery.WithTestClock(context.Background(), func() time.Time { return now }, func(ctx context.Context, d time.Duration) error {
+		now = now.Add(d)
+		return ctx.Err()
+	})
+}
+
 func newSvcRoot(t *testing.T, fixture *svcFixture) (root *cobra.Command, stdout, stderr *bytes.Buffer) {
 	t.Helper()
 	withCleanEnv(t)
