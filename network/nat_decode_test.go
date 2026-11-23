@@ -60,6 +60,7 @@ func TestNATDiscoveryRejectAmbiguousKeys(t *testing.T) {
 		{"mixed case region", strings.Replace(envelope, `"uuid"`, `"Uuid"`, 1)},
 		{"mixed case origin", strings.Replace(envelope, `"vnetworkDashboard"`, `"VnetworkDashboard"`, 1)},
 		{"case alias beside exact", strings.Replace(envelope, `"uuid":"zone-1"`, `"uuid":"zone-1","Uuid":"zone-1"`, 1)},
+		{"duplicate-cased gateway", `{"success":true,"data":[{"uuid":"zone-1","gatewayUrl":"https://hcm-3-vnetwork.console.greennode.ai/vnetwork-gateway/","GatewayUrl":"https://hcm-3-vnetwork.console.greennode.ai/vnetwork-gateway/"}]}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			assertNATInvalidKeys(t, tc.body, true)
@@ -90,5 +91,27 @@ func assertNATInvalidKeys(t *testing.T, body string, discovery bool) {
 	}
 	if calls != 1 {
 		t.Errorf("calls = %d, want 1", calls)
+	}
+}
+
+func TestNATDiscoveryIgnoresLiveExtraKeys(t *testing.T) {
+	const regions = `{"success":true,"data":[{"uuid":"zone-1","name":"HCM-3","code":"hcm-3","gatewayUrl":"https://hcm-3-vnetwork.console.greennode.ai/vnetwork-gateway/","vnetworkDashboard":"https://hcm-3-vnetwork.console.greennode.ai","VServerEndpoint":"https://x.example/vserver","VLBEndpoint":"https://x.example/vlb"}]}`
+	calls := 0
+	c := natTestClient(t, "hcm-3", "project-1", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if strings.HasSuffix(r.URL.Path, "/regions") {
+			_, _ = w.Write([]byte(regions))
+			return
+		}
+		if !strings.Contains(r.URL.Path, "/zone-1/project-1/nats") {
+			t.Errorf("unexpected path %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"success":true,"data":[],"page":1,"size":10,"totalPage":0,"total":0}`))
+	}))
+	if _, err := c.ListNATInstances(context.Background(), nil); err != nil {
+		t.Fatalf("ListNATInstances() error = %v", err)
+	}
+	if calls != 2 {
+		t.Errorf("calls = %d, want 2", calls)
 	}
 }

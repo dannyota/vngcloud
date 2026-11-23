@@ -100,6 +100,10 @@ for _, f := range flavors.Items {
 With `ZoneID`, the SDK lists the flavor zones in that network zone, then the
 flavors of each one at a time: `1 + N` requests for `N` flavor zones. Rows
 follow the flavor zone order, then the API's order inside each flavor zone.
+Match a row to a zone with `FlavorZoneID`, the zone ID requests use. A
+`ListFlavors` row's `ZoneID` is an internal zone UUID and never equals a
+request zone ID.
+
 Each row carries its `FlavorZoneID`; the SDK fills it when the API leaves it
 empty. A flavor zone with no flavors adds no rows, a flavor listed in two
 flavor zones stays two rows, and sold-out flavors stay in the list with

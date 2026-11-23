@@ -63,7 +63,7 @@ func (c *Client) natZoneIDWithPrivacy(ctx context.Context, base string, sensitiv
 	if resp.Success == nil || !*resp.Success || len(resp.Data) == 0 || string(resp.Data) == "null" {
 		return "", invalidNATResponse("invalid regions envelope")
 	}
-	var regions []VNetworkRegion
+	var regions []natRegionRow
 	if err := json.Unmarshal(resp.Data, &regions); err != nil {
 		return "", invalidNATResponse("invalid regions data")
 	}

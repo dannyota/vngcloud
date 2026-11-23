@@ -15,6 +15,12 @@ func (r *natListResponse) UnmarshalJSON(raw []byte) error {
 	return decodeNATEnvelope(raw, (*wire)(r), reflect.TypeFor[[]NATInstance]())
 }
 
+type natRegionRow struct {
+	UUID         string `json:"uuid"`
+	GatewayURL   string `json:"gatewayUrl"`
+	DashboardURL string `json:"vnetworkDashboard"`
+}
+
 type natRegionsResponse struct {
 	Success *bool           `json:"success"`
 	Data    json.RawMessage `json:"data"`
@@ -22,7 +28,7 @@ type natRegionsResponse struct {
 
 func (r *natRegionsResponse) UnmarshalJSON(raw []byte) error {
 	type wire natRegionsResponse
-	return decodeNATEnvelope(raw, (*wire)(r), reflect.TypeFor[[]VNetworkRegion]())
+	return decodeNATEnvelope(raw, (*wire)(r), reflect.TypeFor[[]natRegionRow]())
 }
 
 func decodeNATEnvelope(raw []byte, target any, dataType reflect.Type) error {

@@ -225,23 +225,6 @@ func TestVolumeGetDefaultVolumeType(t *testing.T) {
 		if r.URL.Path != "/v1/project-1/volume_default_id" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
-		testutil.WriteFixture(t, w, "../testdata/volume/get_default_volume_type.json")
-	}))
-
-	out, err := c.GetDefaultVolumeType(context.Background(), nil)
-	if err != nil {
-		t.Fatalf("GetDefaultVolumeType() error = %v", err)
-	}
-	if out.VolumeType.ID != "type-1" || out.VolumeType.VolumeTypeID != "type-1" || out.VolumeType.ZoneID != "zone-a" || out.VolumeType.VolumeTypeZoneID != "zone-a" {
-		t.Fatalf("unexpected default volume type: %+v", out.VolumeType)
-	}
-}
-
-func TestVolumeGetDefaultVolumeTypeWithZoneID(t *testing.T) {
-	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/project-1/volume_default_id" {
-			t.Fatalf("unexpected path: %s", r.URL.Path)
-		}
 		if r.URL.Query().Get("zoneId") != "zone-a" {
 			t.Fatalf("unexpected query: %s", r.URL.RawQuery)
 		}
@@ -252,21 +235,25 @@ func TestVolumeGetDefaultVolumeTypeWithZoneID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetDefaultVolumeType() error = %v", err)
 	}
-	if out.VolumeType.ID != "type-1" {
+	if out.VolumeType.ID != "type-1" || out.VolumeType.VolumeTypeID != "type-1" || out.VolumeType.ZoneID != "zone-a" || out.VolumeType.VolumeTypeZoneID != "zone-a" {
 		t.Fatalf("unexpected default volume type: %+v", out.VolumeType)
 	}
 }
 
-func TestVolumeGetDefaultVolumeTypeWithoutZoneIDSendsNoQuery(t *testing.T) {
-	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.RawQuery != "" {
-			t.Fatalf("unexpected query: %s", r.URL.RawQuery)
-		}
-		testutil.WriteFixture(t, w, "../testdata/volume/get_default_volume_type.json")
+func TestVolumeGetDefaultVolumeTypeRequiresZoneID(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		t.Fatal("unexpected request")
 	}))
-
-	if _, err := c.GetDefaultVolumeType(context.Background(), nil); err != nil {
-		t.Fatalf("GetDefaultVolumeType() error = %v", err)
+	for name, in := range map[string]*GetDefaultVolumeTypeInput{
+		"nil":     nil,
+		"empty":   {},
+		"invalid": {ZoneID: "../zone"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := c.GetDefaultVolumeType(context.Background(), in); !errors.Is(err, core.ErrInvalidInput) {
+				t.Fatalf("GetDefaultVolumeType() error = %v, want ErrInvalidInput", err)
+			}
+		})
 	}
 }
 

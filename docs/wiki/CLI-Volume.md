@@ -87,14 +87,14 @@ vngcloud volume detach-volume --volume-id <volume-id> --server-id <server-id> --
 
 Kind: Read.
 
-Without --zone-id, the API looks up the region's first zone, which can be disabled for the account and then reads as NotFound; pass an enabled zone's ID instead, found with portal list-zones.
+--zone-id is required: the API defaults to the region's first zone, which can be disabled for the account and then reads as NotFound. Find an enabled zone's ID with portal list-zones.
 
 | Flag | Type | Required |
 |-|-|-|
-| `--zone-id` | `string` |  |
+| `--zone-id` | `string` | yes |
 
 ```sh
-vngcloud volume get-default-volume-type --query VolumeType
+vngcloud volume get-default-volume-type --zone-id <zone-id> --query VolumeType
 ```
 
 ## get-underlying-volume

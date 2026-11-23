@@ -97,9 +97,7 @@ func TestVolumeListVolumesByServerEndToEnd(t *testing.T) {
 }
 
 // TestVolumeGetDefaultVolumeTypeSendsZoneIDQuery checks that --zone-id
-// reaches the request as the zoneId query parameter, and that the command
-// runs with no flag at all: ZoneID is optional, unlike every other new P1
-// flag in this file.
+// reaches the request as the zoneId query parameter.
 func TestVolumeGetDefaultVolumeTypeSendsZoneIDQuery(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 		"/v1/proj-1/volume_default_id": jsonHandler(http.StatusOK, `{"volumeTypeId":"voltype-1","volumeTypeZoneId":"zone-1"}`),
@@ -120,20 +118,19 @@ func TestVolumeGetDefaultVolumeTypeSendsZoneIDQuery(t *testing.T) {
 	}
 }
 
-// TestVolumeGetDefaultVolumeTypeRunsWithoutZoneID checks that
-// get-default-volume-type still runs with no --zone-id given at all: it is
-// optional, not required.
-func TestVolumeGetDefaultVolumeTypeRunsWithoutZoneID(t *testing.T) {
+// TestVolumeGetDefaultVolumeTypeRequiresZoneID checks that
+// get-default-volume-type fails before any request without --zone-id.
+func TestVolumeGetDefaultVolumeTypeRequiresZoneID(t *testing.T) {
 	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
 		"/v1/proj-1/volume_default_id": jsonHandler(http.StatusOK, `{"volumeTypeId":"voltype-1","volumeTypeZoneId":"zone-1"}`),
 	})
-	root, _, stderr := newSvcRoot(t, fixture)
+	root, _, _ := newSvcRoot(t, fixture)
 	root.SetArgs([]string{"--region", "hcm-3", "--project-id", "proj-1", "volume", "get-default-volume-type"})
-	if err := root.ExecuteContext(context.Background()); err != nil {
-		t.Fatalf("get-default-volume-type: %v (stderr=%s)", err, stderr.String())
+	if err := root.ExecuteContext(context.Background()); err == nil {
+		t.Fatal("get-default-volume-type without --zone-id succeeded")
 	}
-	if q, ok := fixture.queryFor("/v1/proj-1/volume_default_id"); ok && q != "" {
-		t.Fatalf("query string = %q, want empty (no zoneId sent)", q)
+	if _, ok := fixture.queryFor("/v1/proj-1/volume_default_id"); ok {
+		t.Fatal("a request was sent without --zone-id")
 	}
 }
 

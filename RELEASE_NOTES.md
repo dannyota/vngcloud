@@ -1,5 +1,15 @@
 # Release Notes
 
+## Unreleased
+
+- `volume get-default-volume-type` (SDK `GetDefaultVolumeType`) now requires
+  `--zone-id` (`ZoneID`). Without it the API used the region's first zone,
+  which is disabled in `hcm-3` and returned 404.
+- `network list-nat-instances` no longer fails with `invalid regions
+  envelope` in `hcm-3` and `han-1`; it ignores region fields it does not use.
+- Document that a `compute list-flavors` row's `ZoneID` is an internal zone
+  UUID; match a zone with `FlavorZoneID`.
+
 ## v0.103.0 - Private endpoint create
 
 - Add `network quote-create-endpoint`, `create-endpoint`, and

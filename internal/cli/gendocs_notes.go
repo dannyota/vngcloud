@@ -118,11 +118,8 @@ const volumeQuoteCreateVolumeNote = "Never orders anything: prices the volume Cr
 	"Ignores MaxPrice and NoWait even when an inline --cli-input-json value sets them: both govern only an " +
 	"actual create.\n\n" + volumeEncryptedPriceNote
 
-// volumeGetDefaultVolumeTypeNote documents --zone-id's own effect: without
-// it, a disabled first zone reads as NotFound, which the flag table cannot
-// show since --zone-id looks like an ordinary optional filter.
-const volumeGetDefaultVolumeTypeNote = "Without --zone-id, the API looks up the region's first zone, which " +
-	"can be disabled for the account and then reads as NotFound; pass an enabled zone's ID instead, found with " +
+const volumeGetDefaultVolumeTypeNote = "--zone-id is required: the API defaults to the region's first zone, " +
+	"which can be disabled for the account and then reads as NotFound. Find an enabled zone's ID with " +
 	"portal list-zones."
 
 // portalMapRedactionNote documents the CLI's key redaction rule for

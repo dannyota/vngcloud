@@ -183,7 +183,7 @@ volumeClient.ListVolumesByServer(ctx, in)  // ServerID (required)
 volumeClient.ListVolumeTypeZones(ctx, in)  // ZoneID
 volumeClient.ListVolumeTypes(ctx, in)      // VolumeTypeZoneID or ZoneID, IOPS
 volumeClient.GetVolumeType(ctx, in)        // VolumeTypeID (required)
-volumeClient.GetDefaultVolumeType(ctx, in) // ZoneID
+volumeClient.GetDefaultVolumeType(ctx, in) // ZoneID (required)
 volumeClient.ListEncryptionTypes(ctx, nil)
 volumeClient.ListSnapshots(ctx, in)        // VolumeID (required), Page, Size
 volumeClient.ListAllSnapshots(ctx, nil)
@@ -199,9 +199,8 @@ the configured region when needed.
 
 `ListAllSnapshots` is a convenience method that walks visible volumes and
 returns their snapshots. `ListVolumesByServer` lists the volumes attached to
-one server, including its boot volume. `GetDefaultVolumeType`'s `ZoneID`
-selects which zone's default to read; without it, the API looks up the
-region's first zone, which can be disabled for the account.
+one server, including its boot volume. `GetDefaultVolumeType` requires
+`ZoneID`; the API's own default zone can be disabled for the account.
 `QuoteCreateVolume` prices a volume `volume.CreateVolumeInput` would create,
 without ordering it; see
 [Billing and Pricing](Price-Quotes.md#quoting-a-paid-write).

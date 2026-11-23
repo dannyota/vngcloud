@@ -197,8 +197,8 @@ const computeListFlavorsNote = "Set exactly one of --flavor-zone-id and --zone-i
 	"from portal list-zones) first lists that zone's flavor zones, then lists the flavors of each, one at a " +
 	"time: 1+N requests for N flavor zones. --name keeps only flavors whose Name equals it exactly, case " +
 	"included; use --query with contains() for a partial match. Rows follow the flavor zone order, and each " +
-	"row's FlavorZoneID names the flavor zone it came from. A row's ZoneID is the API's own zone identifier, " +
-	"not the network zone name: filter rows by FlavorZoneID or by the zone you asked for. Sold-out flavors " +
+	"row's FlavorZoneID names the flavor zone it came from. A row's ZoneID is an internal zone UUID, not the " +
+	"zone ID requests use: match a zone with FlavorZoneID. Sold-out flavors " +
 	"stay listed with IsSoldOut true; drop them with --query \"Items[?!IsSoldOut]\".\n\n" + idsForCreateServerLink
 
 // volumeListVolumeTypesNote documents list-volume-types' zone fan-out and

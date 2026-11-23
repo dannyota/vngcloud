@@ -226,10 +226,8 @@ func (c *Client) GetVolumeType(ctx context.Context, in *GetVolumeTypeInput) (*Ge
 
 // GetDefaultVolumeTypeInput selects parameters for GetDefaultVolumeType.
 type GetDefaultVolumeTypeInput struct {
-	// ZoneID selects which zone's default volume type to read. Without it,
-	// the API looks up the region's first zone, which can be disabled for
-	// the account.
-	ZoneID string
+	// ZoneID selects which zone's default volume type to read. It is required.
+	ZoneID string `vngcloud:"required"`
 }
 
 // GetDefaultVolumeTypeOutput holds the result of GetDefaultVolumeType.
@@ -239,20 +237,25 @@ type GetDefaultVolumeTypeOutput struct {
 
 // GetDefaultVolumeType reads default volume type.
 func (c *Client) GetDefaultVolumeType(ctx context.Context, in *GetDefaultVolumeTypeInput) (*GetDefaultVolumeTypeOutput, error) {
+	const op = "volume.GetDefaultVolumeType"
+	if err := core.CheckRequired(op, in); err != nil {
+		return nil, err
+	}
+	if err := core.CheckPathID(op, "ZoneID", in.ZoneID); err != nil {
+		return nil, err
+	}
 	projectID, err := c.c.RequireProjectID(ctx)
 	if err != nil {
 		return nil, err
 	}
 	q := url.Values{}
-	if in != nil && in.ZoneID != "" {
-		q.Set("zoneId", in.ZoneID)
-	}
+	q.Set("zoneId", in.ZoneID)
 	var resp struct {
 		ID     string `json:"volumeTypeId"`
 		ZoneID string `json:"volumeTypeZoneId"`
 	}
 	if err := c.c.DoJSON(ctx, transport.Request{
-		Operation: "volume.GetDefaultVolumeType",
+		Operation: op,
 		Method:    "GET",
 		URL:       c.volumeURL("v1", []string{projectID, "volume_default_id"}, q),
 		OK:        []int{200},
