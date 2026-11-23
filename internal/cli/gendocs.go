@@ -440,7 +440,8 @@ func renderCLIPage(services []docService) string {
 		"whole resolved group rather than making a new one; see [IAM](CLI-IAM.md#create-group)), " +
 		"a compute create-server, delete-server, start-server, stop-server, or reboot-server whose wait " +
 		"ran out of time or otherwise failed to read back: create-server must not be sent again, since " +
-		"the server exists, but every other one of these reads first and is safe to run again (see " +
+		"the server exists, reboot-server must not be repeated without get-server, since a repeat reboots " +
+		"again, and delete-server, start-server, and stop-server read first and are safe to run again (see " +
 		"[Compute](CLI-Compute.md#create-server)), or a compute resize-server whose wait ran out of " +
 		"time or otherwise failed to read back: check get-server rather than repeating this paid write, " +
 		"since a repeat risks a second charge (see [Compute](CLI-Compute.md#resize-server)), or a " +

@@ -138,7 +138,7 @@ quote, err := client.QuoteResizeLoadBalancer(ctx, resize)
 if err != nil {
 	log.Fatal(err)
 }
-resize.MaxPrice = quote.OptimumPrice
+resize.MaxPrice = max(quote.OptimumPrice, 0)
 resized, err := client.ResizeLoadBalancer(ctx, resize)
 if err != nil {
 	log.Fatal(err)

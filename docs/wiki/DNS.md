@@ -71,8 +71,9 @@ error. Inspect both and never use that partial output as a complete inventory.
 
 Every VPC a zone associates with needs Private DNS on. Check
 `network.GetVPC`'s `VPC.DNSStatus`: it goes `DISABLED`, `ENABLING`,
-`ENABLED`. Enabling it is a console step, not an SDK method; see the
-[Network](Services.md#network) page for `GetVPC`.
+`ENABLED`. Enable it with `network.EnableVPCPrivateDNS` or `vngcloud network
+enable-vpc-private-dns --yes`; see [Network](Network.md#enabling-private-dns).
+There is no disable call.
 
 - Creating a zone for a `DISABLED` VPC returns a 404 that
   `vngcloud.IsNotFound(err)` reports true for.

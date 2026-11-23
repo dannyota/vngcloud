@@ -287,14 +287,15 @@ secrets masked.
 
 ## Region
 
-`Config.Region` selects the region, for example `hcm-3` or `han-1`. A client
-serves one region.
+`vngcloud.WithRegion` selects the region, for example `hcm-3` or `han-1`;
+`Config.Region()` reports it. A client serves one region.
 
 ## Project
 
-`Config.ProjectID` is optional. When a method needs a project and none is set,
-the SDK lists the projects visible to the IAM User in the region and uses the
-only match. If more than one project matches, set `ProjectID`.
+A project ID is optional; set one with `vngcloud.WithProjectID`. When a method
+needs a project and none is set, the SDK lists the projects visible to the IAM
+User in the region and uses the only match. If more than one project matches,
+set it with `WithProjectID`.
 
 List projects yourself with the `project` package:
 

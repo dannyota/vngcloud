@@ -4,7 +4,9 @@ Bug reports, fixes, and new API coverage are welcome.
 
 ## Setup
 
-Use the Go and tool versions in [`.tool-versions`](.tool-versions). Install the
+Use the Go and tool versions in [`.tool-versions`](.tool-versions). `make check`
+also needs system `python3` 3.11 or later with PyYAML; see
+[scripts/README.md](scripts/README.md). Install the
 pre-commit hook once per clone. It needs
 [gitleaks](https://github.com/gitleaks/gitleaks) and blocks commits that contain
 secrets or oversize files.
