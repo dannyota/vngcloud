@@ -49,8 +49,16 @@ func TestDiscoverySignalBeforeResult(t *testing.T) {
 		signal <- 42
 		result <- context.DeadlineExceeded
 		got, err, ok := awaitDiscoverySignal(signal, result)
-		if !ok || got != 42 || err != nil || !errors.Is(<-result, context.DeadlineExceeded) {
-			t.Fatal("ready signal was not preferred or result was lost")
+		if !ok || got != 42 || err != nil {
+			t.Fatal("ready signal was not preferred")
+		}
+		select {
+		case err := <-result:
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("unexpected result: %v", err)
+			}
+		default:
+			t.Fatal("result was lost")
 		}
 	}
 	signal := make(chan int, 1)
