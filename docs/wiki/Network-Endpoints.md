@@ -44,7 +44,8 @@ del, err := client.DeleteEndpoint(ctx, &network.DeleteEndpointInput{EndpointID: 
   offer with no attached resource and no domain, sends one DELETE, and
   waits up to 10 minutes for the ID to leave a complete list. `Deleted` is
   true only then. Deleting an endpoint a cluster uses breaks that cluster's
-  private access; the checks cannot detect that. A refund can stay pending.
+  private access; the checks cannot detect that. Deletion promises no refund,
+  and a refund can stay pending.
   In one probe, an endpoint that reused a just-deleted endpoint's name was
   deleted but never refunded, and billing still listed it as active. Check
   `billing list-resources` after delete.
