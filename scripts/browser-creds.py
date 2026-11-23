@@ -203,7 +203,7 @@ def main(argv=None):
                     break
                 server.handle_request()
     if not served["/creds"]:
-        print("browser-creds: the login script never ran; its capability expired unused", file=sys.stderr)
+        print("browser-creds: no /creds request was accepted; its capability expired unused", file=sys.stderr)
     print("done", flush=True)
 
 
