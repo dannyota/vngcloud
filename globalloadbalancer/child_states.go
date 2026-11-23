@@ -24,7 +24,11 @@ func createState(status string) stateClass {
 }
 
 func memberHealth(status string) bool {
-	return strings.EqualFold(status, "ONLINE") || strings.EqualFold(status, "OFFLINE")
+	switch strings.ToUpper(status) {
+	case "ONLINE", "OFFLINE", "HEALTHY", "UNHEALTHY":
+		return true
+	}
+	return false
 }
 
 func deleteEligible(status string) bool {
@@ -33,7 +37,7 @@ func deleteEligible(status string) bool {
 
 func deleteInProgress(status string) bool {
 	switch strings.ToUpper(status) {
-	case "ACTIVE", "DELETING", "PENDING", "ONLINE", "OFFLINE":
+	case "ACTIVE", "DELETING", "PENDING", "ONLINE", "OFFLINE", "HEALTHY", "UNHEALTHY":
 		return true
 	}
 	return false

@@ -266,7 +266,7 @@ func TestCreatePoolFailureStates(t *testing.T) {
 }
 
 func TestCreatePoolAcceptsMemberHealth(t *testing.T) {
-	for _, health := range []string{"ONLINE", "OFFLINE"} {
+	for _, health := range []string{"ONLINE", "OFFLINE", "HEALTHY", "UNHEALTHY"} {
 		f := newFixture(t)
 		f.groupStatus = health
 		out, err := f.client(t).CreatePool(bg(), poolInput())

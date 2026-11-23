@@ -307,3 +307,19 @@ func TestDeleteRejectsBadIDsBeforeRequests(t *testing.T) {
 		t.Fatalf("calls=%v", c.calls)
 	}
 }
+
+func TestDeletesAcceptAnyMemberHealth(t *testing.T) {
+	for _, health := range []string{"ONLINE", "OFFLINE", "HEALTHY", "UNHEALTHY"} {
+		for _, tc := range deleteCases()[1:] {
+			f := newFixture(t)
+			f.groupStatus = health
+			tc.setup(f)
+			if tc.name == "group" {
+				f.listener = false
+			}
+			if deleted, _, err := tc.call(f.client(t)); tc.name == "group" && (err != nil || !deleted) {
+				t.Fatalf("health=%s deleted=%v err=%v", health, deleted, err)
+			}
+		}
+	}
+}
