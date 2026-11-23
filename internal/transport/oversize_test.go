@@ -47,8 +47,11 @@ func TestRedactionBoundedHTTPErrorCost(t *testing.T) {
 	}
 	var status int
 	var requestErr error
+	var maxElapsed time.Duration
 	allocations := testing.AllocsPerRun(1, func() {
+		started := time.Now()
 		status, requestErr = core.ClientOf(cfg).DoJSONStatus(context.Background(), transport.Request{URL: "http://synthetic.invalid/", MaxBody: capBytes, Sensitive: true}, nil)
+		maxElapsed = max(maxElapsed, time.Since(started))
 	})
 	var api *vngcloud.APIError
 	if status != http.StatusForbidden || !errors.As(requestErr, &api) || api.StatusCode != status || api.Message != "[redacted]" || !errors.Is(requestErr, vngcloud.ErrPermission) {
@@ -56,6 +59,9 @@ func TestRedactionBoundedHTTPErrorCost(t *testing.T) {
 	}
 	if allocations > 500 {
 		t.Fatalf("redaction allocated %.0f times, want at most 500", allocations)
+	}
+	if maxElapsed > 5*time.Second {
+		t.Fatalf("redaction took %s, want at most 5s", maxElapsed)
 	}
 }
 

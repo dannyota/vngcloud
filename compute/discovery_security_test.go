@@ -26,6 +26,42 @@ func releaseDiscoveryWaiter(ch chan struct{}) func() {
 	return func() { once.Do(func() { close(ch) }) }
 }
 
+func awaitDiscoverySignal[T any](signal <-chan T, result chan error) (T, error, bool) {
+	select {
+	case value := <-signal:
+		return value, nil, true
+	case err := <-result:
+		select {
+		case value := <-signal:
+			result <- err
+			return value, nil, true
+		default:
+			var zero T
+			return zero, err, false
+		}
+	}
+}
+
+func TestDiscoverySignalBeforeResult(t *testing.T) {
+	for range 100 {
+		signal := make(chan int, 1)
+		result := make(chan error, 1)
+		signal <- 42
+		result <- context.DeadlineExceeded
+		got, err, ok := awaitDiscoverySignal(signal, result)
+		if !ok || got != 42 || err != nil || !errors.Is(<-result, context.DeadlineExceeded) {
+			t.Fatal("ready signal was not preferred or result was lost")
+		}
+	}
+	signal := make(chan int, 1)
+	result := make(chan error, 1)
+	result <- context.Canceled
+	_, err, ok := awaitDiscoverySignal(signal, result)
+	if ok || !errors.Is(err, context.Canceled) {
+		t.Fatalf("early result: ok=%t err=%v", ok, err)
+	}
+}
+
 func observeDiscoveryContext(ctx context.Context) (context.Context, <-chan context.Context) {
 	contexts := make(chan context.Context, 1)
 	return discovery.WithTestContextObserver(ctx, func(ctx context.Context) { contexts <- ctx }), contexts
@@ -176,9 +212,7 @@ func TestListFlavorPricesRefreshWaiterDeadline(t *testing.T) {
 			}
 			holder := make(chan error, 1)
 			go func() { holder <- c.c.DoJSON(context.Background(), req, nil) }()
-			select {
-			case <-provider.entered:
-			case err := <-holder:
+			if _, err, ok := awaitDiscoverySignal(provider.entered, holder); !ok {
 				t.Fatalf("holder returned before token provider was entered: %v", err)
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
@@ -186,10 +220,8 @@ func TestListFlavorPricesRefreshWaiterDeadline(t *testing.T) {
 			ctx, sessionContexts := observeDiscoveryContext(ctx)
 			waiter := make(chan error, 1)
 			go func() { _, err := c.ListFlavorPrices(ctx, nil); waiter <- err }()
-			var sessionCtx context.Context
-			select {
-			case sessionCtx = <-sessionContexts:
-			case err := <-waiter:
+			sessionCtx, err, ok := awaitDiscoverySignal(sessionContexts, waiter)
+			if !ok {
 				release()
 				t.Fatalf("waiter returned before session was created: %v", err)
 			}
@@ -242,9 +274,7 @@ func TestListFlavorPricesProjectWaiterDeadline(t *testing.T) {
 	c := New(cfg)
 	holder := make(chan error, 1)
 	go func() { _, err := c.ListFlavorZones(context.Background(), nil); holder <- err }()
-	select {
-	case <-entered:
-	case err := <-holder:
+	if _, err, ok := awaitDiscoverySignal(entered, holder); !ok {
 		t.Fatalf("holder returned before server was entered: %v", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
@@ -252,10 +282,8 @@ func TestListFlavorPricesProjectWaiterDeadline(t *testing.T) {
 	ctx, sessionContexts := observeDiscoveryContext(ctx)
 	waiter := make(chan error, 1)
 	go func() { _, err := c.ListFlavorPrices(ctx, nil); waiter <- err }()
-	var sessionCtx context.Context
-	select {
-	case sessionCtx = <-sessionContexts:
-	case err := <-waiter:
+	sessionCtx, err, ok := awaitDiscoverySignal(sessionContexts, waiter)
+	if !ok {
 		releaseWaiter()
 		t.Fatalf("waiter returned before session was created: %v", err)
 	}
@@ -317,9 +345,7 @@ func TestListFlavorPricesSharedIAMWaiterDeadline(t *testing.T) {
 	req := transport.Request{Operation: "test.Read", Method: http.MethodGet, URL: server.URL + "/holder", OK: []int{200}}
 	holder := make(chan error, 1)
 	go func() { holder <- holderClient.c.DoJSON(context.Background(), req, nil) }()
-	select {
-	case <-entered:
-	case err := <-holder:
+	if _, err, ok := awaitDiscoverySignal(entered, holder); !ok {
 		t.Fatalf("holder returned before server was entered: %v", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
@@ -327,10 +353,8 @@ func TestListFlavorPricesSharedIAMWaiterDeadline(t *testing.T) {
 	ctx, sessionContexts := observeDiscoveryContext(ctx)
 	waiter := make(chan error, 1)
 	go func() { _, err := waiterClient.ListFlavorPrices(ctx, nil); waiter <- err }()
-	var sessionCtx context.Context
-	select {
-	case sessionCtx = <-sessionContexts:
-	case err := <-waiter:
+	sessionCtx, err, ok := awaitDiscoverySignal(sessionContexts, waiter)
+	if !ok {
 		releaseWaiter()
 		t.Fatalf("waiter returned before session was created: %v", err)
 	}
