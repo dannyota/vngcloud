@@ -24,7 +24,7 @@ func init() {
 		endpointScopeHelp + "\n" +
 		"Requires explicit --endpoint-id and --vpc-id, refuses read-only profiles before any request, and sends one delete for an ACTIVE endpoint of the named VPC. " +
 		"Waits up to 10 minutes, polling every 5 seconds, until a complete list omits the ID. There is no --no-wait or --force. " +
-		"Deletion promises no refund, and a refund can stay pending after delete. In one probe, an endpoint that reused a just-deleted endpoint's name was deleted but never refunded, and billing still listed it as active. Check billing list-resources after delete. " +
+		"Deletion promises no refund, and a refund can stay pending after delete. In one probe, an endpoint that reused a just-deleted endpoint's name was deleted but had not been refunded hours after delete, and billing still listed it as active. Check billing list-transactions for the refund after delete. " +
 		"NotFound exits 4. After NotSettled, run network list-endpoints in the same scope before another action. See [Network endpoints](Network-Endpoints.md)."
 	docExampleOverride["network quote-create-endpoint"] = "vngcloud network quote-create-endpoint --region hcm-3 --name demo \\\n" +
 		"  --vpc-id <net-id> --subnet-id <sub-id>"

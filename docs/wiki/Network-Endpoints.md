@@ -47,8 +47,9 @@ del, err := client.DeleteEndpoint(ctx, &network.DeleteEndpointInput{EndpointID: 
   private access; the checks cannot detect that. Deletion promises no refund,
   and a refund can stay pending.
   In one probe, an endpoint that reused a just-deleted endpoint's name was
-  deleted but never refunded, and billing still listed it as active. Check
-  `billing list-resources` after delete.
+  deleted but had not been refunded hours after delete, and billing still
+  listed it as active. Check `billing list-transactions` for the refund after
+  delete.
 
 ## Errors
 
