@@ -51,8 +51,11 @@ record before landing.
 8. The API refuses to delete a pool's sole member group (HTTP 403), and a
    pool DELETE removes the pool with its nested group and backend row, never
    the vServer. No `DeletePoolMember` ships. `DeletePool` deletes a
-   listener-free pool together with its one expected group, and confirms
-   that the pool and the group are absent.
+   listener-free pool together with its one expected group. Groups live
+   under the pool path, so once the complete pool collection omits the
+   pool, a 404 or HTTP 500 `internal_error` from that pool's group list is
+   accepted as the group's absence; while the pool is listed, no group-list
+   error counts.
 
 ## Scope and alternatives
 
@@ -101,8 +104,8 @@ implicit discovery. SDK callers supply that field directly. Use
 project nor region goes into the GLB route. Disallow writes in read-only
 mode, check `--yes` before network access, and use normal [CLI exits][cli].
 Help calls out the order, CIDR scope, possible GLB usage charges, and no
-refund guarantee. The delete-member command deletes the group ID, not the
-nested server row and never the vServer itself.
+refund guarantee. The pool delete removes the pool with its group and
+backend row, never the vServer itself.
 
 Add no dependency. Use private guard projections of existing reads, plus
 one private exact pool GET. Do not widen existing reads' models, requests,
@@ -125,8 +128,8 @@ Paths below are relative to `/v1/global-load-balancers/{glbid}`.
 |`POST /global-pools`|200 / 202, direct pool object|Create pool and nested group|
 |`POST /global-listeners`|200 / 202, direct listener object|Create bound listener|
 |`DELETE /global-listeners/{listenerid}`|200 / 202, no upstream body decode|Delete exact listener|
-|`DELETE /global-pools/{poolid}/pool-members/{poolmemberid}`|200 / 202, no upstream body decode|Delete exact group|
-|`DELETE /global-pools/{poolid}`|200 / 202, no upstream body decode|Delete empty pool|
+|`DELETE /global-pools/{poolid}/pool-members/{poolmemberid}`|403 live for the sole group|Not used|
+|`DELETE /global-pools/{poolid}`|202 live|Delete pool with its group|
 |`GET /global-pools/{poolid}`|200 / no upstream method|Private exact pool guard|
 |`GET /global-listeners/{listenerid}` and `GET /global-pools/{poolid}/pool-members/{poolmemberid}`|200 / 200, direct objects|Exact listener and group guards|
 |`GET /global-listeners`, `GET /global-pools`, `GET /global-pools/{poolid}/pool-members`|200 / 200, direct arrays upstream|Corroborate identity, uniqueness and absence|
