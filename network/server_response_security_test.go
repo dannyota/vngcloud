@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/internal/core"
 )
 
 func TestSecurityGroupServerErrorMetadataSafety(t *testing.T) {
@@ -172,4 +173,16 @@ func TestSecurityGroupServerRejectsNormalizedNumericCredential(t *testing.T) {
 	if strings.Contains(err.Error(), "123456789") {
 		t.Fatal("numeric credential escaped through error")
 	}
+}
+
+func TestMaskedProviderErrorMetadataSafety(t *testing.T) {
+	original := &vngcloud.APIError{Code: "synthetic-token", Message: "safe", Err: vngcloud.ErrFailed}
+	wrapped := fmt.Errorf("provider: %w", original)
+	err := (&core.Client{}).WrapDiscoveryError(wrapped)
+	err = sanitizeServerError(err, []string{"synthetic-token"})
+	var api *vngcloud.APIError
+	if errors.Is(err, vngcloud.ErrFailed) || !errors.As(err, &api) || strings.Contains(api.Code, "synthetic-token") || strings.Contains(api.Message, "synthetic-token") || errors.Is(api.Err, vngcloud.ErrFailed) {
+		t.Fatalf("unsafe err=%v api=%+v", err, api)
+	}
+	assertSafeSecurityGroupServerError(t, err, "synthetic-token")
 }

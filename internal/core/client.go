@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
@@ -562,10 +563,50 @@ func (e *transportSettlementCause) Is(target error) bool {
 	} //nolint:errorlint
 	return errors.Is(e.cause, target)
 }
-func (e *transportSettlementCause) As(target any) bool { return errors.As(e.cause, target) }
+
+type transportSettlementSingle struct {
+	*transportSettlementCause
+	child error
+}
+
+func (e *transportSettlementSingle) Unwrap() error { return e.child }
+
+type transportSettlementMultiple struct {
+	*transportSettlementCause
+	children []error
+}
+
+func (e *transportSettlementMultiple) Unwrap() []error { return e.children }
+
 func maskTransportSettlement(err error) error {
-	if errors.Is(err, ErrFailed) || errors.Is(err, ErrNotSettled) {
-		return &transportSettlementCause{cause: err}
+	if err == nil || (!errors.Is(err, ErrFailed) && !errors.Is(err, ErrNotSettled)) {
+		return err
 	}
-	return err
+	switch cause := err.(type) { //nolint:errorlint
+	case *APIError:
+		safe := *cause
+		safe.Err = maskTransportSettlement(cause.Err)
+		return &safe
+	case *url.Error:
+		safe := *cause
+		safe.Err = maskTransportSettlement(cause.Err)
+		return &safe
+	case interface{ Unwrap() []error }:
+		children := cause.Unwrap()
+		masked := make([]error, len(children))
+		for i, child := range children {
+			masked[i] = maskTransportSettlement(child)
+		}
+		identity := new(transportSettlementCause)
+		identity.cause = err
+		return &transportSettlementMultiple{transportSettlementCause: identity, children: masked}
+	case interface{ Unwrap() error }:
+		identity := new(transportSettlementCause)
+		identity.cause = err
+		return &transportSettlementSingle{transportSettlementCause: identity, child: maskTransportSettlement(cause.Unwrap())}
+	default:
+		identity := new(transportSettlementCause)
+		identity.cause = err
+		return identity
+	}
 }

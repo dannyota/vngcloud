@@ -141,10 +141,16 @@ func TestWaitServerActiveMatchingIdentityKeepsStatusBehavior(t *testing.T) {
 	}
 }
 
-type confirmationProvider struct{ ordered atomic.Bool }
+type confirmationProvider struct {
+	ordered atomic.Bool
+	failure error
+}
 
 func (p *confirmationProvider) Token(context.Context) (vngcloud.Token, error) {
 	if p.ordered.Load() {
+		if p.failure != nil {
+			return vngcloud.Token{}, p.failure
+		}
 		return vngcloud.Token{}, fmt.Errorf("provider refresh: %w", vngcloud.ErrFailed)
 	}
 	return vngcloud.Token{AccessToken: "synthetic", ExpiresAt: time.Now().Add(time.Second)}, nil
@@ -167,5 +173,54 @@ func TestCreateServerProviderSettlementCollision(t *testing.T) {
 	out, err := New(cfg).CreateServer(context.Background(), in)
 	if !errors.Is(err, vngcloud.ErrNotSettled) || errors.Is(err, vngcloud.ErrFailed) || out == nil || out.Server.UUID != "server-1" {
 		t.Fatalf("out=%+v err=%v", out, err)
+	}
+}
+
+func TestCreateServerProviderAPIErrorRedaction(t *testing.T) {
+	for _, tc := range []struct {
+		name, code, message string
+		wrap                bool
+	}{
+		{"code", "synthetic", "safe", false},
+		{"message", "safe", "synthetic", false},
+		{"wrapped", "synthetic", "safe", true},
+		{"joined", "synthetic", "safe", true},
+		{"cause", "safe", "safe", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			api := &vngcloud.APIError{Code: tc.code, Message: tc.message, Err: vngcloud.ErrFailed}
+			if tc.name == "cause" {
+				api.Err = errors.Join(vngcloud.ErrFailed, errors.New("synthetic"))
+			}
+			var providerErr error = api
+			if tc.wrap {
+				if tc.name == "joined" {
+					providerErr = errors.Join(errors.New("other"), api)
+				} else {
+					providerErr = fmt.Errorf("provider: %w", api)
+				}
+			}
+			provider := &confirmationProvider{failure: providerErr}
+			server := httptest.NewServer(floatingCreateHandler(t, func() string { return floatingSafeRules }, func(w http.ResponseWriter, _ *http.Request) {
+				provider.ordered.Store(true)
+				w.WriteHeader(http.StatusAccepted)
+				_, _ = w.Write([]byte(`{"data":{"uuid":"server-1"}}`))
+			}, func(http.ResponseWriter, *http.Request) { t.Error("confirmation unexpectedly sent") }))
+			defer server.Close()
+			cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("hcm-3"), vngcloud.WithProjectID("project-1"), vngcloud.WithCredentialsProvider(provider), vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{VServer: server.URL, Portal: server.URL}), vngcloud.WithRetry(0, 0))
+			if err != nil {
+				t.Fatal(err)
+			}
+			in := validCreateServerInput()
+			in.MaxPrice = 467800
+			out, err := New(cfg).CreateServer(context.Background(), in)
+			var got *vngcloud.APIError
+			if !errors.Is(err, vngcloud.ErrNotSettled) || errors.Is(err, vngcloud.ErrFailed) || out == nil || out.Server.UUID != "server-1" || !errors.As(err, &got) {
+				t.Fatalf("out=%+v err=%v api=%+v", out, err, got)
+			}
+			if strings.Contains(got.Code, "synthetic") || strings.Contains(got.Message, "synthetic") || (got.Err != nil && (strings.Contains(got.Err.Error(), "synthetic") || errors.Is(got.Err, vngcloud.ErrFailed))) {
+				t.Fatalf("unsafe API error: %+v cause=%v", got, got.Err)
+			}
+		})
 	}
 }

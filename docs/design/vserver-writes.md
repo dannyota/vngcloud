@@ -142,8 +142,8 @@ func (c *Client) DeleteSecurityGroupRule(ctx context.Context, in *DeleteSecurity
 var (
 	ErrSecurityGroupInUse = errors.New("network: security group in use")
 	ErrSystemGroup        = errors.New("network: system security group")
-	ErrNotSettled         = errors.New("network: write accepted but not settled")
-	ErrFailed             = errors.New("network: write failed on the server")
+	ErrNotSettled         = vngcloud.ErrNotSettled
+	ErrFailed             = vngcloud.ErrFailed
 )
 ```
 

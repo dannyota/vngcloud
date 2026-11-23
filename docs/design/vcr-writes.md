@@ -139,7 +139,7 @@ func (c *Client) DeleteUser(ctx context.Context, in *DeleteUserInput) (*DeleteUs
 
 var (
 	ErrRepositoryNotEmpty = errors.New("containerregistry: repository holds images")
-	ErrNotSettled         = errors.New("containerregistry: write accepted but not settled")
+	ErrNotSettled         = vngcloud.ErrNotSettled
 	ErrUserNotFound       = errors.New("containerregistry: created user not found")
 )
 ```

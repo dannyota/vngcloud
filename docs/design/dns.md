@@ -127,8 +127,8 @@ func (c *Client) DeleteRecord(ctx context.Context, in *DeleteRecordInput) (*Dele
 
 var (
 	ErrZoneBusy   = errors.New("dns: zone busy")
-	ErrNotSettled = errors.New("dns: write accepted but not settled")
-	ErrFailed     = errors.New("dns: write failed on the server")
+	ErrNotSettled = vngcloud.ErrNotSettled
+	ErrFailed     = vngcloud.ErrFailed
 )
 
 const (
