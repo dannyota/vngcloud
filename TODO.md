@@ -6,13 +6,12 @@ item does not approve implementation or a live run; unresolved evidence,
 permission, cost, and resource gates still apply.
 
 - [ ] Implement CDN certificate import, enable, disable, and delete after populated evidence and a scoped test CDN; keep API CDN create deferred. [Contract](docs/design/cdn-writes.md#certificates).
-- [ ] Owner resolves the stuck VPC through GreenNode support or a quota increase and obtains a free HCM VPC before database evidence work; do not clean up unidentified existing resources. [Evidence gate](docs/design/database-services.md#availability-and-evidence-limits).
 - [ ] Obtain scoped approval and disposable project or CDN prerequisites before another paid storage or CDN live run. [Live-run rules](instructions/live-data.md), [storage contract](docs/design/storage-projects.md), and [CDN contract](docs/design/cdn-writes.md).
 - [ ] Qualify held VKS cluster detail, node groups, nodes, and events with populated evidence, and define a separate kubeconfig contract. [Evidence gate](docs/design/vks.md#evidence-and-release-gate).
 - [ ] Qualify snapshot history and scheduled operations with populated evidence. [Contract](docs/design/server-services.md).
 - [ ] Qualify Backup Center policy detail, server and destination inventory, restore points, and history with populated evidence. [Contract](docs/design/backup-services.md#scope).
 - [ ] Qualify remaining NAT detail and rule reads and network parity reads; NAT and VPN lists are implemented. [Contract](docs/design/network-services.md#scope-and-evidence).
-- [ ] Complete gated vDB engine designs and populated models after the owner provides a free HCM VPC. [Contract](docs/design/database-services.md).
+- [ ] Complete gated vDB engine designs and populated models beyond MySQL 8.0. [Contract](docs/design/database-services.md).
 - [ ] Complete the approved VPN create live probe before implementation that depends on its body and secret contract. [Evidence gates](docs/design/network-writes.md#evidence-gates-and-release-order).
 - [ ] Specify manual one-period renewal orders in a later slice; renewal settings do not place orders. [Contract](docs/design/auto-renew.md).
 - [ ] Keep root-checkout NAT outside the approved IAM write slice; obtain separate approval for any future contract. [Auth boundary](docs/design/network-writes-nat.md#purchase-and-auth).
@@ -27,6 +26,8 @@ permission, cost, and resource gates still apply.
 - [ ] Quote a replacement or upgrade of an existing notification quota, and point `pricing get-quote` help at the vMonitor quote commands. [Quote contract](docs/design/monitor-quotas.md#quote-and-price-contract).
 - [ ] State each list command's output root (for example `Items`) in help and the wiki so `--query` expressions work the first time, and note that `get-server-console-log` returns only the current boot. [CLI](docs/design/cli.md).
 - [ ] Record API evidence under `docs/design/` for the wire models whose type comment says no design document records it (`git grep -n "No design document records"`), then cite that record in the comment. [Go rules](instructions/go.md#formatting-and-comments).
+- [ ] State in `compute create-server` help that the vServer gateway answers HTTP 403 to cloud-config user data whose `runcmd` runs shell commands, while key-only cloud-config is accepted. [Server writes](docs/design/server-services.md).
+- [ ] Confirm the refund of one private endpoint deleted at 07:56 on 2026-11-23 (service 751496); every other probe endpoint was refunded within 30 minutes. [Endpoint probe](docs/design/network-endpoints-api.md#recorded-hcm-3-create-and-delete-probe).
 - [ ] Check `compute.Flavor`'s `ZoneID` and `FlavorZoneID` against live `ListFlavors` rows: the rows carry values in a different form from the zone and flavor zone IDs the SDK uses in requests, so code that compares them fails. [Server reads](docs/design/server-services.md).
 - [ ] Consider release binaries with checksums and provenance attestations for CI installs; pinned `go install` with the Go checksum database is the supported path today. [Unattended CI](docs/design/cli.md).
 - [ ] Ratchet non-test Go to 600 lines after the billing history and floating IP slices land, then to 500, one pull request each. Extend `scripts/test/check-lengths-test.sh` to the new limit in each step. [File length](instructions/documentation.md#file-length).

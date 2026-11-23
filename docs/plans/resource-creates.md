@@ -6,10 +6,10 @@ Add the six missing create workflows to the Go SDK and CLI with the catalog read
 
 |Slice|Established evidence|Next gate|
 |-|-|-|
-|[ ] Global Load Balancer|Bare Layer 4 create and delete ship under the [GLB create design](../design/glb-create.md). The [official API reference](https://docs.api.greennode.ai/service-docs/glb-api.html) declares listener and pool writes.|Review the [TCP listener and pool design](../design/glb-pool.md), then implement and run its live probe.|
+|[x] Global Load Balancer|Bare Layer 4 create and delete ship under the [GLB create design](../design/glb-create.md); TCP pool and listener create and delete ship under the [TCP children design](../design/glb-pool.md).|None.|
 |[x] VKS cluster|Private cluster create and delete ship under the [VKS create design](../design/vks-create.md).|None.|
 |[ ] Site-to-site VPN|The [accepted contract](../design/network-writes.md#evidence-gates-and-release-order) has inventory and intended SDK/CLI scope. The [console guide](https://docs.greennode.ai/vnetwork/vpn-virtual-private-network-site-to-site/create-vpn-site-to-site) describes checkout, not proof of an API-only credit purchase.|Verify the guided prerequisites, quote inputs, and whether existing credit covers the approved flow without checkout. Keep [body and payment evidence](../design/network-writes-api.md#probes-before-implementation) open.|
-|[ ] Private endpoint|The [console guide](https://docs.greennode.ai/vnetwork/endpoint/create-endpoint) describes VPC and private DNS choices and a price summary. The SDK exposes inventory.|Recheck service, VPC/subnet, package, private DNS, and price at the console. Establish the [missing API and billing contract](../design/network-endpoints-api.md) before SDK writes.|
+|[x] Private endpoint|vStorage Standard endpoint quote, create, and delete in `hcm-3` ship under the [endpoint create design](../design/endpoint-create.md).|Evaluate other services and regions separately.|
 |[ ] CDN Web Accelerator|The [create design](../design/cdn-writes.md#create) records an API refusal and a separate console form. GreenNode publishes a [vCDN API guide](https://docs.greennode.ai/vcdn/api-developers).|Rewalk the console flow and compare prerequisites and submission format before classifying the refusal as an API fault. Do not implement a console form or guess missing identity fields.|
 |[x] vDB|Private single-node MySQL 8.0 create and delete ship under the [vDB create design](../design/vdb-create.md).|Evaluate other engines separately.|
 

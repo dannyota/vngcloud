@@ -1,6 +1,6 @@
 # Release Notes
 
-## Unreleased - Private endpoint create
+## v0.103.0 - Private endpoint create
 
 - Add `network quote-create-endpoint`, `create-endpoint`, and
   `delete-endpoint` (SDK `QuoteCreateEndpoint`, `CreateEndpoint`,
@@ -9,7 +9,9 @@
   `--max-price`, requests auto-renew off, and sends once; it reports no
   renewal or billing status. Delete refuses an endpoint with an attached
   resource or domain and promises no refund. See
-  [Private endpoints](docs/wiki/Network-Endpoints.md).
+  [Private endpoints](docs/wiki/Network-Endpoints.md). A recorded run
+  debited the 712,400 VND monthly quote at create, reached `ACTIVE` in about
+  3 minutes, and deleted in about 30 seconds.
 
 ## v0.102.0 - Global Load Balancer TCP pool and listener
 
