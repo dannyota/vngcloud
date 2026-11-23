@@ -206,8 +206,10 @@ by reading, as ADR 0003 does for toggles:
   `ErrUnexpectedStatus` and sends nothing, so a start is never sent to a
   server mid-create.
 - A `4xx` means the server did not act and returns that error. Any other
-  failure after the send returns `ErrNotSettled`; the recovery is to run
-  the same operation again, because it reads first.
+  failure after the send returns `ErrNotSettled`. A start or stop reads
+  first, so running it again is safe. A completed reboot also reads
+  `ACTIVE`, so never repeat a reboot to check; confirm it in the console or
+  on the server first.
 
 Resize and rename rules, including signed quotes, are in
 [resize](vserver-paid-writes-resize.md).

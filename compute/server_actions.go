@@ -162,8 +162,7 @@ type RebootServerOutput struct {
 // ACTIVE, it sends the reboot PUT at most once (transport.Request.Once).
 //
 // A 4xx response proves the server never acted and is returned as is. Any
-// other failure returns an error wrapping ErrNotSettled; run RebootServer
-// again to check, since it always reads first.
+// other failure returns an error wrapping ErrNotSettled.
 //
 // Without NoWait, RebootServer then waits up to 5 minutes, polling
 // GetServer every 5 seconds, for a read showing ACTIVE at least 10 seconds

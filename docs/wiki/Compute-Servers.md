@@ -214,8 +214,9 @@ same `ErrUnexpectedStatus` refusal. Each toggle is sent at most once
 (`transport.Request.Once`): a resend would act on a status read that only
 grows staler. A 4xx response after the send proves the server never acted
 and is returned as is; any other failure wraps `compute.ErrNotSettled`.
-`StartServer` and `StopServer` read first, so running them again is safe;
-read `GetServer` before repeating `RebootServer`, which reboots again. `RebootServer`'s wait needs a read showing `ACTIVE` at least 10
+`StartServer` and `StopServer` read first, so running them again is safe.
+Never repeat `RebootServer` to check: a completed reboot also reads `ACTIVE`,
+so confirm it in the console or on the server first. `RebootServer`'s wait needs a read showing `ACTIVE` at least 10
 seconds after the send, since an immediate read can still show the
 pre-reboot `ACTIVE` state before `REBOOTING` appears. `RenameServer` is
 free and keeps the transport's normal `PUT` retries.
