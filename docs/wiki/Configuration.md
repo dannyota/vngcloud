@@ -293,8 +293,9 @@ secrets masked.
 ## Project
 
 A project ID is optional; set one with `vngcloud.WithProjectID`. When a method
-needs a project and none is set, the SDK lists the projects visible to the IAM
-User in the region and uses the only match. If more than one project matches,
+needs a project and none is set, the SDK lists the projects visible to the
+credentials (IAM User or service account) in the region and uses the only
+match. If more than one project matches,
 set it with `WithProjectID`.
 
 List projects yourself with the `project` package:

@@ -62,7 +62,7 @@ Helper functions cover the common checks:
 vngcloud.IsNotFound(err)
 vngcloud.IsPermissionDenied(err)
 vngcloud.IsRateLimited(err)
-vngcloud.IsRetryable(err)   // classifies the returned error; not a promise that repeating a write is safe
+vngcloud.IsRetryable(err)   // classifies the error; repeating a write may not be safe
 vngcloud.ErrorCode(err)     // APIError.Code, or "" for a non-APIError
 ```
 

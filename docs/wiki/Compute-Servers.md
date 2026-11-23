@@ -216,7 +216,8 @@ grows staler. A 4xx response after the send proves the server never acted
 and is returned as is; any other failure wraps `compute.ErrNotSettled`.
 `StartServer` and `StopServer` read first, so running them again is safe.
 Never repeat `RebootServer` to check: a completed reboot also reads `ACTIVE`,
-so confirm it in the console or on the server first. `RebootServer`'s wait needs a read showing `ACTIVE` at least 10
+so confirm it in the console or on the server first. `RebootServer`'s wait
+needs a read showing `ACTIVE` at least 10
 seconds after the send, since an immediate read can still show the
 pre-reboot `ACTIVE` state before `REBOOTING` appears. `RenameServer` is
 free and keeps the transport's normal `PUT` retries.
