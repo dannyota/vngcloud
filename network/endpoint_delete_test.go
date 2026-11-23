@@ -68,7 +68,7 @@ func TestEndpointDeletePreflightRefusals(t *testing.T) {
 		{"absent", nil, core.ErrNotFound},
 		{"other id only", []string{epRow(epOtherID, "x", "ACTIVE", epSubnet)}, core.ErrNotFound},
 		{"other vpc", []string{r(`"vpcId":"`+epVPC, `"vpcId":"net-00000000-0000-0000-0000-0000000000ff`).Replace(base)}, core.ErrInvalidInput},
-		{"other service", []string{r(`"endpointServiceId":"`+epService, `"endpointServiceId":"00000000-0000-0000-0000-0000000000a2`).Replace(base)}, core.ErrInvalidInput},
+		{"other service", []string{r(`"service":{"uuid":"`+epService, `"service":{"uuid":"00000000-0000-0000-0000-0000000000a2`).Replace(base)}, core.ErrInvalidInput},
 		{"other package", []string{r(`"packageId":{"uuid":"`+epPackage, `"packageId":{"uuid":"00000000-0000-0000-0000-0000000000b2`).Replace(base)}, core.ErrInvalidInput},
 		{"other zone", []string{r(`"zoneUuid":"HCM03-1C"`, `"zoneUuid":"HCM03-1B"`).Replace(base)}, core.ErrInvalidInput},
 		{"provisioning", []string{r(`"status":"ACTIVE"`, `"status":"PROVISIONING"`).Replace(base)}, core.ErrInvalidInput},
@@ -263,5 +263,33 @@ func TestEndpointDeleteNoLateSuccessAfterDeadline(t *testing.T) {
 	out, err := h.c.DeleteEndpoint(context.Background(), epDeleteInput())
 	if !errors.Is(err, ErrNotSettled) || out == nil || out.Deleted {
 		t.Fatalf("out=%v err=%v", out, err)
+	}
+}
+
+func TestEndpointServiceIdentityComesFromServiceObject(t *testing.T) {
+	base := epRow(epID, "demo", "ACTIVE", epSubnet)
+	for name, tc := range map[string]struct {
+		row  string
+		want bool
+	}{
+		"endpointServiceId is not compared": {strings.Replace(base, `"endpointServiceId":"`+epServiceID24, `"endpointServiceId":"66b5000000000000000000aa`, 1), true},
+		"endpointServiceId not 24 hex":      {strings.Replace(base, `"endpointServiceId":"`+epServiceID24, `"endpointServiceId":"`+epService, 1), false},
+		"service name differs":              {strings.Replace(base, `"name":"vstorage.hcm03"`, `"name":"vstorage.han01"`, 1), false},
+		"service object missing":            {strings.Replace(base, `"service":{`, `"servicex":{`, 1), false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := epDeleteFake(tc.row)
+			h := newEPHarness(t, f)
+			out, err := h.c.DeleteEndpoint(context.Background(), epDeleteInput())
+			if tc.want != (err == nil && out.Deleted) {
+				t.Fatalf("out=%v err=%v", out, err)
+			}
+			if tc.want {
+				req := f.find(http.MethodDelete, "/"+epID)
+				if !strings.Contains(req.Body, `"endpointServiceUuid":"`+epService+`"`) {
+					t.Fatalf("body %s", req.Body)
+				}
+			}
+		})
 	}
 }

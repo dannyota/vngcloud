@@ -219,7 +219,7 @@ func (o *endpointOp) preflightDelete(rows []endpointRow, in *DeleteEndpointInput
 	if row == nil {
 		return nil, fmt.Errorf("%w: %s", core.ErrNotFound, o.op)
 	}
-	if row.VPCID != in.VPCID || row.EndpointServiceID != offer.service || row.PackageID.UUID != offer.pkg || row.ZoneUUID != endpointZone || row.Status != "ACTIVE" {
+	if row.VPCID != in.VPCID || row.Service.UUID != offer.service || row.Service.Name != endpointService || row.PackageID.UUID != offer.pkg || row.ZoneUUID != endpointZone || row.Status != "ACTIVE" {
 		return nil, fmt.Errorf("%w: %s: endpoint is not an ACTIVE vStorage Standard endpoint of the named VPC", core.ErrInvalidInput, o.op)
 	}
 	if len(row.resource) == 0 || len(row.domains) == 0 || string(row.domains) == "null" {
@@ -274,7 +274,7 @@ func (c *Client) DeleteEndpoint(ctx context.Context, in *DeleteEndpointInput) (*
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
 	code := 0
-	body := endpointDeleteBody{EndpointUUID: in.EndpointID, VPCUUID: in.VPCID, EndpointServiceUUID: row.EndpointServiceID, RegionUUID: o.scope.zone, ProjectUUID: o.scope.project}
+	body := endpointDeleteBody{EndpointUUID: in.EndpointID, VPCUUID: in.VPCID, EndpointServiceUUID: row.Service.UUID, RegionUUID: o.scope.zone, ProjectUUID: o.scope.project}
 	_, notSent, err := o.send(waitCtx, transport.Request{Method: http.MethodDelete, URL: o.route("vnetwork/v1", []string{"endpoints", in.EndpointID}, nil), Body: body, OK: []int{http.StatusOK}, Once: true}, &code)
 	if err != nil {
 		if (notSent != nil && *notSent) || endpointDefiniteRefusal(err) {

@@ -348,7 +348,7 @@ func TestEndpointCreateWaitOutcomes(t *testing.T) {
 			return epRow(epID, "demo", "ACTIVE", "sub-00000000-0000-0000-0000-0000000000ff")
 		}, false},
 		{"wrong service", func(int) string {
-			return strings.Replace(epRow(epID, "demo", "ACTIVE", epSubnet), `"endpointServiceId":"`+epService, `"endpointServiceId":"00000000-0000-0000-0000-0000000000a2`, 1)
+			return strings.Replace(epRow(epID, "demo", "ACTIVE", epSubnet), `"service":{"uuid":"`+epService, `"service":{"uuid":"00000000-0000-0000-0000-0000000000a2`, 1)
 		}, false},
 		{"wrong package", func(int) string {
 			return strings.Replace(epRow(epID, "demo", "ACTIVE", epSubnet), `"packageId":{"uuid":"`+epPackage, `"packageId":{"uuid":"00000000-0000-0000-0000-0000000000b2`, 1)

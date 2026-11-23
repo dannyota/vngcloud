@@ -17,17 +17,18 @@ import (
 )
 
 const (
-	epRegion   = "66b500000000000000000001"
-	epCategory = "66b500000000000000000009"
-	epProject  = "pro-00000000-0000-0000-0000-000000000001"
-	epVPC      = "net-00000000-0000-0000-0000-000000000002"
-	epSubnet   = "sub-00000000-0000-0000-0000-000000000003"
-	epService  = "00000000-0000-0000-0000-0000000000a1"
-	epPackage  = "00000000-0000-0000-0000-0000000000b1"
-	epID       = "enp-00000000-0000-0000-0000-0000000000c1"
-	epOtherID  = "enp-00000000-0000-0000-0000-0000000000c2"
-	epBearer   = "bearer-synthetic"
-	epBase     = "/vnetwork-gateway/vnetwork/v1/" + epRegion + "/" + epProject + "/endpoints"
+	epRegion      = "66b500000000000000000001"
+	epCategory    = "66b500000000000000000009"
+	epProject     = "pro-00000000-0000-0000-0000-000000000001"
+	epVPC         = "net-00000000-0000-0000-0000-000000000002"
+	epSubnet      = "sub-00000000-0000-0000-0000-000000000003"
+	epService     = "00000000-0000-0000-0000-0000000000a1"
+	epPackage     = "00000000-0000-0000-0000-0000000000b1"
+	epServiceID24 = "66b500000000000000000008"
+	epID          = "enp-00000000-0000-0000-0000-0000000000c1"
+	epOtherID     = "enp-00000000-0000-0000-0000-0000000000c2"
+	epBearer      = "bearer-synthetic"
+	epBase        = "/vnetwork-gateway/vnetwork/v1/" + epRegion + "/" + epProject + "/endpoints"
 )
 
 type epRoundTrip func(*http.Request) (*http.Response, error)
@@ -60,7 +61,7 @@ func epList(rows ...string) string {
 }
 
 func epRow(id, name, status, subnet string) string {
-	return `{"uuid":"` + id + `","endpointName":"` + name + `","endpointServiceId":"` + epService + `","vpcId":"` + epVPC + `","status":"` + status + `","billingStatus":"provisioning","endpointType":"Gateway","zoneUuid":"HCM03-1C","enableDnsName":false,"endpointResource":null,"endpointDomains":[],"category":{},"service":{},"vpc":{"uuid":"` + epVPC + `","projectUuid":null,"project":null,"projectId":"backend-1"},"subnet":{"uuid":"` + subnet + `"},"project":{"id":"1","backendProjectId":"2","portalUserId":"3","VServerProjectId":"` + epProject + `"},"packageId":{"uuid":"` + epPackage + `","monthlyPrice":712400,"currencyUnit":"VND"}}`
+	return `{"uuid":"` + id + `","endpointName":"` + name + `","endpointServiceId":"` + epServiceID24 + `","vpcId":"` + epVPC + `","status":"` + status + `","billingStatus":"provisioning","endpointType":"Gateway","zoneUuid":"HCM03-1C","enableDnsName":false,"endpointResource":null,"endpointDomains":[],"category":{},"service":{"uuid":"` + epService + `","name":"vstorage.hcm03","endpointType":"Gateway"},"vpc":{"uuid":"` + epVPC + `","projectUuid":null,"project":null,"projectId":"backend-1"},"subnet":{"uuid":"` + subnet + `"},"project":{"id":"1","backendProjectId":"2","portalUserId":"3","VServerProjectId":"` + epProject + `"},"packageId":{"uuid":"` + epPackage + `","monthlyPrice":712400,"currencyUnit":"VND"}}`
 }
 
 func newEPFake() *epFake {

@@ -21,7 +21,11 @@ type endpointRow struct {
 	Status            string `json:"status"`
 	ZoneUUID          string `json:"zoneUuid"`
 	EnableDNSName     bool   `json:"enableDnsName"`
-	Subnet            struct {
+	Service           struct {
+		UUID string `json:"uuid"`
+		Name string `json:"name"`
+	} `json:"service"`
+	Subnet struct {
 		UUID string `json:"uuid"`
 	} `json:"subnet"`
 	PackageID struct {
@@ -207,7 +211,7 @@ func (o *endpointOp) checkPlacement(ctx context.Context, offer endpointOffer, vp
 
 func (o *endpointOp) inventory(ctx context.Context) ([]endpointRow, error) {
 	return endpointScan(ctx, o, []string{"endpoints"}, nil, func(raw json.RawMessage) ([]endpointRow, error) {
-		rows, err := natDecodeRows[endpointRow](o.op, raw, "uuid", "endpointName", "endpointServiceId", "vpcId", "status", "zoneUuid", "enableDnsName", "subnet", "packageId", "project")
+		rows, err := natDecodeRows[endpointRow](o.op, raw, "uuid", "endpointName", "endpointServiceId", "vpcId", "status", "zoneUuid", "enableDnsName", "subnet", "packageId", "project", "service")
 		if err != nil {
 			return nil, endpointSafeError(o.op, err)
 		}
@@ -217,7 +221,7 @@ func (o *endpointOp) inventory(ctx context.Context) ([]endpointRow, error) {
 		}
 		for i := range rows {
 			rows[i].resource, rows[i].domains = fields[i]["endpointResource"], fields[i]["endpointDomains"]
-			if rows[i].EndpointName == "" || rows[i].Status == "" || rows[i].Project.VServerProjectID != o.scope.project {
+			if rows[i].EndpointName == "" || !hex24Pattern.MatchString(rows[i].EndpointServiceID) || rows[i].Status == "" || rows[i].Project.VServerProjectID != o.scope.project {
 				return nil, endpointInvalid(o.op)
 			}
 		}
