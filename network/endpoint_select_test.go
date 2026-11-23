@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -110,32 +111,45 @@ func TestEndpointConfiguredProjectNarrowsButNeedsMembership(t *testing.T) {
 }
 
 func TestEndpointCatalogRequests(t *testing.T) {
-	f := newEPFake()
+	f := epCreateFake()
 	h := newEPHarness(t, f)
-	if _, err := h.c.QuoteCreateEndpoint(context.Background(), epCreateInput()); err != nil {
+	if _, err := h.c.CreateEndpoint(context.Background(), epCreateInput()); err != nil {
 		t.Fatal(err)
 	}
-	for _, tc := range []struct{ suffix, query string }{
-		{"/services", "zoneUuid=HCM03-1C"},
-		{"/vpcs", "status=ACTIVE"},
-		{"/vpcs", "endpointServiceId=" + epService},
-		{"/vpcs", "zoneType=AVAILABILITY"},
-		{"/subnets", "isEndpointUsable=true"},
-		{"/subnets", "zoneUuid=HCM03-1C"},
+	_, _ = h.c.DeleteEndpoint(context.Background(), epDeleteInput())
+	empty := `{"search":[],"sort":{},"page":1,"size":1000}`
+	for _, tc := range []struct{ suffix, params, extra string }{
+		{"/zones", empty, ""},
+		{"/categories", empty, ""},
+		{"/services", empty, "zoneUuid=HCM03-1C"},
+		{"/packages", empty, ""},
+		{"/vpcs", `{"search":[{"field":"status","value":"ACTIVE"},{"field":"endpointServiceId","value":"` + epService + `"},{"field":"zoneType","value":"AVAILABILITY"}],"sort":{},"page":1,"size":1000}`, ""},
+		{"/subnets", `{"search":[{"field":"isEndpointUsable","value":"true"},{"field":"zoneUuid","value":"HCM03-1C"}],"sort":{},"page":1,"size":1000}`, ""},
+		{epBase, empty, ""},
 	} {
 		found := false
 		for _, r := range f.reqs {
-			if strings.HasSuffix(r.Path, tc.suffix) && strings.Contains(r.Query, tc.query) {
-				found = true
+			if r.Method != http.MethodGet || !strings.HasSuffix(r.Path, tc.suffix) {
+				continue
+			}
+			q, err := url.ParseQuery(r.Query)
+			if err != nil {
+				t.Fatal(err)
+			}
+			found = true
+			if q.Get("params") != tc.params {
+				t.Errorf("%s params %s", tc.suffix, q.Get("params"))
+			}
+			want := 1
+			if tc.extra != "" {
+				want = 2
+			}
+			if len(q) != want || (tc.extra != "" && q.Encode() != url.Values{"params": {tc.params}, "zoneUuid": {"HCM03-1C"}}.Encode()) {
+				t.Errorf("%s query %s", tc.suffix, r.Query)
 			}
 		}
 		if !found {
-			t.Errorf("no %s request with %s", tc.suffix, tc.query)
-		}
-	}
-	for _, r := range f.reqs {
-		if r.Method == http.MethodGet && strings.HasPrefix(r.Path, epBase) && !strings.Contains(r.Query, "params=") {
-			t.Errorf("catalog read without params: %s", r.Path)
+			t.Errorf("no %s read", tc.suffix)
 		}
 	}
 }

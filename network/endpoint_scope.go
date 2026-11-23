@@ -257,18 +257,32 @@ func trimSlash(s string) string {
 	return s
 }
 
-func endpointScan[T any](ctx context.Context, o *endpointOp, parts []string, extra url.Values, decode func(json.RawMessage) ([]T, error), id func(T) string) ([]T, error) {
+type endpointFilter struct {
+	Field string `json:"field"`
+	Value string `json:"value"`
+}
+
+func endpointParams(page int, search []endpointFilter) url.Values {
+	if search == nil {
+		search = []endpointFilter{}
+	}
+	raw, _ := json.Marshal(struct {
+		Search []endpointFilter `json:"search"`
+		Sort   struct{}         `json:"sort"`
+		Page   int              `json:"page"`
+		Size   int              `json:"size"`
+	}{Search: search, Page: page, Size: 1000})
+	return url.Values{"params": {string(raw)}}
+}
+
+func endpointScan[T any](ctx context.Context, o *endpointOp, parts []string, search []endpointFilter, decode func(json.RawMessage) ([]T, error), id func(T) string) ([]T, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	items := []T{}
 	seen := map[string]bool{}
 	total, pages, size := -1, -1, -1
 	for page := 1; page <= 50; page++ {
-		query := natParams(page)
-		for key, values := range extra {
-			query[key] = values
-		}
-		env, err := o.envelope(ctx, transport.Request{Method: http.MethodGet, URL: o.route("vnetwork/v1", parts, query), OK: []int{http.StatusOK}}, nil)
+		env, err := o.envelope(ctx, transport.Request{Method: http.MethodGet, URL: o.route("vnetwork/v1", parts, endpointParams(page, search)), OK: []int{http.StatusOK}}, nil)
 		if err != nil {
 			return nil, err
 		}

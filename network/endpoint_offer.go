@@ -41,8 +41,8 @@ func endpointRows[T any](o *endpointOp, env *natEnvelope, required ...string) ([
 	return rows, nil
 }
 
-func (o *endpointOp) catalogRead(ctx context.Context, parts []string, extra url.Values) (*natEnvelope, error) {
-	query := natParams(1)
+func (o *endpointOp) catalogRead(ctx context.Context, parts []string, search []endpointFilter, extra url.Values) (*natEnvelope, error) {
+	query := endpointParams(1, search)
 	for key, values := range extra {
 		query[key] = values
 	}
@@ -53,7 +53,7 @@ func (o *endpointOp) resolveOffer(ctx context.Context) (endpointOffer, error) {
 	refuse := func(what string) (endpointOffer, error) {
 		return endpointOffer{}, fmt.Errorf("%w: %s: %s", core.ErrInvalidInput, o.op, what)
 	}
-	env, err := o.catalogRead(ctx, []string{"zones"}, nil)
+	env, err := o.catalogRead(ctx, []string{"zones"}, nil, nil)
 	if err != nil {
 		return endpointOffer{}, err
 	}
@@ -77,7 +77,7 @@ func (o *endpointOp) resolveOffer(ctx context.Context) (endpointOffer, error) {
 		return refuse("zone is not offered exactly once")
 	}
 
-	if env, err = o.catalogRead(ctx, []string{"categories"}, nil); err != nil {
+	if env, err = o.catalogRead(ctx, []string{"categories"}, nil, nil); err != nil {
 		return endpointOffer{}, err
 	}
 	categories, err := endpointRows[struct {
@@ -92,7 +92,7 @@ func (o *endpointOp) resolveOffer(ctx context.Context) (endpointOffer, error) {
 	}
 	offer := endpointOffer{category: categories[0].UUID}
 
-	if env, err = o.catalogRead(ctx, []string{offer.category, "services"}, url.Values{"zoneUuid": {endpointZone}}); err != nil {
+	if env, err = o.catalogRead(ctx, []string{offer.category, "services"}, nil, url.Values{"zoneUuid": {endpointZone}}); err != nil {
 		return endpointOffer{}, err
 	}
 	services, err := endpointRows[struct {
@@ -117,7 +117,7 @@ func (o *endpointOp) resolveOffer(ctx context.Context) (endpointOffer, error) {
 		return refuse("service is not offered exactly once")
 	}
 
-	if env, err = o.catalogRead(ctx, []string{offer.service, "packages"}, nil); err != nil {
+	if env, err = o.catalogRead(ctx, []string{offer.service, "packages"}, nil, nil); err != nil {
 		return endpointOffer{}, err
 	}
 	packages, err := endpointRows[struct {
@@ -154,7 +154,7 @@ func (o *endpointOp) checkPlacement(ctx context.Context, offer endpointOffer, vp
 		ProjectUUID string `json:"projectUuid"`
 		RegionUUID  string `json:"regionUuid"`
 	}
-	vpcs, err := endpointScan(ctx, o, []string{"endpoints", "vpcs"}, url.Values{"status": {"ACTIVE"}, "endpointServiceId": {offer.service}, "zoneType": {"AVAILABILITY"}},
+	vpcs, err := endpointScan(ctx, o, []string{"endpoints", "vpcs"}, []endpointFilter{{"status", "ACTIVE"}, {"endpointServiceId", offer.service}, {"zoneType", "AVAILABILITY"}},
 		func(raw json.RawMessage) ([]vpcRow, error) {
 			rows, err := natDecodeRows[vpcRow](o.op, raw, "uuid", "status", "projectUuid", "regionUuid")
 			return rows, endpointSafeError(o.op, err)
@@ -175,7 +175,7 @@ func (o *endpointOp) checkPlacement(ctx context.Context, offer endpointOffer, vp
 		return fmt.Errorf("%w: %s: VPC is not eligible for the endpoint offer", core.ErrNotFound, o.op)
 	}
 
-	env, err := o.catalogRead(ctx, []string{"vpcs", vpc, "subnets"}, url.Values{"isEndpointUsable": {"true"}, "zoneUuid": {endpointZone}})
+	env, err := o.catalogRead(ctx, []string{"vpcs", vpc, "subnets"}, []endpointFilter{{"isEndpointUsable", "true"}, {"zoneUuid", endpointZone}}, nil)
 	if err != nil {
 		return err
 	}
