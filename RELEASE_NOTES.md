@@ -1,6 +1,6 @@
 # Release Notes
 
-## Unreleased - Global Load Balancer TCP pool and listener
+## v0.102.0 - Global Load Balancer TCP pool and listener
 
 - Add `globalloadbalancer create-pool`, `create-listener`, `delete-listener`,
   and `delete-pool` for an existing Layer 4 load
@@ -11,7 +11,9 @@
   available; GreenNode bills child usage under the account's terms, and
   deleting does not promise a refund. Delete the listener first, then the pool;
   deleting the pool also removes its member group and backend row, never the
-  vServer.
+  vServer. A recorded `hcm-3` run created the pool in about 145 seconds and
+  the listener in about 23, and no child create or delete changed the
+  account balance.
 
 ## v0.101.0 - vDB MySQL instance create
 
