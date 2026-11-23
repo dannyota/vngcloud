@@ -94,6 +94,29 @@ Kind: Write.
 vngcloud network create-dhcp-options --name <name> --dns-servers <dns-servers>
 ```
 
+## create-endpoint
+
+Kind: Write.
+
+Buys one vStorage Standard endpoint with one request and waits for ACTIVE. The body sets isEnableAutoRenew false to request auto-renew off, and private DNS stays off; the command reads no billing state, so it never confirms renewal or payment. Check billing after create.
+
+Supports one offer: a vStorage Standard (vstorage.hcm03, Gateway) endpoint in hcm-3, zone HCM03-1C, on an existing VPC and subnet. It needs SDK IAM-user login and default endpoints; anything else returns InvalidConfig (exit 2). An endpoint changes network reachability; it does not grant bucket access and does not prove S3 connectivity.
+Requires --yes and --max-price (VND per month, or non-null JSON MaxPrice) before any request. Read-only profiles refuse this command. The cap is compared to a fresh quote taken just before create; it is not a server price lock. Quote and debit can differ. Unpriced or PriceAboveMax stops before purchase. A name that already exists in the VPC is refused.
+Waits up to 15 minutes after the request, polling every 5 seconds; a shorter context deadline wins. There is no --no-wait, DNS, renewal, tag, or raw request option.
+NotSettled prints safe partial output on stdout, ignoring --query. After it, run network list-endpoints and network get-endpoint in the same scope, then inspect billing. Do not repeat create while the outcome is unresolved. See [Network endpoints](Network-Endpoints.md).
+
+| Flag | Type | Required |
+|-|-|-|
+| `--name` | `string` | yes |
+| `--vpc-id` | `string` | yes |
+| `--subnet-id` | `string` | yes |
+| `--max-price` | `*float64` | yes |
+
+```sh
+vngcloud network create-endpoint --region hcm-3 --name demo \
+  --vpc-id <net-id> --subnet-id <sub-id> --max-price <VND-per-month> --yes
+```
+
 ## create-nat-instance
 
 Kind: Write.
@@ -255,6 +278,24 @@ Refuses, before any write, with error code ResourceInUse, a set still attached t
 
 ```sh
 vngcloud network delete-dhcp-options --dhcp-options-id <dhcp-options-id> --yes
+```
+
+## delete-endpoint
+
+Kind: Write, destructive.
+
+Requires --yes. Deleting an endpoint that a cluster uses breaks that cluster's private access. The command refuses an endpoint with an attached resource or domain, but those fields do not prove that no cluster uses it.
+Supports one offer: a vStorage Standard (vstorage.hcm03, Gateway) endpoint in hcm-3, zone HCM03-1C, on an existing VPC and subnet. It needs SDK IAM-user login and default endpoints; anything else returns InvalidConfig (exit 2). An endpoint changes network reachability; it does not grant bucket access and does not prove S3 connectivity.
+Requires explicit --endpoint-id and --vpc-id, refuses read-only profiles before any request, and sends one delete for an ACTIVE endpoint of the named VPC. Waits up to 10 minutes, polling every 5 seconds, until a complete list omits the ID. There is no --no-wait or --force. Deletion promises no refund; one recorded probe returned the full charge, which is observed, not guaranteed. NotFound exits 4. After NotSettled, run network list-endpoints in the same scope before another action. See [Network endpoints](Network-Endpoints.md).
+
+| Flag | Type | Required |
+|-|-|-|
+| `--endpoint-id` | `string` | yes |
+| `--vpc-id` | `string` | yes |
+
+```sh
+vngcloud network delete-endpoint --region hcm-3 \
+  --endpoint-id <enp-id> --vpc-id <net-id> --yes
 ```
 
 ## delete-nat-instance
@@ -925,6 +966,26 @@ Kind: Read.
 
 ```sh
 vngcloud network list-wanips
+```
+
+## quote-create-endpoint
+
+Kind: Read.
+
+Reads a fresh monthly quote in VND per month for one vStorage Standard endpoint without creating it. Read-only profiles can run this command; no --yes or --max-price is needed.
+Supports one offer: a vStorage Standard (vstorage.hcm03, Gateway) endpoint in hcm-3, zone HCM03-1C, on an existing VPC and subnet. It needs SDK IAM-user login and default endpoints; anything else returns InvalidConfig (exit 2). An endpoint changes network reachability; it does not grant bucket access and does not prove S3 connectivity.
+A quote is not a price lock and not proof of the debit.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--name` | `string` | yes |
+| `--vpc-id` | `string` | yes |
+| `--subnet-id` | `string` | yes |
+| `MaxPrice` (via `--cli-input-json` only) | `float64` |  |
+
+```sh
+vngcloud network quote-create-endpoint --region hcm-3 --name demo \
+  --vpc-id <net-id> --subnet-id <sub-id>
 ```
 
 ## quote-create-nat-instance

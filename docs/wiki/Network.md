@@ -8,8 +8,8 @@ Tables](Network-RouteTables.md), [Network ACLs](Network-ACLs.md),
 IPs](Network-VirtualIPs.md), including `ListNetworkPrices` price discovery.
 Servers, volumes, and floating IPs stay read-only here.
 
-See [Network NAT](Network-NAT.md) for Public NAT inventory.
-See [Network VPN](Network-VPN.md) for VPN inventory with sites and tunnels.
+See [Network NAT](Network-NAT.md), [Private endpoints](Network-Endpoints.md), and
+[Network VPN](Network-VPN.md) for those services.
 For S3 access, see [Storage Workload Access](Storage-Workload-Access.md).
 
 If a VPC, subnet, route table, ACL, or security group is managed by

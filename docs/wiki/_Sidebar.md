@@ -23,6 +23,7 @@
 - [Monitor Synthetic Quota](Monitor-Synthetic-Quota.md)
 - [Monitor Log Alarms](Monitor-Log-Alarms.md)
 - [Network](Network.md)
+- [Private endpoints](Network-Endpoints.md)
 - [Network Route Tables](Network-RouteTables.md)
 - [Network ACLs](Network-ACLs.md)
 - [Network DHCP Options](Network-DHCPOptions.md)

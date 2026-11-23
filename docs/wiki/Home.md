@@ -64,6 +64,8 @@ rename; the module keeps the `vngcloud` name.
 - [Public NAT](Network-NAT.md): inventory, zone and package catalogs, quotes,
   and guarded create and delete operations; paid writes require IAM-user
   login in `han-1`.
+- [Private endpoints](Network-Endpoints.md): quote, create, and delete one
+  vStorage Standard endpoint in `hcm-3`.
 - [Site-to-site VPN](Network-VPN.md): VPN inventory with sites and tunnels.
 - [Network Route Tables](Network-RouteTables.md): route tables and routes.
 - [Network ACLs](Network-ACLs.md): ACLs, rules, and subnet associations.

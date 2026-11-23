@@ -62,6 +62,11 @@ var networkOps = []Op[network.Client]{
 	createNetworkNATOp(),
 	Write[network.Client, network.DeleteNATInstanceInput, network.DeleteNATInstanceOutput](
 		"delete-nat-instance", (*network.Client).DeleteNATInstance, Destructive()),
+	Read[network.Client, network.CreateEndpointInput, network.QuoteCreateEndpointOutput](
+		"quote-create-endpoint", (*network.Client).QuoteCreateEndpoint, NoFlag("MaxPrice")),
+	createNetworkEndpointOp(),
+	Write[network.Client, network.DeleteEndpointInput, network.DeleteEndpointOutput](
+		"delete-endpoint", (*network.Client).DeleteEndpoint, Destructive()),
 	networkVPNListOp(),
 	Read[network.Client, network.ListVPCsInput, network.ListVPCsOutput](
 		kebab("ListVPCs"), (*network.Client).ListVPCs),
@@ -206,9 +211,11 @@ func newNetworkCmd(e *env) *cobra.Command {
 	cmd := Service(e, "network", "VPCs, security groups, and network interfaces", network.New, networkOps...)
 	for _, child := range cmd.Commands() {
 		switch child.Name() {
-		case "list-nat-zones", "list-nat-packages", "quote-create-nat-instance", "create-nat-instance", "delete-nat-instance":
+		case "list-nat-zones", "list-nat-packages", "quote-create-nat-instance", "create-nat-instance", "delete-nat-instance",
+			"quote-create-endpoint", "create-endpoint", "delete-endpoint":
 			child.Long = docOpNotes["network "+child.Name()]
-			if child.Name() == "create-nat-instance" || child.Name() == "delete-nat-instance" {
+			switch child.Name() {
+			case "create-nat-instance", "delete-nat-instance", "create-endpoint", "delete-endpoint":
 				child.RunE = natReadOnlyUsage(child.RunE)
 			}
 		}
