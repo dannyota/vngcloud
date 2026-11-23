@@ -36,8 +36,10 @@ record before landing.
    access is proven by the exact server, VPC and subnet GETs under that
    project with the same IAM client. No `userId` or account-ID join is used.
 6. The listener's CIDR set is verified by exact read-back. Enforcement is the
-   provider's contract. The live probe must show that one allowed `/32`
-   source connects; a denied-source check is optional and gates nothing.
+   provider's contract. The live probe must show that the GLB accepts a TCP
+   connection from one allowed `/32` source; backend reachability from GLB
+   health sources is the operator's network concern and gates nothing, as
+   does a denied-source check.
 7. The live probe is approved under the standing create-then-delete
    authorization: `hcm-3`, the default profile, one disposable bare GLB on the
    smallest package, one smallest private vServer with a disposable TCP
