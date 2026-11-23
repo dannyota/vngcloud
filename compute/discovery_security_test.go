@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -19,6 +20,11 @@ import (
 	"danny.vn/vngcloud/internal/testutil"
 	"danny.vn/vngcloud/internal/transport"
 )
+
+func releaseDiscoveryWaiter(ch chan struct{}) func() {
+	var once sync.Once
+	return func() { once.Do(func() { close(ch) }) }
+}
 
 func observeDiscoveryContext(ctx context.Context) (context.Context, <-chan context.Context) {
 	contexts := make(chan context.Context, 1)
@@ -153,6 +159,8 @@ func TestListFlavorPricesRefreshWaiterDeadline(t *testing.T) {
 				_, _ = w.Write([]byte(`{}`))
 			}))
 			defer server.Close()
+			release := releaseDiscoveryWaiter(provider.release)
+			defer release()
 			cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("hcm-3"), vngcloud.WithProjectID("project-1"), vngcloud.WithCredentialsProvider(provider), vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{VServer: server.URL}), vngcloud.WithRetry(0, 0))
 			if err != nil {
 				t.Fatal(err)
@@ -182,11 +190,11 @@ func TestListFlavorPricesRefreshWaiterDeadline(t *testing.T) {
 			select {
 			case sessionCtx = <-sessionContexts:
 			case err := <-waiter:
-				close(provider.release)
+				release()
 				t.Fatalf("waiter returned before session was created: %v", err)
 			}
 			<-sessionCtx.Done()
-			close(provider.release)
+			release()
 			if err := <-holder; err != nil {
 				t.Fatal(err)
 			}
@@ -225,6 +233,8 @@ func TestListFlavorPricesProjectWaiterDeadline(t *testing.T) {
 		base.ServeHTTP(w, r)
 	}))
 	defer server.Close()
+	releaseWaiter := releaseDiscoveryWaiter(release)
+	defer releaseWaiter()
 	cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("hcm-3"), vngcloud.WithStaticToken("synthetic-token"), vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{VServer: server.URL, Portal: server.URL}), vngcloud.WithRetry(0, 0))
 	if err != nil {
 		t.Fatal(err)
@@ -246,11 +256,11 @@ func TestListFlavorPricesProjectWaiterDeadline(t *testing.T) {
 	select {
 	case sessionCtx = <-sessionContexts:
 	case err := <-waiter:
-		close(release)
+		releaseWaiter()
 		t.Fatalf("waiter returned before session was created: %v", err)
 	}
 	<-sessionCtx.Done()
-	close(release)
+	releaseWaiter()
 	if err := <-holder; err != nil {
 		t.Fatal(err)
 	}
@@ -292,6 +302,8 @@ func TestListFlavorPricesSharedIAMWaiterDeadline(t *testing.T) {
 		_, _ = w.Write([]byte(`{}`))
 	}))
 	defer server.Close()
+	releaseWaiter := releaseDiscoveryWaiter(release)
+	defer releaseWaiter()
 	auth := &vngcloud.IAMUserAuth{RootEmail: "root@example.test", Username: "user", Password: "synthetic", SigninBaseURL: signin.URL, TokenURL: token.URL, DashboardURI: token.URL + "/"}
 	config := func() vngcloud.Config {
 		cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("hcm-3"), vngcloud.WithProjectID("project-1"), vngcloud.WithIAMUser(auth), vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{VServer: server.URL}), vngcloud.WithRetry(0, 0))
@@ -319,21 +331,21 @@ func TestListFlavorPricesSharedIAMWaiterDeadline(t *testing.T) {
 	select {
 	case sessionCtx = <-sessionContexts:
 	case err := <-waiter:
-		close(release)
+		releaseWaiter()
 		t.Fatalf("waiter returned before session was created: %v", err)
 	}
 	<-sessionCtx.Done()
 	select {
 	case err := <-waiter:
 		if !errors.Is(err, context.DeadlineExceeded) {
-			close(release)
+			releaseWaiter()
 			t.Fatalf("waiter error %v", err)
 		}
 	case <-time.After(time.Second):
-		close(release)
+		releaseWaiter()
 		t.Fatal("waiter did not return before holder release")
 	}
-	close(release)
+	releaseWaiter()
 	if err := <-holder; err != nil {
 		t.Fatal(err)
 	}

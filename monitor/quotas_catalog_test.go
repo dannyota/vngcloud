@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -369,6 +370,36 @@ type quotaBudgetTokens struct {
 func (s *quotaBudgetTokens) Invalidate(string) { s.refreshes++ }
 
 func TestQuotaCompositeRetainedBodyBudgetWithRetries(t *testing.T) {
+	t.Run("loopback-retry-refresh", func(t *testing.T) {
+		body := quotaBudgetPaddedBody(t, `{"component":"synthetic mock"}`)
+		statuses := []int{503, 401, 503, 200}
+		var calls atomic.Int32
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			index := int(calls.Add(1)) - 1
+			if index >= len(statuses) {
+				w.WriteHeader(500)
+				return
+			}
+			w.WriteHeader(statuses[index])
+			_, _ = io.WriteString(w, body)
+		}))
+		defer server.Close()
+		counted := &quotaBudgetTransport{base: server.Client().Transport}
+		tokens := &quotaBudgetTokens{}
+		client := &http.Client{Transport: counted}
+		c := New(core.NewTestConfig("hcm-3", "", endpoints.Set{Monitor: server.URL + "/"}, transport.New(transport.Config{HTTPClient: client, TokenSource: tokens, RetryCount: 1, RetryInterval: time.Millisecond})))
+		var credentials monitorReadCredentials
+		reader := quotaCompositeReader{client: c, credentials: &credentials}
+		raw, err := reader.read(context.Background(), "monitor.ListSyntheticPackages", "v1", "component")
+		if err != nil || len(raw) != quotaMaxBody || reader.retained != quotaMaxBody || tokens.refreshes != 1 || int(calls.Load()) != len(statuses) || len(counted.attempts) != len(statuses) {
+			t.Fatalf("retained=%d refreshes=%d calls=%d attempts=%d err=%v", reader.retained, tokens.refreshes, calls.Load(), len(counted.attempts), err)
+		}
+		for i, attempt := range counted.attempts {
+			if attempt.status != statuses[i] || attempt.read != quotaMaxBody || !attempt.closed {
+				t.Fatalf("attempt %d: %+v", i, attempt)
+			}
+		}
+	})
 	t.Run("retained-counter", func(t *testing.T) {
 		calls := 0
 		body := quotaBudgetPaddedBody(t, `{"component":"synthetic mock"}`)
