@@ -79,9 +79,9 @@ created, err := client.CreateLoadBalancer(ctx, in)
 ```
 
 A `MaxPrice` that is `NaN`, `+Inf`, `-Inf`, or negative fails with
-`vngcloud.ErrInvalidInput` before any request, including the quote: none of
-those values can be compared against a quote safely, so the guard fails
-closed rather than order anyway. Once a create or a resize is sent, it is
+`vngcloud.ErrInvalidInput` before any request, including the quote. A cap of
+0 bounds the SDK's fresh quote, not the final charge; a quoted credit can
+still become a charge ([Quoting a paid write](Price-Quotes.md#quoting-a-paid-write)). Once a create or a resize is sent, it is
 never sent again, whatever the failure; see [Identifiers and
 retries](#identifiers-and-retries).
 

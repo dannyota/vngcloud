@@ -13,15 +13,15 @@ The gate covers AWS CLI-style resource creates, including creates that charge ex
 
 Tag `v1.0.0` only after every item below lands. Items that change a public name, type, field, query key, or exit code come first, because after `v1.0.0` they would be breaking.
 
-- [ ] Shared settlement names: define `ErrNotSettled` and `ErrFailed` once in shared core with root exports, and keep each service's existing sentinel as an alias ([slice](#shared-settlement-names)).
-- [ ] Endpoint help and wiki: the auto-renew-off request is not reflected in billing, which recorded `AUTO-RENEW`; a refund after delete can stay pending; give each create a fresh, unique name, because one endpoint that reused a just-deleted name was never refunded ([probe record](../design/network-endpoints-api.md#recorded-hcm-3-create-and-delete-probe)).
-- [ ] Fix `network list-nat-instances`, which fails with `invalid regions envelope` because region rows carry a `VServerEndpoint` key; decode only the fields used, as the endpoint region read does.
-- [ ] Require `--zone-id` on `volume get-default-volume-type`; the provider default zone `HCM03-1A` is disabled and returns 404.
-- [ ] Document that `compute.Flavor.FlavorZoneID` holds the request zone ID (for example `HCM03-1B`) and `ZoneID` holds an internal zone UUID.
-- [ ] Bound the IAM user login page and token response reads in `internal/iamuser/login.go`.
-- [ ] Make the monitor quota tests and `TestRedactionBoundedHTTPErrorCost` stable under load, and bring the CI `go` job back under its 10-minute limit.
-- [ ] Fix the documentation slice below: config fields, 401 and retry guidance, repeated-write recovery, private DNS, the resize cap example, and Python setup ([slice](#documentation-and-evidence)).
-- [ ] Help and wiki: `compute create-server` user data with shell `runcmd` gets HTTP 403; each list command's output root (for example `Items`); `get-server-console-log` returns only the current boot; Telegram channel addresses.
+- [x] Shared settlement names: define `ErrNotSettled` and `ErrFailed` once in shared core with root exports, and keep each service's existing sentinel as an alias ([slice](#shared-settlement-names)).
+- [x] Endpoint help and wiki: the auto-renew-off request is not reflected in billing, which recorded `AUTO-RENEW`; a refund after delete can stay pending; give each create a fresh, unique name, because one endpoint that reused a just-deleted name was never refunded ([probe record](../design/network-endpoints-api.md#recorded-hcm-3-create-and-delete-probe)).
+- [x] Fix `network list-nat-instances`, which fails with `invalid regions envelope` because region rows carry a `VServerEndpoint` key; decode only the fields used, as the endpoint region read does.
+- [x] Require `--zone-id` on `volume get-default-volume-type`; the provider default zone `HCM03-1A` is disabled and returns 404.
+- [x] Document that `compute.Flavor.FlavorZoneID` holds the request zone ID (for example `HCM03-1B`) and `ZoneID` holds an internal zone UUID.
+- [x] Bound the IAM user login page and token response reads in `internal/iamuser/login.go`.
+- [x] Make the monitor quota tests and `TestRedactionBoundedHTTPErrorCost` stable under load, and bring the CI `go` job back under its 10-minute limit.
+- [x] Fix the documentation slice below: config fields, 401 and retry guidance, repeated-write recovery, private DNS, the resize cap example, and Python setup ([slice](#documentation-and-evidence)).
+- [x] Help and wiki: `compute create-server` user data with shell `runcmd` gets HTTP 403; each list command's output root (for example `Items`); `get-server-console-log` returns only the current boot; Telegram channel addresses.
 
 ## Cross-cutting rules
 

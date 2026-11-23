@@ -1,6 +1,12 @@
 # Release Notes
 
-## Unreleased
+## v1.0.0 - First stable release
+
+The SDK and CLI cover AWS CLI-style reads and creates for GreenNode, including
+credit-paid creates for VKS, GLB (bare, TCP pool and listener), vDB MySQL, and
+private endpoints. Public SDK names, types and fields, CLI flags, query keys,
+and exit codes are now stable; a breaking change needs a new major version.
+Site-to-site VPN and CDN Web Accelerator creates are out of scope.
 
 - Unconfirmed writes now exit 1 even when confirmation returns 401 or 404;
   reconcile inventory and billing before another mutation.

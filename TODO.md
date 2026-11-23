@@ -5,16 +5,12 @@ in the relevant plan and durable rules in the linked authority. A listed
 item does not approve implementation or a live run; unresolved evidence,
 permission, cost, and resource gates still apply.
 
-## Before v1.0.0
-
-The [v1.0.0 release checklist](docs/plans/v1-hardening.md#v100-release-checklist) holds the work that must land before the tag.
-
 ## Owner
 
 - [ ] Owner asks GreenNode to cancel the billing record of the deleted test endpoint `vngcloudliveep2` (`enp-75a28702-0984-4a4f-b15c-975f86bf773a`, service 751496, bill 1530098), which still shows `active` and `AUTO-RENEW`, and to refund its 712,400 VND charge. [Endpoint probe](docs/design/network-endpoints-api.md#recorded-hcm-3-create-and-delete-probe).
 - [ ] Owner rotates the vCDN API key. [Credential rules](instructions/security.md#secure-defaults).
 
-## After v1.0.0
+## Backlog
 
 These are additive and ship in `1.x`.
 
