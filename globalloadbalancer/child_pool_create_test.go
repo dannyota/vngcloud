@@ -458,3 +458,22 @@ func TestRowStatusIsProvisioningThenHealth(t *testing.T) {
 		t.Fatalf("delete with an UNHEALTHY row: %v", err)
 	}
 }
+
+func TestCreatePoolWaitsForParentActive(t *testing.T) {
+	f := newFixture(t)
+	reads := 0
+	f.on("GET "+glbPrefix, func(w httpResponseWriter, _ *httpRequest) {
+		status := "ACTIVE"
+		if f.count("POST ") > 0 {
+			reads++
+			if reads < 4 {
+				status = "UPDATING"
+			}
+		}
+		_, _ = w.Write([]byte(`{"id":"glb-1","package":"pkg-1","type":"Layer 4","status":"` + status + `"}`))
+	})
+	out, err := f.client(t).CreatePool(bg(), poolInput())
+	if err != nil || out == nil || out.Pool.Status != "ACTIVE" || reads < 4 || f.count("POST ") != 1 {
+		t.Fatalf("out=%+v err=%v reads=%d", out, err, reads)
+	}
+}

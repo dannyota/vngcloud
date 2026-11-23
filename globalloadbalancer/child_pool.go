@@ -83,7 +83,7 @@ func (c *Client) createPool(ctx context.Context, r *run, in *CreatePoolInput) (*
 	wait, cancel := context.WithTimeout(ctx, createWait)
 	defer cancel()
 	for {
-		err := r.parentWhileCreating(wait, in.LoadBalancerID)
+		parentClass, err := r.parentWhileCreating(wait, in.LoadBalancerID)
 		var got chain
 		if err == nil {
 			got, err = r.readChain(wait, spec)
@@ -96,6 +96,9 @@ func (c *Client) createPool(ctx context.Context, r *run, in *CreatePoolInput) (*
 		}
 		if err != nil {
 			return out, notSettled("create confirmation could not be proven")
+		}
+		if got.verdict == stateSuccess && parentClass == stateTransitional {
+			got.verdict = stateTransitional
 		}
 		switch got.verdict {
 		case stateSuccess:

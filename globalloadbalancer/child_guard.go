@@ -28,15 +28,16 @@ func (r *run) parent(ctx context.Context, glb string) (wireGLB, error) {
 	return got, nil
 }
 
-func (r *run) parentWhileCreating(ctx context.Context, glb string) error {
+func (r *run) parentWhileCreating(ctx context.Context, glb string) (stateClass, error) {
 	var got wireGLB
 	if err := r.get(ctx, r.c.glbChildURL(glb), &got); err != nil {
-		return err
+		return stateUnknown, err
 	}
-	if got.ID != glb || got.Type != "Layer 4" || (createState(got.Status) != stateSuccess && createState(got.Status) != stateTransitional) {
-		return refuse("the load balancer is no longer the expected Layer 4 load balancer")
+	class := createState(got.Status)
+	if got.ID != glb || got.Type != "Layer 4" || (class != stateSuccess && class != stateTransitional) {
+		return stateUnknown, refuse("the load balancer is no longer the expected Layer 4 load balancer")
 	}
-	return nil
+	return class, nil
 }
 
 func (r *run) project(ctx context.Context, requested string) (string, error) {
