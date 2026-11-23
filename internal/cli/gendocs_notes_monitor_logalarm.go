@@ -37,7 +37,8 @@ const monitorDeleteLogAlarmNote = "Reads the alarm first and refuses with Invali
 	"lists for up to 30 seconds, returns NotFound once the alarm is absent, and returns the server's error " +
 	"if the alarm is still listed at that bound."
 
-const monitorSendChannelOTPNote = "Refuses Type Webhook before any request; Webhook needs no OTP. Refuses a " +
+const monitorSendChannelOTPNote = "For a negative Telegram chat ID, prefer --address=-<id>. " +
+	"Refuses Type Webhook before any request; Webhook needs no OTP. Refuses a " +
 	"literal --address, or an inline --cli-input-json value that sets Address, for Type Slack, since a Slack " +
 	"address is a webhook URL that can carry a secret; refuses an inline --cli-input-json value that sets " +
 	"Headers for every Type. Prints Ref and ExpiresAt: give Ref to create-channel or update-channel as " +

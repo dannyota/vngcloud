@@ -10,7 +10,7 @@ func init() {
 		endpointScopeHelp + "\n" +
 		"A quote is not a price lock and not proof of the debit."
 	docOpNotes["network create-endpoint"] = "Buys one vStorage Standard endpoint with one request and waits for ACTIVE. The body sets isEnableAutoRenew false to request auto-renew off, and private DNS stays off; " +
-		"GreenNode billing recorded a created endpoint as AUTO-RENEW despite that request, and no read can confirm its renewal setting. Check billing after create. Use a fresh, unique name for each create.\n\n" +
+		"No endpoint read returns the renewal setting, and billing list-resources reported a created endpoint's RenewType as AUTO-RENEW despite that request. Check billing list-resources after create. Use a fresh, unique name for each create.\n\n" +
 		endpointScopeHelp + "\n" +
 		"Requires --yes and --max-price (VND per month, or non-null JSON MaxPrice) before any request. Read-only profiles refuse this command. " +
 		"The cap is compared to a fresh quote taken just before create; it is not a server price lock. Quote and debit can differ. " +

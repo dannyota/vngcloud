@@ -17,7 +17,9 @@ const monitorChannelRedactionNote = "Redacts every header value and every Addres
 // string flag, which would otherwise read as safe to give literally, and an
 // inline --cli-input-json value that sets Address or Headers is refused the
 // same way even though the flag table cannot show it at all.
-const monitorCreateChannelAddressNote = "Refuses a literal --address, or an inline --cli-input-json value that " +
+const monitorCreateChannelAddressNote = "For a negative Telegram chat ID, prefer --address=-<id>; a group upgraded to a supergroup gets a new -100 ID, " +
+	"so update the channel Address through --cli-input-json file://channel.json with a new OTP. " +
+	"Refuses a literal --address, or an inline --cli-input-json value that " +
 	"sets Address, for every Type except Email, SMS, or Telegram, with exit code 2, since another type's " +
 	"address can carry a bearer token. Refuses an inline --cli-input-json value that sets Headers for every " +
 	"Type, since Headers has no flag of its own and a Webhook channel's header value can hold a secret. Pass " +

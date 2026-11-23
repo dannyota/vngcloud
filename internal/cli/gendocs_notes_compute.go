@@ -47,8 +47,8 @@ const computeCreateServerNote = "Orders nothing above --max-price, default 0: a 
 	"explicitly.\n" +
 	"Set exactly one of --ssh-key-id or --user-data-file. GreenNode refuses both\n" +
 	"together. With user data, the cloud-config must install authorized keys, for\n" +
-	"example with ssh_authorized_keys. Key-only cloud-config is accepted, but the\n" +
-	"vServer gateway returns HTTP 403 for cloud-config whose runcmd runs shell commands.\n" +
+	"example with ssh_authorized_keys. In observed creates, key-only cloud-config\n" +
+	"was accepted and cloud-config with a shell runcmd got HTTP 403.\n" +
 	"Cloud-init user data comes only from\n" +
 	"--user-data-file <path>, read once at most 64 KiB: it has no plain string flag,\n" +
 	"and an inline or file:// --cli-input-json value that sets UserData is refused\n" +
