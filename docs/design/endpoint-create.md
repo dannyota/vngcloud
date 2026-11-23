@@ -140,8 +140,8 @@ catalog and picker reads are private in this slice.
    reported as created. Never resend or adopt a candidate from a name.
 6. Wait for the returned ID in the complete scoped list: it must be absent
    from the baseline and match the name, `vpcId`, `subnet.uuid`,
-   `endpointServiceId`, `packageId.uuid`, `vpc.projectUuid` (the pinned
-   project), and `zoneUuid` `HCM03-1C`, with `enableDnsName: false`. `ACTIVE` is success;
+   `service.uuid` (the resolved service; `service.name` `vstorage.hcm03`),
+   `packageId.uuid`, `project.VServerProjectId` (the pinned project), and `zoneUuid` `HCM03-1C`, with `enableDnsName: false`. `ACTIVE` is success;
    `PROVISIONING` is transitional; any other state is `ErrNotSettled`.
    `billingStatus` is neither output nor used to confirm success. Output
    reports readiness only. The API exposes no per-ID renewal or settlement read, so output
@@ -159,7 +159,7 @@ catalog and picker reads are private in this slice.
    help warns that deleting an endpoint a cluster uses breaks its private
    access. Absence before dispatch is `ErrNotFound`.
 2. Send one DELETE to the exact detail path with body `endpointUuid`,
-   `vpcUuid`, `endpointServiceUuid` (the row's `endpointServiceId`),
+   `vpcUuid`, `endpointServiceUuid` (the row's `service.uuid`),
    `regionUuid`, and `projectUuid`, all from the matched row and pinned
    scope. Accept only HTTP 200 with `code: 0` and `success: true`.
 3. `DELETING` is transitional. Set `Deleted=true` only when a complete,
@@ -216,7 +216,7 @@ fix the contract: renewal-off create is accepted with HTTP
 201 and an `enp-<uuid>` ID in `data.uuid`; the list row shape, the
 `PROVISIONING`, `ACTIVE`, and `DELETING` states, and absence from the list
 are observed; the delete body maps from create's values, with
-`endpointServiceUuid` equal to the row's `endpointServiceId`; and the
+`endpointServiceUuid` equal to the row's `service.uuid`; and the
 quoted 712,400 VND is debited at create and returned after that one delete.
 One gate remains before landing: the SDK's live run shows a renewal-off
 quote with HTTP 200 and then creates and deletes through the SDK.

@@ -258,7 +258,10 @@ other write except quote, that create, and its delete stayed blocked.
   `enableDnsName` (`false`), `endpointResource` (`null`),
   `endpointDomains` (empty), and objects `category`, `service`, `vpc`,
   `subnet`, `project`, and `packageId` (with `monthlyPrice` and
-  `currencyUnit`). No field names an owner, manager, or consumer.
+  `currencyUnit`). `endpointServiceId` is a 24-hex ID, not the service
+  UUID; the service UUID is `service.uuid`. `vpc.projectUuid` is `null`;
+  `project.VServerProjectId` carries the `pro-<uuid>` project. No field
+  names an owner, manager, or consumer.
 - **States.** `PROVISIONING` with `billingStatus: provisioning`, then
   `ACTIVE` after about 126 seconds while `billingStatus` stayed
   `provisioning`. Delete showed `DELETING`/`deleting`, then the row left
