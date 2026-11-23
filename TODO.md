@@ -7,7 +7,6 @@ permission, cost, and resource gates still apply.
 
 ## Owner
 
-- [ ] Owner asks GreenNode to cancel the billing record of the deleted test endpoint `vngcloudliveep2` (`enp-75a28702-0984-4a4f-b15c-975f86bf773a`, service 751496, bill 1530098), which still shows `active` and `AUTO-RENEW`, and to refund its 712,400 VND charge. [Endpoint probe](docs/design/network-endpoints-api.md#recorded-hcm-3-create-and-delete-probe).
 - [ ] Owner rotates the vCDN API key. [Credential rules](instructions/security.md#secure-defaults).
 
 ## Backlog
