@@ -183,13 +183,9 @@ behavior under the new signature.
 [default]
 region = hcm-3
 output = json
-
 [profile dev]
 region = han-1
 project_id = <project-id>
-```
-
-```ini
 # ~/.vngcloud/credentials (mode 0600)
 [default]
 root_email = <root-email>
@@ -220,7 +216,11 @@ option reserves its source even when its fields are empty. An explicit profile
 so a `.env` file for one account cannot send `--profile prod` calls to that
 account. Region names no account, so it may still come from the environment. An
 explicit profile with no credential in its credentials section, and none from
-options, is an error naming it. `VNGCLOUD_PROFILE` is never explicit.
+options, is an error naming it. `VNGCLOUD_PROFILE` is never explicit. Each
+region has its own project, so a profile `project_id` applies only when the
+resolved region equals the profile's `region` key (or that key is unset);
+otherwise the SDK discovers the region's project. An option or environment
+project ID is always used.
 
 | Variable | Meaning |
 |-|-|
