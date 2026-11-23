@@ -195,7 +195,7 @@ func (o *endpointOp) project(ctx context.Context, configured string) (string, er
 	}
 	id := ""
 	for _, p := range wire.Projects {
-		if p.Region != o.c.c.Region() || (configured != "" && p.ID != configured) {
+		if (p.Region != "" && p.Region != o.c.c.Region()) || (configured != "" && p.ID != configured) {
 			continue
 		}
 		if !projectPattern.MatchString(p.ID) || core.CheckPathID(o.op, "discovered ProjectID", p.ID) != nil {

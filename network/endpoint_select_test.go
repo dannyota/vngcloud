@@ -225,3 +225,27 @@ func TestEndpointInventoryPagingRules(t *testing.T) {
 		})
 	}
 }
+
+func TestEndpointProjectRegionEvidence(t *testing.T) {
+	other := "pro-00000000-0000-0000-0000-0000000000ff"
+	for _, tc := range []struct {
+		name, projects string
+		want           error
+	}{
+		{"no region field", `{"projects":[{"projectId":"` + epProject + `"}]}`, nil},
+		{"empty region", `{"projects":[{"projectId":"` + epProject + `","region":""}]}`, nil},
+		{"two without region", `{"projects":[{"projectId":"` + epProject + `"},{"projectId":"` + other + `"}]}`, vngcloud.ErrProjectAmbiguous},
+		{"other region skipped", `{"projects":[{"projectId":"` + epProject + `"},{"projectId":"` + other + `","region":"han-1"}]}`, nil},
+		{"only other region", `{"projects":[{"projectId":"` + other + `","region":"han-1"}]}`, vngcloud.ErrProjectNotFound},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newEPFake()
+			f.projects = tc.projects
+			h := newEPHarness(t, f)
+			_, err := h.c.QuoteCreateEndpoint(context.Background(), epCreateInput())
+			if !errors.Is(err, tc.want) && (tc.want != nil || err != nil) {
+				t.Fatalf("err=%v", err)
+			}
+		})
+	}
+}
