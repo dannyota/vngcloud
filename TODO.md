@@ -5,10 +5,6 @@ in the relevant plan and durable rules in the linked authority. A listed
 item does not approve implementation or a live run; unresolved evidence,
 permission, cost, and resource gates still apply.
 
-## Owner
-
-- [ ] Owner rotates the vCDN API key. [Credential rules](instructions/security.md#secure-defaults).
-
 ## Backlog
 
 These are additive and ship in `1.x`.
