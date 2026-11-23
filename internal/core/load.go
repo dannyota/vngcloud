@@ -99,7 +99,7 @@ func LoadConfig(ctx context.Context, opts ...Option) (Config, error) {
 		return Config{}, err
 	}
 	settings.region = region
-	settings.projectID = resolveProjectID(settings.projectID, explicitProfile, configSection)
+	settings.projectID = resolveProjectID(settings.projectID, region, explicitProfile, configSection)
 
 	if err := resolveCredentials(&settings, explicitProfile, profile, credsSection); err != nil {
 		return Config{}, err
@@ -262,11 +262,7 @@ func resolveRegion(optionValue string, configSection map[string]string) (string,
 	return "", fmt.Errorf("%w: region is required: set WithRegion, %s, or region in the profile", ErrInvalidConfig, envRegion)
 }
 
-// resolveProjectID applies the Project ID precedence: optionValue, then (only
-// when the profile is not explicit) VNGCLOUD_PROJECT_ID, then the profile's
-// config section. A project ID is optional, so nothing anywhere is not an
-// error.
-func resolveProjectID(optionValue string, explicitProfile bool, configSection map[string]string) string {
+func resolveProjectID(optionValue, region string, explicitProfile bool, configSection map[string]string) string {
 	if optionValue != "" {
 		return optionValue
 	}
@@ -274,6 +270,9 @@ func resolveProjectID(optionValue string, explicitProfile bool, configSection ma
 		if v := os.Getenv(envProjectID); v != "" {
 			return v
 		}
+	}
+	if profileRegion := configSection["region"]; profileRegion != "" && profileRegion != region {
+		return ""
 	}
 	return configSection["project_id"]
 }

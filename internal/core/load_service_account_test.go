@@ -224,7 +224,7 @@ func TestLoadServiceAccountExplicitProfileAndCDN(t *testing.T) {
 			var opts []Option
 			if explicit {
 				opts = append(opts, WithProfile("dev"))
-				wantID, wantKey, wantProject = "file-id", "file-key", "file-project"
+				wantID, wantKey, wantProject = "file-id", "file-key", ""
 				t.Setenv("VNGCLOUD_ACCESS_TOKEN", "ignored")
 				t.Setenv("VNGCLOUD_PASSWORD", "ignored")
 			}

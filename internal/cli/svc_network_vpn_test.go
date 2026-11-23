@@ -55,7 +55,7 @@ func TestNetworkVPNOutputs(t *testing.T) {
 					}
 					jsonHandler(http.StatusOK, vpnCLIBody)(w, r)
 				}))
-				code, stdout, stderr := run("--profile", "agent", "--region", region, "--debug", "network", "list-vpn-connections", "--output", format)
+				code, stdout, stderr := run("--profile", "agent", "--region", region, "--project-id", "proj-1", "--debug", "network", "list-vpn-connections", "--output", format)
 				assertVPNCLISecretAbsent(t, stdout, stderr)
 				if code != 0 || calls != 1 {
 					t.Fatalf("exit=%d calls=%d stderr=%s", code, calls, stderr)

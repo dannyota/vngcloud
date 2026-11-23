@@ -198,6 +198,45 @@ func TestLoadConfigProjectIDFromProfile(t *testing.T) {
 	}
 }
 
+func TestLoadConfigProjectIDRegionPrecedence(t *testing.T) {
+	cases := []struct {
+		name, profileRegion, optionRegion, envRegion, optionProject, envProject, want string
+		discover                                                                      bool
+	}{
+		{name: "matching profile region", profileRegion: "hcm-3", want: "profile-project"},
+		{name: "option region differs", profileRegion: "hcm-3", optionRegion: "han-1", want: "discovered-project", discover: true},
+		{name: "environment region differs", profileRegion: "hcm-3", envRegion: "han-1", want: "discovered-project", discover: true},
+		{name: "option project overrides mismatch", profileRegion: "hcm-3", optionRegion: "han-1", optionProject: "option-project", want: "option-project"},
+		{name: "environment project overrides mismatch", profileRegion: "hcm-3", optionRegion: "han-1", envProject: "env-project", want: "env-project"},
+		{name: "profile without region", optionRegion: "han-1", want: "profile-project"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			home := setupHome(t)
+			writeFile(t, configPath(home), "[default]\nregion = "+tc.profileRegion+"\nproject_id = profile-project\n", 0o600)
+			t.Setenv("VNGCLOUD_REGION", tc.envRegion)
+			t.Setenv("VNGCLOUD_PROJECT_ID", tc.envProject)
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				_, _ = w.Write([]byte(`{"projects":[{"projectId":"discovered-project","region":"han-1"}]}`))
+			}))
+			defer server.Close()
+			cfg, err := LoadConfig(context.Background(), WithStaticToken("tok"), WithRegion(tc.optionRegion), WithProjectID(tc.optionProject), WithEndpointOverrides(EndpointOverrides{VServer: server.URL}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := ClientOf(cfg).RequireProjectID(context.Background())
+			if err != nil || got != tc.want {
+				t.Fatalf("RequireProjectID() = %q, %v; want %q", got, err, tc.want)
+			}
+			if (calls > 0) != tc.discover {
+				t.Fatalf("discovery calls = %d, want discovery %t", calls, tc.discover)
+			}
+		})
+	}
+}
+
 func TestLoadConfigProjectIDMissingIsFine(t *testing.T) {
 	home := setupHome(t)
 	writeFile(t, configPath(home), "[default]\nregion = r\n", 0o600)

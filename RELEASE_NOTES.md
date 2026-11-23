@@ -10,6 +10,7 @@
 - Document `compute list-flavors` flavor zones and the provider's internal
   zone UUID in `ZoneID`. When the API omits `ZoneID`, it falls back to the
   input `ZoneID`, which is empty when only `FlavorZoneID` is supplied.
+- Discover the project for the resolved region when a profile's project ID belongs to a different configured region.
 
 ## v0.103.0 - Private endpoint create
 

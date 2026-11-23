@@ -42,6 +42,13 @@ and file keys count as unset. Within that source, a static token wins over
 service-account keys, then IAM User fields. A selected partial or malformed
 set fails without falling back or taking fields from another source.
 
+A profile's `project_id` applies only when its `region` matches the resolved
+region or the profile has no `region`. Otherwise the SDK discovers the project
+for the resolved region. An option or environment project ID is used as given,
+subject to the explicit-profile rule below. Discovery returns
+`vngcloud.ErrProjectAmbiguous` for multiple matches and
+`vngcloud.ErrProjectNotFound` for none.
+
 `WithProfile(name)` selects a profile **explicitly**; `VNGCLOUD_PROFILE`
 never does. An explicit profile skips environment variables for credentials
 and the project ID, so a `.env` file meant for one account can never send a

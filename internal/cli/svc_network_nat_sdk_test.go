@@ -56,7 +56,7 @@ func TestNetworkNATCatalogReads(t *testing.T) {
 						}
 						jsonHandler(200, body)(w, r)
 					}))
-					args := []string{"--profile", "agent", "--region", "han-1", "network", name, "--output", format}
+					args := []string{"--profile", "agent", "--region", "han-1", "--project-id", "proj-1", "network", name, "--output", format}
 					if !discover {
 						args = append(args, "--zone-id", "zone-1")
 					}
@@ -284,7 +284,7 @@ func TestNetworkNATSDKCreateAndDelete(t *testing.T) {
 func TestNetworkNATSDKQuoteReadOnly(t *testing.T) {
 	state := &natCLIState{whitelist: true}
 	run := natCLI(t, natCLIRoutes(t, state))
-	args := append(natCreateArgs("quote-create-nat-instance"), "--region", "han-1", "--profile", "agent")
+	args := append(natCreateArgs("quote-create-nat-instance"), "--region", "han-1", "--profile", "agent", "--project-id", "proj-1")
 	code, out, stderr := run(args...)
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, stderr)

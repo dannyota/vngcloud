@@ -42,7 +42,7 @@ func TestNetworkNATOutputs(t *testing.T) {
 					}
 					jsonHandler(http.StatusOK, natCLIBody)(w, r)
 				}))
-				code, stdout, stderr := run("--profile", "agent", "--region", region, "--debug",
+				code, stdout, stderr := run("--profile", "agent", "--region", region, "--project-id", "proj-1", "--debug",
 					"--output", format, "network", "list-nat-instances", "--zone-id", "zone-1")
 				if code != 0 || calls != 1 {
 					t.Fatalf("exit=%d calls=%d stderr=%s", code, calls, stderr)
