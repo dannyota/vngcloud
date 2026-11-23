@@ -1,5 +1,16 @@
 # Release Notes
 
+## Unreleased - Private endpoint create
+
+- Add `network quote-create-endpoint`, `create-endpoint`, and
+  `delete-endpoint` (SDK `QuoteCreateEndpoint`, `CreateEndpoint`,
+  `DeleteEndpoint`) for one vStorage Standard endpoint in `hcm-3` on an
+  existing HCM03-1C subnet. Create takes a fresh quote, needs `--yes` and
+  `--max-price`, requests auto-renew off, and sends once; it reports no
+  renewal or billing status. Delete refuses an endpoint with an attached
+  resource or domain and promises no refund. See
+  [Private endpoints](docs/wiki/Network-Endpoints.md).
+
 ## v0.102.0 - Global Load Balancer TCP pool and listener
 
 - Add `globalloadbalancer create-pool`, `create-listener`, `delete-listener`,
