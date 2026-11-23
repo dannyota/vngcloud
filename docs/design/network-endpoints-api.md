@@ -277,6 +277,14 @@ other write except quote, that create, and its delete stayed blocked.
 The exact detail GET after delete and a VKS-managed endpoint were not
 observed.
 
+Later SDK runs in `hcm-3` created and deleted endpoints with renewal off.
+Most were refunded within 30 minutes. One endpoint reused the name of an
+endpoint deleted and refunded 90 seconds before its create; its delete
+returned `Deleted=true` and the endpoint left the vNetwork list, but the
+wallet showed only its 712,400 VND `CHARGE` and no `REFUND` hours later.
+`billing list-resources` still listed it as `active`, `PREPAID`, and
+`AUTO-RENEW`, although its create sent `isEnableAutoRenew: false`.
+
 ## Recorded IAM-user catalog reads
 
 Source: manager-recorded bounded read-only discovery using IAM-user login
