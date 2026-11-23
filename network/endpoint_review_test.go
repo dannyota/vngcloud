@@ -297,6 +297,7 @@ func (*cancelBody) Close() error { return nil }
 func cancelCreateBody(f *epFake, cancel context.CancelFunc, ctx context.Context) {
 	f.rewrap = func(r *http.Request, resp *http.Response) {
 		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, epBase) {
+			_ = resp.Body.Close()
 			resp.Body = &cancelBody{cancel: cancel, ctx: ctx}
 			resp.ContentLength = -1
 		}
@@ -334,5 +335,26 @@ func TestEndpointCreateRefusalCancelledDuringBodyStaysDefinitive(t *testing.T) {
 	h = newEPHarness(t, f)
 	if _, err = h.c.CreateEndpoint(ctx, epCreateInput()); !errors.Is(err, ErrNotSettled) || !errors.Is(err, context.Canceled) {
 		t.Fatalf("408 err=%v", err)
+	}
+}
+
+func TestEndpointSubnetListWithNoncanonicalRowIsRefused(t *testing.T) {
+	lower, upper := "sub-0000000a-0000-0000-0000-00000000000a", "sub-0000000A-0000-0000-0000-00000000000A"
+	row := func(id, status string) string {
+		return `{"uuid":"` + id + `","name":"s","status":"` + status + `","vpcUuid":"` + epVPC + `","zone":{"uuid":"HCM03-1C"}}`
+	}
+	in := epCreateInput()
+	in.SubnetID = lower
+	f := epCreateFake()
+	f.subnets = `{"success":true,"data":[` + row(lower, "ACTIVE") + `]}`
+	if _, err := newEPHarness(t, f).c.QuoteCreateEndpoint(context.Background(), in); err != nil {
+		t.Fatalf("control: %v", err)
+	}
+	f = epCreateFake()
+	f.subnets = `{"success":true,"data":[` + row(lower, "ACTIVE") + `,` + row(upper, "ERROR") + `]}`
+	h := newEPHarness(t, f)
+	out, err := h.c.CreateEndpoint(context.Background(), in)
+	if err == nil || out != nil || f.count(http.MethodPost, epBase) != 0 {
+		t.Fatalf("out=%v err=%v", out, err)
 	}
 }
