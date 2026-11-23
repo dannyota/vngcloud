@@ -392,6 +392,16 @@ class CapabilityTest(unittest.TestCase):
     def test_helper_finishes_after_creds_without_totp(self):
         self.run_session("synthetic-capability", "synthetic-old-capability", totp_secret="", finish_after_creds=True)
 
+    def test_unused_capability_is_reported_on_deadline(self):
+        errors = io.StringIO()
+        with mock.patch.object(creds, "load_env", return_value={}), \
+                mock.patch.object(creds, "TIMEOUT_SECONDS", 0), \
+                contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(errors):
+            creds.main(["synthetic-input"])
+        self.assertIn("browser-creds: the login script never ran; its capability expired unused",
+                      errors.getvalue())
+
     def run_session(self, capability, stale, totp_secret="JBSWY3DPEHPK3PXP", finish_after_creds=False):
         ready = threading.Event()
         servers = []

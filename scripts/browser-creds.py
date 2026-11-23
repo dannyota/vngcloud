@@ -202,6 +202,8 @@ def main(argv=None):
                 if served["/creds"] and (served["/totp"] or not needs_totp):
                     break
                 server.handle_request()
+    if not served["/creds"]:
+        print("browser-creds: the login script never ran; its capability expired unused", file=sys.stderr)
     print("done", flush=True)
 
 

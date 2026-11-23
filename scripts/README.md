@@ -43,11 +43,20 @@ consume either endpoint. Each authenticated endpoint serves once. The
 helper deletes its per-run directory and script on normal completion or
 timeout.
 
-Playwright MCP echoes the script source after a run, so the embedded
-capability is single-use. The first `/creds` request spends it, before any
-echo; afterwards it gets 403 on every path. That response carries a fresh
-`next` capability for `/totp`. The script keeps it in memory only, and the
-helper never writes it to disk.
+Playwright MCP echoes the script source into its tool output, so the
+embedded capability is single-use. The first `/creds` request spends it,
+and afterwards it gets 403 on every path. That response carries a fresh
+`next` capability for `/totp`, which the script keeps in memory only and
+the helper never writes to disk.
+
+If a run returns without signing in, for example because a dialog or file
+chooser interrupted `browser_run_code_unsafe`, the embedded capability may
+still be live. Stop the helper at once (Ctrl-C or kill its process) and
+start a new one. The helper prints a line to stderr when it exits by
+deadline with `/creds` never served.
+
+Run Playwright MCP with `--codegen none`, which stops tool output from
+echoing the script source.
 
 Do not read or copy the temporary script into logs or tool output. Process
 termination can leave it behind; remove that private directory after the
