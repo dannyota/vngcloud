@@ -5,17 +5,19 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 
 	"danny.vn/vngcloud/internal/core"
 )
 
 type deletePlan struct {
-	r       *run
-	url     string
-	id      string
-	exact   func(context.Context) (id, status string, err error)
-	absent  func(context.Context) error
-	settled func()
+	r         *run
+	url       string
+	id        string
+	exact     func(context.Context) (id, status string, err error)
+	listed    func(context.Context) (bool, error)
+	survivors func(context.Context) error
+	settled   func()
 }
 
 func (p deletePlan) execute(ctx context.Context) error {
@@ -25,20 +27,25 @@ func (p deletePlan) execute(ctx context.Context) error {
 	wait, cancel := context.WithTimeout(ctx, deleteWait)
 	defer cancel()
 	for {
-		id, status, err := p.exact(wait)
+		present, err := p.listed(wait)
+		if err != nil {
+			return notSettled("delete confirmation interrupted")
+		}
+		id, status, exactErr := p.exact(wait)
+		consistent := core.IsNotFound(exactErr) || (exactErr != nil && p.r.internalError)
 		switch {
-		case core.IsNotFound(err):
-			if p.absent(wait) != nil {
+		case exactErr == nil && id != p.id:
+			return notSettled("delete detail ID mismatch")
+		case exactErr == nil && !deleteInProgress(status):
+			return notSettled("delete status unrecognized")
+		case exactErr != nil && !consistent:
+			return notSettled("delete confirmation interrupted")
+		case !present && exactErr != nil:
+			if p.survivors(wait) != nil {
 				return notSettled("delete absence could not be proven")
 			}
 			p.settled()
 			return nil
-		case err != nil:
-			return notSettled("delete confirmation interrupted")
-		case id != p.id:
-			return notSettled("delete detail ID mismatch")
-		case !deleteInProgress(status):
-			return notSettled("delete status unrecognized")
 		}
 		if !p.r.pause(wait) {
 			return notSettled("delete confirmation interrupted")
@@ -128,19 +135,12 @@ func (c *Client) DeleteListener(ctx context.Context, in *DeleteListenerInput) (*
 			got, err := r.listener(ctx, in.LoadBalancerID, in.ListenerID)
 			return got.ID, got.Status, err
 		},
-		absent: func(ctx context.Context) error {
+		listed: func(ctx context.Context) (bool, error) {
 			rest, err := r.listeners(ctx, in.LoadBalancerID)
-			for _, item := range rest {
-				if item.ID == in.ListenerID {
-					return refuse("listener still listed")
-				}
-			}
-			if err != nil {
-				return err
-			}
-			return r.survivors(ctx, in.LoadBalancerID, l.GlobalPoolID)
+			return slices.ContainsFunc(rest, func(x wireListener) bool { return x.ID == in.ListenerID }), err
 		},
-		settled: func() { out.Deleted = true }}
+		survivors: func(ctx context.Context) error { return r.survivors(ctx, in.LoadBalancerID, l.GlobalPoolID) },
+		settled:   func() { out.Deleted = true }}
 	return finishDelete(out, plan.execute(ctx))
 }
 
@@ -186,19 +186,12 @@ func (c *Client) DeletePoolMember(ctx context.Context, in *DeletePoolMemberInput
 			got, err := r.group(ctx, in.LoadBalancerID, in.PoolID, in.PoolMemberID)
 			return got.ID, got.Status, err
 		},
-		absent: func(ctx context.Context) error {
+		listed: func(ctx context.Context) (bool, error) {
 			rest, err := r.groups(ctx, in.LoadBalancerID, in.PoolID)
-			for _, item := range rest {
-				if item.ID == in.PoolMemberID {
-					return refuse("member group still listed")
-				}
-			}
-			if err != nil {
-				return err
-			}
-			return r.survivors(ctx, in.LoadBalancerID, in.PoolID)
+			return slices.ContainsFunc(rest, func(x wireGroup) bool { return x.ID == in.PoolMemberID }), err
 		},
-		settled: func() { out.Deleted = true }}
+		survivors: func(ctx context.Context) error { return r.survivors(ctx, in.LoadBalancerID, in.PoolID) },
+		settled:   func() { out.Deleted = true }}
 	return finishDelete(out, plan.execute(ctx))
 }
 
@@ -236,19 +229,12 @@ func (c *Client) DeletePool(ctx context.Context, in *DeletePoolInput) (*DeletePo
 			got, err := r.pool(ctx, in.LoadBalancerID, in.PoolID)
 			return got.ID, got.Status, err
 		},
-		absent: func(ctx context.Context) error {
+		listed: func(ctx context.Context) (bool, error) {
 			rest, err := r.pools(ctx, in.LoadBalancerID)
-			for _, item := range rest {
-				if item.ID == in.PoolID {
-					return refuse("pool still listed")
-				}
-			}
-			if err != nil {
-				return err
-			}
-			return r.survivors(ctx, in.LoadBalancerID, "")
+			return slices.ContainsFunc(rest, func(x wirePool) bool { return x.ID == in.PoolID }), err
 		},
-		settled: func() { out.Deleted = true }}
+		survivors: func(ctx context.Context) error { return r.survivors(ctx, in.LoadBalancerID, "") },
+		settled:   func() { out.Deleted = true }}
 	return finishDelete(out, plan.execute(ctx))
 }
 

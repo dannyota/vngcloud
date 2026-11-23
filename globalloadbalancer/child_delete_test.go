@@ -1,9 +1,11 @@
 package globalloadbalancer
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"danny.vn/vngcloud"
 )
@@ -11,7 +13,7 @@ import (
 type deleteCase struct {
 	name  string
 	setup func(*fixture)
-	call  func(*Client) (bool, string, error)
+	call  func(context.Context, *Client) (bool, string, error)
 	key   string
 	gone  func(*fixture) bool
 }
@@ -21,8 +23,8 @@ func deleteCases() []deleteCase {
 		{
 			name: "listener", key: "DELETE " + glbPrefix + "/global-listeners/" + fxListener,
 			setup: func(f *fixture) { f.withChildren() },
-			call: func(c *Client) (bool, string, error) {
-				out, err := c.DeleteListener(bg(), &DeleteListenerInput{LoadBalancerID: fxGLB, ListenerID: fxListener})
+			call: func(ctx context.Context, c *Client) (bool, string, error) {
+				out, err := c.DeleteListener(ctx, &DeleteListenerInput{LoadBalancerID: fxGLB, ListenerID: fxListener})
 				if out == nil {
 					return false, "", err
 				}
@@ -33,8 +35,8 @@ func deleteCases() []deleteCase {
 		{
 			name: "group", key: "DELETE " + glbPrefix + "/global-pools/" + fxPool + "/pool-members/" + fxGroup,
 			setup: func(f *fixture) { f.pool, f.group = true, true },
-			call: func(c *Client) (bool, string, error) {
-				out, err := c.DeletePoolMember(bg(), &DeletePoolMemberInput{LoadBalancerID: fxGLB, PoolID: fxPool, PoolMemberID: fxGroup})
+			call: func(ctx context.Context, c *Client) (bool, string, error) {
+				out, err := c.DeletePoolMember(ctx, &DeletePoolMemberInput{LoadBalancerID: fxGLB, PoolID: fxPool, PoolMemberID: fxGroup})
 				if out == nil {
 					return false, "", err
 				}
@@ -45,8 +47,8 @@ func deleteCases() []deleteCase {
 		{
 			name: "pool", key: "DELETE " + glbPrefix + "/global-pools/" + fxPool,
 			setup: func(f *fixture) { f.pool = true },
-			call: func(c *Client) (bool, string, error) {
-				out, err := c.DeletePool(bg(), &DeletePoolInput{LoadBalancerID: fxGLB, PoolID: fxPool})
+			call: func(ctx context.Context, c *Client) (bool, string, error) {
+				out, err := c.DeletePool(ctx, &DeletePoolInput{LoadBalancerID: fxGLB, PoolID: fxPool})
 				if out == nil {
 					return false, "", err
 				}
@@ -65,7 +67,7 @@ func TestDeletesSendOnceAndConfirmAbsence(t *testing.T) {
 				f := newFixture(t)
 				f.acceptStatus = code
 				tc.setup(f)
-				deleted, id, err := tc.call(f.client(t))
+				deleted, id, err := tc.call(bg(), f.client(t))
 				if err != nil || !deleted || id != ids[tc.name] || f.count("DELETE ") != 1 || f.count(tc.key) != 1 || f.count("POST ") != 0 || !tc.gone(f) {
 					t.Fatalf("deleted=%v id=%q err=%v calls=%v", deleted, id, err, f.calls)
 				}
@@ -147,7 +149,7 @@ func TestDeleteRefusesBeforeAnyWrite(t *testing.T) {
 			if strings.HasPrefix(name, "pool: member") || strings.HasPrefix(name, "pool: null") {
 				f.group = true
 			}
-			deleted, _, err := tc.call(f.client(t))
+			deleted, _, err := tc.call(bg(), f.client(t))
 			if err == nil || deleted || f.writes() != 0 || errors.Is(err, ErrNotSettled) || strings.Contains(err.Error(), "synthetic") {
 				t.Fatalf("deleted=%v err=%v calls=%v", deleted, err, f.calls)
 			}
@@ -159,7 +161,7 @@ func TestDeletePreflightNotFoundSendsNothing(t *testing.T) {
 	for _, tc := range deleteCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFixture(t) // no children exist
-			deleted, _, err := tc.call(f.client(t))
+			deleted, _, err := tc.call(bg(), f.client(t))
 			if deleted || !errors.Is(err, vngcloud.ErrNotFound) || f.writes() != 0 {
 				t.Fatalf("deleted=%v err=%v calls=%v", deleted, err, f.calls)
 			}
@@ -177,7 +179,7 @@ func TestDeleteDefinitiveRejectionAndAmbiguity(t *testing.T) {
 					w.WriteHeader(code)
 					_, _ = w.Write([]byte(`{"message":"glis-1 gpool-1 secret-value"}`))
 				})
-				deleted, _, err := tc.call(f.client(t))
+				deleted, _, err := tc.call(bg(), f.client(t))
 				var api *vngcloud.APIError
 				if deleted || !errors.As(err, &api) || api.StatusCode != code || errors.Is(err, ErrNotSettled) || f.count(tc.key) != 1 || strings.Contains(err.Error(), "glis-1") || strings.Contains(err.Error(), "secret-value") {
 					t.Fatalf("code=%d deleted=%v err=%v", code, deleted, err)
@@ -187,7 +189,7 @@ func TestDeleteDefinitiveRejectionAndAmbiguity(t *testing.T) {
 				f := newFixture(t)
 				tc.setup(f)
 				f.on(tc.key, h)
-				deleted, id, err := tc.call(f.client(t))
+				deleted, id, err := tc.call(bg(), f.client(t))
 				if deleted || !errors.Is(err, ErrNotSettled) || id == "" || f.count(tc.key) != 1 {
 					t.Fatalf("deleted=%v id=%q err=%v", deleted, id, err)
 				}
@@ -222,12 +224,7 @@ func TestDeleteAbsenceMustBeProven(t *testing.T) {
 			"exact unknown state": func(f *fixture) {
 				f.on(exact, afterDelete(f, jsonBody(`{"id":"`+map[string]string{"listener": fxListener, "group": fxGroup, "pool": fxPool}[tc.name]+`","status":"WEIRD"}`)))
 			},
-			"exact forbidden":    func(f *fixture) { f.on(exact, afterDelete(f, status(403))) },
-			"exact server error": func(f *fixture) { f.on(exact, afterDelete(f, status(500))) },
-			"collection still holds": func(f *fixture) {
-				f.on(exact, afterDelete(f, status(404)))
-				f.on(collection, afterDelete(f, jsonBody(`[{"id":"`+map[string]string{"listener": fxListener, "group": fxGroup, "pool": fxPool}[tc.name]+`"}]`)))
-			},
+			"exact forbidden": func(f *fixture) { f.on(exact, afterDelete(f, status(403))) },
 			"collection forbidden": func(f *fixture) {
 				f.on(exact, afterDelete(f, status(404)))
 				f.on(collection, afterDelete(f, status(403)))
@@ -245,7 +242,7 @@ func TestDeleteAbsenceMustBeProven(t *testing.T) {
 				f := newFixture(t)
 				tc.setup(f)
 				mutate(f)
-				deleted, id, err := tc.call(f.client(t))
+				deleted, id, err := tc.call(bg(), f.client(t))
 				if deleted || !errors.Is(err, ErrNotSettled) || id == "" || f.count(tc.key) != 1 {
 					t.Fatalf("deleted=%v id=%q err=%v calls=%v", deleted, id, err, f.calls)
 				}
@@ -317,9 +314,80 @@ func TestDeletesAcceptAnyMemberHealth(t *testing.T) {
 			if tc.name == "group" {
 				f.listener = false
 			}
-			if deleted, _, err := tc.call(f.client(t)); tc.name == "group" && (err != nil || !deleted) {
+			if deleted, _, err := tc.call(bg(), f.client(t)); tc.name == "group" && (err != nil || !deleted) {
 				t.Fatalf("health=%s deleted=%v err=%v", health, deleted, err)
 			}
 		}
 	}
+}
+
+func TestDeleteAbsenceFollowsCollection(t *testing.T) {
+	for _, tc := range deleteCases() {
+		exact, collection, id := deleteKeys(tc.name)
+		fail500 := func(w httpResponseWriter, _ *httpRequest) {
+			w.WriteHeader(500)
+			_, _ = w.Write([]byte(`{"code":"internal_error","message":"Internal error"}`))
+		}
+		after := func(f *fixture, h httpHandlerFunc) httpHandlerFunc {
+			return func(w httpResponseWriter, r *httpRequest) {
+				if f.count(tc.key) == 0 {
+					f.defaults(w, r.Method+" "+r.URL.Path)
+					return
+				}
+				h(w, r)
+			}
+		}
+		t.Run(tc.name+": 500 detail and list omits the ID", func(t *testing.T) {
+			f := newFixture(t)
+			tc.setup(f)
+			f.on(exact, after(f, fail500))
+			deleted, _, err := tc.call(bg(), f.client(t))
+			if err != nil || !deleted {
+				t.Fatalf("deleted=%v err=%v", deleted, err)
+			}
+		})
+		t.Run(tc.name+": 500 detail and list holds the ID", func(t *testing.T) {
+			f := newFixture(t)
+			tc.setup(f)
+			f.on(exact, after(f, fail500))
+			f.on(collection, after(f, jsonBody(`[{"id":"`+id+`"}]`)))
+			ctx, cancel := context.WithTimeout(bg(), 100*time.Millisecond)
+			defer cancel()
+			deleted, got, err := tc.call(ctx, f.client(t))
+			if deleted || got == "" || !errors.Is(err, ErrNotSettled) || f.count(exact) < 3 {
+				t.Fatalf("deleted=%v id=%q err=%v exact reads=%d", deleted, got, err, f.count(exact))
+			}
+		})
+		t.Run(tc.name+": 404 detail and list holds the ID", func(t *testing.T) {
+			f := newFixture(t)
+			tc.setup(f)
+			f.on(exact, after(f, status(404)))
+			f.on(collection, after(f, jsonBody(`[{"id":"`+id+`"}]`)))
+			ctx, cancel := context.WithTimeout(bg(), 100*time.Millisecond)
+			defer cancel()
+			deleted, _, err := tc.call(ctx, f.client(t))
+			if deleted || !errors.Is(err, ErrNotSettled) {
+				t.Fatalf("deleted=%v err=%v", deleted, err)
+			}
+		})
+		t.Run(tc.name+": plain 500 detail is not absence", func(t *testing.T) {
+			f := newFixture(t)
+			tc.setup(f)
+			f.on(exact, after(f, status(500)))
+			deleted, _, err := tc.call(bg(), f.client(t))
+			if deleted || !errors.Is(err, ErrNotSettled) {
+				t.Fatalf("deleted=%v err=%v", deleted, err)
+			}
+		})
+	}
+}
+
+func deleteKeys(name string) (exact, collection, id string) {
+	switch name {
+	case "listener":
+		return "GET " + glbPrefix + "/global-listeners/" + fxListener, "GET " + glbPrefix + "/global-listeners", fxListener
+	case "group":
+		return "GET " + glbPrefix + "/global-pools/" + fxPool + "/pool-members/" + fxGroup, "GET " + glbPrefix + "/global-pools/" + fxPool + "/pool-members", fxGroup
+	}
+	return "GET " + glbPrefix + "/global-pools/" + fxPool, "GET " + glbPrefix + "/global-pools", fxPool
 }

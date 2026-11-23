@@ -24,6 +24,8 @@ type run struct {
 	c     *Client
 	op    string
 	creds []string
+
+	internalError bool
 }
 
 func (c *Client) newRun(op string) *run { return &run{c: c, op: op} }
@@ -98,7 +100,14 @@ func (r *run) decode(raw json.RawMessage, out any) error {
 func (r *run) get(ctx context.Context, url string, out any) error {
 	var raw json.RawMessage
 	var sent []string
-	err := r.c.c.DoJSON(ctx, transport.Request{Operation: r.op, Method: http.MethodGet, URL: url, OK: []int{200}, NoRedirect: true, StrictJSON: true, Sensitive: true, WithholdMessage: wireProviderText, SentCredentials: &sent}, &raw)
+	r.internalError = false
+	observe := func(status int, body []byte) {
+		var e struct {
+			Code string `json:"code"`
+		}
+		r.internalError = status == http.StatusInternalServerError && json.Unmarshal(body, &e) == nil && e.Code == "internal_error"
+	}
+	err := r.c.c.DoJSON(ctx, transport.Request{Operation: r.op, Method: http.MethodGet, URL: url, OK: []int{200}, NoRedirect: true, StrictJSON: true, Sensitive: true, WithholdMessage: wireProviderText, SentCredentials: &sent, ObserveErrorBody: observe}, &raw)
 	r.remember(sent)
 	if err != nil {
 		var api *vngcloud.APIError
