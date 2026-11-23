@@ -105,7 +105,7 @@ func TestGLBChildHelpStatesBillingAndOrder(t *testing.T) {
 		"create-pool":     {"No quote is available", "bills child usage under the account's terms", "neither selects nor verifies the payment source", "does not promise a refund", "create-listener"},
 		"create-listener": {"No quote is available", "bills child usage under the account's terms", "neither selects nor verifies the payment source", "does not promise a refund", "/32", "create-pool"},
 		"delete-listener": {"does not promise a refund", "delete-pool", "pool and its member group stay"},
-		"delete-pool":     {"does not promise a refund", "member group and backend row", "never the vServer", "delete-load-balancer"},
+		"delete-pool":     {"does not promise a refund", "member group and backend row", "never the vServer", "delete-load-balancer", "before its backend server"},
 	}
 	for command, words := range want {
 		t.Run(command, func(t *testing.T) {

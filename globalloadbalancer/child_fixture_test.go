@@ -35,15 +35,16 @@ type fixture struct {
 	bodies   map[string][]byte
 	override map[string]http.HandlerFunc
 
-	pool, group, listener                       bool
-	poolStatus, groupStatus, listenerStatus     string
-	acceptStatus                                int
-	poolName, groupName, rowAddr, listenerCIDRs string
-	listenerPool                                string
+	pool, group, listener                              bool
+	poolStatus, groupStatus, rowStatus, listenerStatus string
+	parentStatus                                       string
+	acceptStatus                                       int
+	poolName, groupName, rowAddr, listenerCIDRs        string
+	listenerPool                                       string
 }
 
 func newFixture(t *testing.T) *fixture {
-	return &fixture{t: t, bodies: map[string][]byte{}, override: map[string]http.HandlerFunc{}, poolStatus: "ACTIVE", groupStatus: "OFFLINE", listenerStatus: "ACTIVE", acceptStatus: 202, poolName: "tcp-pool", groupName: "tcp-backend", rowAddr: "10.1.2.3", listenerCIDRs: fxCIDRs, listenerPool: fxPool}
+	return &fixture{t: t, bodies: map[string][]byte{}, override: map[string]http.HandlerFunc{}, poolStatus: "ACTIVE", groupStatus: "OFFLINE", parentStatus: "ACTIVE", listenerStatus: "ACTIVE", acceptStatus: 202, poolName: "tcp-pool", groupName: "tcp-backend", rowAddr: "10.1.2.3", listenerCIDRs: fxCIDRs, listenerPool: fxPool}
 }
 
 func (f *fixture) withChildren() *fixture {
@@ -94,6 +95,13 @@ func (f *fixture) client(t *testing.T) *Client {
 	return c
 }
 
+func (f *fixture) rowState() string {
+	if f.rowStatus != "" {
+		return f.rowStatus
+	}
+	return f.groupStatus
+}
+
 func (f *fixture) healthJSON() string {
 	return fmt.Sprintf(`{"id":"ghc-1","globalPoolId":%q,"globalLoadBalancerId":%q,"protocol":"TCP","timeout":5,"intervalTime":30,"healthyThreshold":3,"unhealthyThreshold":3,"status":%q}`, fxPool, fxGLB, f.poolStatus)
 }
@@ -103,7 +111,7 @@ func (f *fixture) poolJSON() string {
 }
 
 func (f *fixture) groupJSON() string {
-	return fmt.Sprintf(`{"id":%q,"name":%q,"region":"hcm","globalPoolId":%q,"globalLoadBalancerId":%q,"trafficDial":100,"vpcId":%q,"type":"PRIVATE","status":%q,"members":[{"id":%q,"name":"tcp-backend","globalPoolMemberId":%q,"globalLoadBalancerId":%q,"subnetId":%q,"address":%q,"weight":1,"port":8080,"monitorPort":8080,"backupRole":false,"status":%q}]}`, fxGroup, f.groupName, fxPool, fxGLB, fxVPC, f.groupStatus, fxRow, fxGroup, fxGLB, fxSubnet, f.rowAddr, f.groupStatus)
+	return fmt.Sprintf(`{"id":%q,"name":%q,"region":"hcm","globalPoolId":%q,"globalLoadBalancerId":%q,"trafficDial":100,"vpcId":%q,"type":"PRIVATE","status":%q,"members":[{"id":%q,"name":"tcp-backend","globalPoolMemberId":%q,"globalLoadBalancerId":%q,"subnetId":%q,"address":%q,"weight":1,"port":8080,"monitorPort":8080,"backupRole":false,"status":%q}]}`, fxGroup, f.groupName, fxPool, fxGLB, fxVPC, f.groupStatus, fxRow, fxGroup, fxGLB, fxSubnet, f.rowAddr, f.rowState())
 }
 
 func (f *fixture) listenerJSON() string {
@@ -124,7 +132,7 @@ func (f *fixture) defaults(w http.ResponseWriter, key string) {
 	missing := func() { w.WriteHeader(http.StatusNotFound) }
 	switch key {
 	case "GET " + glbPrefix:
-		reply(`{"id":"glb-1","name":"g","package":"pkg-1","type":"Layer 4","status":"ACTIVE"}`)
+		reply(`{"id":"glb-1","name":"g","package":"pkg-1","type":"Layer 4","status":"` + f.parentStatus + `"}`)
 	case "GET /v1/regions":
 		reply(`[{"id":"hcm","name":"HCM-3","status":"","vserverEndpoint":"https://hcm-3.api.vngcloud.vn/vserver/vserver-gateway"},{"id":"han","name":"HAN-1","status":"","vserverEndpoint":"https://han-1.api.vngcloud.vn/vserver/vserver-gateway"}]`)
 	case "GET /v1/packages":

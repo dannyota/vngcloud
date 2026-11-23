@@ -28,6 +28,17 @@ func (r *run) parent(ctx context.Context, glb string) (wireGLB, error) {
 	return got, nil
 }
 
+func (r *run) parentWhileCreating(ctx context.Context, glb string) error {
+	var got wireGLB
+	if err := r.get(ctx, r.c.glbChildURL(glb), &got); err != nil {
+		return err
+	}
+	if got.ID != glb || got.Type != "Layer 4" || (createState(got.Status) != stateSuccess && createState(got.Status) != stateTransitional) {
+		return refuse("the load balancer is no longer the expected Layer 4 load balancer")
+	}
+	return nil
+}
+
 func (r *run) project(ctx context.Context, requested string) (string, error) {
 	if err := validID(r.op, "BackendProjectID", requested); err != nil {
 		return "", err
@@ -196,9 +207,6 @@ func (r *run) readChain(ctx context.Context, spec chainSpec) (chain, error) {
 	if !checkGroup(out.group, spec.glb, spec.poolID, groups[0].ID, spec.backend) {
 		return out, refuse("the member group does not match the supported private backend")
 	}
-	out.verdict = combine(createState(out.pool.Status), createState(out.pool.Health.Status))
-	if !memberHealth(out.group.Status) || !memberHealth(out.group.Members[0].Status) {
-		out.verdict = stateUnknown
-	}
+	out.verdict = combine(createState(out.pool.Status), createState(out.pool.Health.Status), memberState(out.group.Status), memberState(out.group.Members[0].Status))
 	return out, nil
 }

@@ -31,6 +31,16 @@ func memberHealth(status string) bool {
 	return false
 }
 
+func memberState(status string) stateClass {
+	if memberHealth(status) {
+		return stateSuccess
+	}
+	if c := createState(status); c == stateTransitional || c == stateFailed {
+		return c
+	}
+	return stateUnknown
+}
+
 func deleteEligible(status string) bool {
 	return strings.EqualFold(status, "ACTIVE")
 }

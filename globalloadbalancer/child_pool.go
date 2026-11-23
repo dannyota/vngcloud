@@ -83,7 +83,11 @@ func (c *Client) createPool(ctx context.Context, r *run, in *CreatePoolInput) (*
 	wait, cancel := context.WithTimeout(ctx, createWait)
 	defer cancel()
 	for {
-		got, err := r.readChain(wait, spec)
+		err := r.parentWhileCreating(wait, in.LoadBalancerID)
+		var got chain
+		if err == nil {
+			got, err = r.readChain(wait, spec)
+		}
 		if err == nil {
 			err = r.requireNoListeners(wait, in.LoadBalancerID)
 		}

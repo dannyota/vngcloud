@@ -209,8 +209,11 @@ func (c *Client) delPool(ctx context.Context, r *run, in *DeletePoolInput) (*Del
 	if err != nil {
 		return nil, err
 	}
-	if !checkGroup(g, in.LoadBalancerID, in.PoolID, groups[0].ID, nil) || !memberHealth(g.Status) || !memberHealth(g.Members[0].Status) {
+	if !checkGroup(g, in.LoadBalancerID, in.PoolID, groups[0].ID, nil) {
 		return nil, refuse("the member group is not the expected private group with one backend")
+	}
+	if !memberHealth(g.Status) || !memberHealth(g.Members[0].Status) {
+		return nil, refuse("the backend row is not settled; wait for a health status")
 	}
 	out := &DeletePoolOutput{LoadBalancerID: in.LoadBalancerID, PoolID: in.PoolID}
 	plan := deletePlan{r: r, url: c.glbChildURL(in.LoadBalancerID, "global-pools", in.PoolID), id: in.PoolID,

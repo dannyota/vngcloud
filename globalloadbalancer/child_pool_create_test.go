@@ -385,3 +385,76 @@ func TestCreatePoolRefusesPublicAddressInsideSubnet(t *testing.T) {
 		}
 	}
 }
+
+func TestCreatePoolWaitsThroughRealTransitions(t *testing.T) {
+	f := newFixture(t)
+	glbGet := "GET " + glbPrefix
+	reads := 0
+	f.on(glbGet, func(w httpResponseWriter, _ *httpRequest) {
+		status := "ACTIVE"
+		if f.count("POST ") > 0 && reads < 3 {
+			status = "UPDATING"
+		}
+		_, _ = w.Write([]byte(`{"id":"glb-1","package":"pkg-1","type":"Layer 4","status":"` + status + `"}`))
+	})
+	f.on("GET "+glbPrefix+"/global-pools/"+fxPool, func(w httpResponseWriter, _ *httpRequest) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		reads++
+		if reads < 3 {
+			f.poolStatus, f.rowStatus = "CREATING", "CREATING"
+		} else {
+			f.poolStatus, f.rowStatus = "ACTIVE", "OFFLINE"
+		}
+		_, _ = w.Write([]byte(f.poolJSON()))
+	})
+	out, err := f.client(t).CreatePool(bg(), poolInput())
+	if err != nil || out == nil || out.Pool.Status != "ACTIVE" || out.PoolMember.Members[0].Status != "OFFLINE" || reads < 3 || f.count("POST ") != 1 {
+		t.Fatalf("out=%+v err=%v reads=%d", out, err, reads)
+	}
+}
+
+func TestCreatePoolParentMustStayTheSameLayer4(t *testing.T) {
+	glbGet := "GET " + glbPrefix
+	for name, body := range map[string]string{
+		"other id":  `{"id":"glb-2","package":"pkg-1","type":"Layer 4","status":"ACTIVE"}`,
+		"layer 7":   `{"id":"glb-1","package":"pkg-1","type":"Layer 7","status":"ACTIVE"}`,
+		"error":     `{"id":"glb-1","package":"pkg-1","type":"Layer 4","status":"ERROR"}`,
+		"unknown":   `{"id":"glb-1","package":"pkg-1","type":"Layer 4","status":"WEIRD"}`,
+		"malformed": `{"id":`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			f.on(glbGet, func(w httpResponseWriter, _ *httpRequest) {
+				if f.count("POST ") == 0 {
+					_, _ = w.Write([]byte(`{"id":"glb-1","package":"pkg-1","type":"Layer 4","status":"ACTIVE"}`))
+					return
+				}
+				_, _ = w.Write([]byte(body))
+			})
+			out, err := f.client(t).CreatePool(bg(), poolInput())
+			if !errors.Is(err, ErrNotSettled) || out == nil || out.Pool.ID != fxPool || f.count("POST ") != 1 {
+				t.Fatalf("out=%+v err=%v", out, err)
+			}
+		})
+	}
+}
+
+func TestRowStatusIsProvisioningThenHealth(t *testing.T) {
+	f := readyFixture(t)
+	f.rowStatus = "CREATING"
+	if _, err := f.client(t).CreateListener(bg(), listenerInput()); err == nil || f.writes() != 0 {
+		t.Fatalf("listener preflight with a CREATING row: %v", err)
+	}
+	f = newFixture(t)
+	f.pool, f.group, f.rowStatus = true, true, "CREATING"
+	_, err := f.client(t).DeletePool(bg(), &DeletePoolInput{LoadBalancerID: fxGLB, PoolID: fxPool})
+	if err == nil || f.writes() != 0 || !strings.Contains(err.Error(), "not settled") || errors.Is(err, ErrNotSettled) {
+		t.Fatalf("delete with a CREATING row: %v", err)
+	}
+	f = newFixture(t)
+	f.pool, f.group, f.rowStatus = true, true, "UNHEALTHY"
+	if out, err := f.client(t).DeletePool(bg(), &DeletePoolInput{LoadBalancerID: fxGLB, PoolID: fxPool}); err != nil || !out.Deleted {
+		t.Fatalf("delete with an UNHEALTHY row: %v", err)
+	}
+}
