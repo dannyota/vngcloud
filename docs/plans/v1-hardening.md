@@ -19,7 +19,6 @@ Tag `v1.0.0` only after every item below lands. Items that change a public name,
 - [ ] Require `--zone-id` on `volume get-default-volume-type`; the provider default zone `HCM03-1A` is disabled and returns 404.
 - [ ] Document that `compute.Flavor.FlavorZoneID` holds the request zone ID (for example `HCM03-1B`) and `ZoneID` holds an internal zone UUID.
 - [ ] Bound the IAM user login page and token response reads in `internal/iamuser/login.go`.
-- [ ] Keep retry and 401 token-refresh decisions for an error response larger than `MaxBody`.
 - [ ] Make the monitor quota tests and `TestRedactionBoundedHTTPErrorCost` stable under load, and bring the CI `go` job back under its 10-minute limit.
 - [ ] Fix the documentation slice below: config fields, 401 and retry guidance, repeated-write recovery, private DNS, the resize cap example, and Python setup ([slice](#documentation-and-evidence)).
 - [ ] Help and wiki: `compute create-server` user data with shell `runcmd` gets HTTP 403; each list command's output root (for example `Items`); `get-server-console-log` returns only the current boot; Telegram channel addresses.
