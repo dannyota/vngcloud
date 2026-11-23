@@ -98,7 +98,7 @@ vngcloud network create-dhcp-options --name <name> --dns-servers <dns-servers>
 
 Kind: Write.
 
-Buys one vStorage Standard endpoint with one request and waits for ACTIVE. The body sets isEnableAutoRenew false to request auto-renew off, and private DNS stays off; the command reads no billing state, so it never confirms renewal or payment. Check billing after create.
+Buys one vStorage Standard endpoint with one request and waits for ACTIVE. The body sets isEnableAutoRenew false to request auto-renew off, and private DNS stays off; GreenNode billing recorded a created endpoint as AUTO-RENEW despite that request, and no read can confirm its renewal setting. Check billing after create. Use a fresh, unique name for each create.
 
 Supports one offer: a vStorage Standard (vstorage.hcm03, Gateway) endpoint in hcm-3, zone HCM03-1C, on an existing VPC and subnet. It needs SDK IAM-user login and default endpoints; anything else returns InvalidConfig (exit 2). An endpoint changes network reachability; it does not grant bucket access and does not prove S3 connectivity.
 Requires --yes and --max-price (VND per month, or non-null JSON MaxPrice) before any request. Read-only profiles refuse this command. The cap is compared to a fresh quote taken just before create; it is not a server price lock. Quote and debit can differ. Unpriced or PriceAboveMax stops before purchase. A name that already exists in the VPC is refused.
@@ -286,7 +286,7 @@ Kind: Write, destructive.
 
 Requires --yes. Deleting an endpoint that a cluster uses breaks that cluster's private access. The command refuses an endpoint with an attached resource or domain, but those fields do not prove that no cluster uses it.
 Supports one offer: a vStorage Standard (vstorage.hcm03, Gateway) endpoint in hcm-3, zone HCM03-1C, on an existing VPC and subnet. It needs SDK IAM-user login and default endpoints; anything else returns InvalidConfig (exit 2). An endpoint changes network reachability; it does not grant bucket access and does not prove S3 connectivity.
-Requires explicit --endpoint-id and --vpc-id, refuses read-only profiles before any request, and sends one delete for an ACTIVE endpoint of the named VPC. Waits up to 10 minutes, polling every 5 seconds, until a complete list omits the ID. There is no --no-wait or --force. Deletion promises no refund; one recorded probe returned the full charge, which is observed, not guaranteed. NotFound exits 4. After NotSettled, run network list-endpoints in the same scope before another action. See [Network endpoints](Network-Endpoints.md).
+Requires explicit --endpoint-id and --vpc-id, refuses read-only profiles before any request, and sends one delete for an ACTIVE endpoint of the named VPC. Waits up to 10 minutes, polling every 5 seconds, until a complete list omits the ID. There is no --no-wait or --force. Deletion promises no refund, and a refund can stay pending after delete. In one probe, an endpoint that reused a just-deleted endpoint's name was deleted but never refunded, and billing still listed it as active. Check billing list-resources after delete. NotFound exits 4. After NotSettled, run network list-endpoints in the same scope before another action. See [Network endpoints](Network-Endpoints.md).
 
 | Flag | Type | Required |
 |-|-|-|

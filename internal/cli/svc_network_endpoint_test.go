@@ -130,7 +130,7 @@ func TestNetworkEndpointWriteHelp(t *testing.T) {
 	for name, want := range map[string][]string{
 		"quote-create-endpoint": {"VND per month", "vStorage", "HCM03-1C", "Read-only profiles can run this command"},
 		"create-endpoint":       {"VND per month", "request auto-renew off", "--yes", "--max-price", "not a server price lock", "Do not repeat", "network list-endpoints", "no --no-wait", "Quote and debit can differ", "does not grant bucket access"},
-		"delete-endpoint":       {"--yes", "breaks", "cluster", "no refund", "network list-endpoints", "attached resource"},
+		"delete-endpoint":       {"--yes", "breaks", "cluster", "promises no refund", "refund can stay pending", "billing list-resources", "network list-endpoints", "attached resource"},
 	} {
 		code, out, stderr := run("network", name, "--help")
 		if code != 0 {

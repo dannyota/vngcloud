@@ -140,7 +140,9 @@ ssh_authorized_keys:
   - <public-key>
 ```
 
-`ssh_authorized_keys` installs the key for the image's default user. The
+`ssh_authorized_keys` installs the key for the image's default user. Key-only
+cloud-config is accepted, but the vServer gateway returns HTTP 403 for
+cloud-config whose `runcmd` runs shell commands. The
 SDK base64-encodes the cloud-config and sends `userDataBase64Encoded: true`;
 pass plain text as `UserData`. The SDK sends no password fields; this does
 not establish that the guest disables password login.

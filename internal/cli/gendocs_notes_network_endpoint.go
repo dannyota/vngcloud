@@ -10,7 +10,7 @@ func init() {
 		endpointScopeHelp + "\n" +
 		"A quote is not a price lock and not proof of the debit."
 	docOpNotes["network create-endpoint"] = "Buys one vStorage Standard endpoint with one request and waits for ACTIVE. The body sets isEnableAutoRenew false to request auto-renew off, and private DNS stays off; " +
-		"the command reads no billing state, so it never confirms renewal or payment. Check billing after create.\n\n" +
+		"GreenNode billing recorded a created endpoint as AUTO-RENEW despite that request, and no read can confirm its renewal setting. Check billing after create. Use a fresh, unique name for each create.\n\n" +
 		endpointScopeHelp + "\n" +
 		"Requires --yes and --max-price (VND per month, or non-null JSON MaxPrice) before any request. Read-only profiles refuse this command. " +
 		"The cap is compared to a fresh quote taken just before create; it is not a server price lock. Quote and debit can differ. " +
@@ -24,7 +24,7 @@ func init() {
 		endpointScopeHelp + "\n" +
 		"Requires explicit --endpoint-id and --vpc-id, refuses read-only profiles before any request, and sends one delete for an ACTIVE endpoint of the named VPC. " +
 		"Waits up to 10 minutes, polling every 5 seconds, until a complete list omits the ID. There is no --no-wait or --force. " +
-		"Deletion promises no refund; one recorded probe returned the full charge, which is observed, not guaranteed. " +
+		"Deletion promises no refund, and a refund can stay pending after delete. In one probe, an endpoint that reused a just-deleted endpoint's name was deleted but never refunded, and billing still listed it as active. Check billing list-resources after delete. " +
 		"NotFound exits 4. After NotSettled, run network list-endpoints in the same scope before another action. See [Network endpoints](Network-Endpoints.md)."
 	docExampleOverride["network quote-create-endpoint"] = "vngcloud network quote-create-endpoint --region hcm-3 --name demo \\\n" +
 		"  --vpc-id <net-id> --subnet-id <sub-id>"

@@ -64,7 +64,7 @@ func writeConsoleLogText(w io.Writer, log string) error {
 }
 
 func init() {
-	docOpNotes["compute get-server-console-log"] = "Logs can hold passwords and keys. This read works in read-only profiles and\n" +
+	docOpNotes["compute get-server-console-log"] = "Returns only the current boot. Logs can hold passwords and keys. This read works in read-only profiles and\n" +
 		"needs no `--yes`. Output defaults to the profile's setting, otherwise JSON.\n\n" +
 		"JSON prints a `Log` string; table output has one Log column. `--output text`\n" +
 		"without a query writes the log with no label, quotes, or added newline. Pipes\n" +

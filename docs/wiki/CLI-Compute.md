@@ -15,7 +15,9 @@ own default group (open to the world on several ports) is only used when named
 explicitly.
 Set exactly one of --ssh-key-id or --user-data-file. GreenNode refuses both
 together. With user data, the cloud-config must install authorized keys, for
-example with ssh_authorized_keys. Cloud-init user data comes only from
+example with ssh_authorized_keys. Key-only cloud-config is accepted, but the
+vServer gateway returns HTTP 403 for cloud-config whose runcmd runs shell commands.
+Cloud-init user data comes only from
 --user-data-file <path>, read once at most 64 KiB: it has no plain string flag,
 and an inline or file:// --cli-input-json value that sets UserData is refused
 outright, since either could put a secret on argv or in a JSON file that shell
@@ -199,7 +201,7 @@ vngcloud compute get-server --server-id <server-id> --query Server
 
 Kind: Read.
 
-Logs can hold passwords and keys. This read works in read-only profiles and
+Returns only the current boot. Logs can hold passwords and keys. This read works in read-only profiles and
 needs no `--yes`. Output defaults to the profile's setting, otherwise JSON.
 
 JSON prints a `Log` string; table output has one Log column. `--output text`
