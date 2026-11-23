@@ -4,11 +4,25 @@ Close credential disclosure, destructive guard bypasses, and mutation replay. Ha
 
 ## v1.0.0 feature gate
 
-Complete AWS CLI-style resource creation coverage before tagging `v1.0.0`, including creates that charge existing GreenNode wallet credits. Account funding, top-ups, and payment-method management are out of scope. Ship completed slices in `0.x` while coverage is open.
+The gate covers AWS CLI-style resource creates, including creates that charge existing wallet credits. Account funding, top-ups, and payment-method management are out of scope.
 
-- [ ] Inventory resource creates service by service using GreenNode's official API and product documentation and the accepted domain designs. Match each create to its SDK method and CLI command; record missing operations and their prerequisites. Use the [resource creates plan](resource-creates.md) for the six known gaps.
-- [ ] Prioritize creates with verified API contracts. For paid creates, show the quote, cap the quoted amount, require explicit consent, and reconcile uncertain outcomes without replaying the order. Use billing reads as needed to check debits and refunds; do not assume that deleting a resource always returns unused credit or that charges are always usage-based.
-- [ ] Ship and document every in-scope operation with the required tests and live evidence. Keep missing API contracts, permissions, or test resources visible as blockers. Only an owner decision changes scope. This gate does not authorize live calls or charges.
+- [x] Inventory and ship the in-scope creates. GLB (bare and TCP children), VKS, vDB MySQL, and the private endpoint ship; see the [resource creates plan](resource-creates.md).
+- [x] Owner decision: site-to-site VPN and CDN Web Accelerator creates are out of scope for `v1.0.0` because they are rarely used. Held reads, other vDB engines, CDN certificates, and manual renewal orders are additive and ship in `1.x`.
+
+## v1.0.0 release checklist
+
+Tag `v1.0.0` only after every item below lands. Items that change a public name, type, field, query key, or exit code come first, because after `v1.0.0` they would be breaking.
+
+- [ ] Shared settlement names: define `ErrNotSettled` and `ErrFailed` once in shared core with root exports, and keep each service's existing sentinel as an alias ([slice](#shared-settlement-names)).
+- [ ] Endpoint help and wiki: the auto-renew-off request is not reflected in billing, which recorded `AUTO-RENEW`; a refund after delete can stay pending; give each create a fresh, unique name, because one endpoint that reused a just-deleted name was never refunded ([probe record](../design/network-endpoints-api.md#recorded-hcm-3-create-and-delete-probe)).
+- [ ] Fix `network list-nat-instances`, which fails with `invalid regions envelope` because region rows carry a `VServerEndpoint` key; decode only the fields used, as the endpoint region read does.
+- [ ] Require `--zone-id` on `volume get-default-volume-type`; the provider default zone `HCM03-1A` is disabled and returns 404.
+- [ ] Document that `compute.Flavor.FlavorZoneID` holds the request zone ID (for example `HCM03-1B`) and `ZoneID` holds an internal zone UUID.
+- [ ] Bound the IAM user login page and token response reads in `internal/iamuser/login.go`.
+- [ ] Keep retry and 401 token-refresh decisions for an error response larger than `MaxBody`.
+- [ ] Make the monitor quota tests and `TestRedactionBoundedHTTPErrorCost` stable under load, and bring the CI `go` job back under its 10-minute limit.
+- [ ] Fix the documentation slice below: config fields, 401 and retry guidance, repeated-write recovery, private DNS, the resize cap example, and Python setup ([slice](#documentation-and-evidence)).
+- [ ] Help and wiki: `compute create-server` user data with shell `runcmd` gets HTTP 403; each list command's output root (for example `Items`); `get-server-console-log` returns only the current boot; Telegram channel addresses.
 
 ## Cross-cutting rules
 

@@ -5,6 +5,19 @@ in the relevant plan and durable rules in the linked authority. A listed
 item does not approve implementation or a live run; unresolved evidence,
 permission, cost, and resource gates still apply.
 
+## Before v1.0.0
+
+The [v1.0.0 release checklist](docs/plans/v1-hardening.md#v100-release-checklist) holds the work that must land before the tag.
+
+## Owner
+
+- [ ] Owner asks GreenNode to cancel the billing record of the deleted test endpoint `vngcloudliveep2` (`enp-75a28702-0984-4a4f-b15c-975f86bf773a`, service 751496, bill 1530098), which still shows `active` and `AUTO-RENEW`, and to refund its 712,400 VND charge. [Endpoint probe](docs/design/network-endpoints-api.md#recorded-hcm-3-create-and-delete-probe).
+- [ ] Owner rotates the vCDN API key. [Credential rules](instructions/security.md#secure-defaults).
+
+## After v1.0.0
+
+These are additive and ship in `1.x`.
+
 - [ ] Implement CDN certificate import, enable, disable, and delete after populated evidence and a scoped test CDN; keep API CDN create deferred. [Contract](docs/design/cdn-writes.md#certificates).
 - [ ] Obtain scoped approval and disposable project or CDN prerequisites before another paid storage or CDN live run. [Live-run rules](instructions/live-data.md), [storage contract](docs/design/storage-projects.md), and [CDN contract](docs/design/cdn-writes.md).
 - [ ] Qualify held VKS cluster detail, node groups, nodes, and events with populated evidence, and define a separate kubeconfig contract. [Evidence gate](docs/design/vks.md#evidence-and-release-gate).
@@ -12,27 +25,14 @@ permission, cost, and resource gates still apply.
 - [ ] Qualify Backup Center policy detail, server and destination inventory, restore points, and history with populated evidence. [Contract](docs/design/backup-services.md#scope).
 - [ ] Qualify remaining NAT detail and rule reads and network parity reads; NAT and VPN lists are implemented. [Contract](docs/design/network-services.md#scope-and-evidence).
 - [ ] Complete gated vDB engine designs and populated models beyond MySQL 8.0. [Contract](docs/design/database-services.md).
-- [ ] Complete the approved VPN create live probe before implementation that depends on its body and secret contract. [Evidence gates](docs/design/network-writes.md#evidence-gates-and-release-order).
 - [ ] Specify manual one-period renewal orders in a later slice; renewal settings do not place orders. [Contract](docs/design/auto-renew.md).
 - [ ] Keep root-checkout NAT outside the approved IAM write slice; obtain separate approval for any future contract. [Auth boundary](docs/design/network-writes-nat.md#purchase-and-auth).
-- [ ] Owner rotates the vCDN API key. [Credential rules](instructions/security.md#secure-defaults).
-- [ ] Bound the IAM user login page and token responses, which `internal/iamuser/login.go` reads with `io.ReadAll`; a hostile or broken sign-in host can exhaust memory. [Security rules](instructions/security.md).
-- [ ] Address the remaining scheduler sensitivity in `TestRedactionBoundedHTTPErrorCost`'s elapsed-time assertion without weakening the bounded-work guarantee. Credential-key normalization now has deterministic allocation regressions. [Test rules](instructions/testing.md#test-design).
 - [ ] Add flags to set a check's In-alarm, Up, and Undetermined channel lists on `create-check` and `update-check`; today only `--cli-input-json` attaches channels. [Check notifications](docs/design/monitor-alerts.md#check-notifications).
-- [ ] Document Telegram channel addresses in the wiki: a negative chat ID needs `--address=-<id>`, and a group upgraded to a supergroup gets a new `-100` ID, so the channel must be re-verified with a new OTP. [Channels](docs/design/monitor-alerts.md#channels).
 - [ ] Add a read of a check's per-location test results, so a user can see why one location alarms while another stays OK. [vMonitor](docs/design/monitor.md).
 - [ ] Discover and add a channel test send, so a user can prove delivery without breaking a check. [Channels](docs/design/monitor-alerts.md#channels).
 - [ ] Add vMonitor dashboard list, get, and delete for user dashboards; GreenNode creates one dashboard per resource and the console does not allow deleting those. [vMonitor](docs/design/monitor.md).
 - [ ] Quote a replacement or upgrade of an existing notification quota, and point `pricing get-quote` help at the vMonitor quote commands. [Quote contract](docs/design/monitor-quotas.md#quote-and-price-contract).
-- [ ] State each list command's output root (for example `Items`) in help and the wiki so `--query` expressions work the first time, and note that `get-server-console-log` returns only the current boot. [CLI](docs/design/cli.md).
 - [ ] Record API evidence under `docs/design/` for the wire models whose type comment says no design document records it (`git grep -n "No design document records"`), then cite that record in the comment. [Go rules](instructions/go.md#formatting-and-comments).
-- [ ] State in `compute create-server` help that the vServer gateway answers HTTP 403 to cloud-config user data whose `runcmd` runs shell commands, while key-only cloud-config is accepted. [Server writes](docs/design/server-services.md).
-- [ ] Confirm the refund of one private endpoint deleted at 07:56 on 2026-11-23 (service 751496); every other probe endpoint was refunded within 30 minutes. [Endpoint probe](docs/design/network-endpoints-api.md#recorded-hcm-3-create-and-delete-probe).
-- [ ] Check `compute.Flavor`'s `ZoneID` and `FlavorZoneID` against live `ListFlavors` rows: the rows carry values in a different form from the zone and flavor zone IDs the SDK uses in requests, so code that compares them fails. [Server reads](docs/design/server-services.md).
 - [ ] Consider release binaries with checksums and provenance attestations for CI installs; pinned `go install` with the Go checksum database is the supported path today. [Unattended CI](docs/design/cli.md).
 - [ ] Ratchet non-test Go to 600 lines after the billing history and floating IP slices land, then to 500, one pull request each. Extend `scripts/test/check-lengths-test.sh` to the new limit in each step. [File length](instructions/documentation.md#file-length).
-- [ ] Keep retry and token-refresh decisions for an error response whose body exceeds `MaxBody`; `internal/transport` returns `ErrBodyTooLarge` before retry and 401 handling, so an oversized 503 or 401 fails at once. [Security rules](instructions/security.md).
-- [ ] Fix `network.ListNATInstances` in `hcm-3`: the basic example's live read fails with `invalid regions envelope (status 200)`, so the HCM response shape differs from the decoded one. Capture it and add a fixture. [Network](docs/design/network-services.md#scope-and-evidence).
-- [ ] Make `monitor.TestQuotaCompositeRetainedBodyBudgetWithRetries` and `monitor/quotas_catalog_test.go:538` fail cleanly instead of panicking with index out of range when the machine is heavily loaded; they pass in isolation. [Test rules](instructions/testing.md#test-design).
-- [ ] Find why the CI `go` job can exceed its 10-minute limit on a master push after the same commit passed on its pull request; fix the slow tests rather than raising the limit. [Test rules](instructions/testing.md#test-design).
-- [ ] Fix `volume.GetDefaultVolumeType` in `hcm-3`: the live read returns 404 `Cannot get zone with id HCM03-1A` because that default zone is disabled; pick an enabled zone or let the caller pass one. [Volume](docs/wiki/Volume.md).
+- [ ] Add an auto-renew read and toggle for endpoint billing records, like the vStorage project toggle; the endpoint create request for renewal off is not reflected in billing. [Auto-renew](docs/design/auto-renew.md).
