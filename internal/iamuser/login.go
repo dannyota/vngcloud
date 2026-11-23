@@ -56,6 +56,9 @@ const (
 	StepTokenExchange FailureStep = "token exchange"
 )
 
+// ErrResponseTooLarge reports a login response exceeding its size limit.
+var ErrResponseTooLarge = errors.New("login response too large")
+
 // LoginFailure reports which step of the login flow failed, the HTTP status
 // observed there (0 when none applies), and whether the sign-in form was
 // redisplayed after a submit (a captcha may be required). Error and Unwrap
@@ -263,7 +266,13 @@ func exchangeToken(ctx context.Context, client *http.Client, tokenURL, dashboard
 	defer func() { _ = resp.Body.Close() }()
 
 	respBody, readErr := readLoginBody(resp.Body)
+	if readErr != nil && ctx.Err() != nil {
+		readErr = ctx.Err()
+	}
 	if readErr != nil {
+		if errors.Is(readErr, ErrResponseTooLarge) || errors.Is(readErr, context.Canceled) || errors.Is(readErr, context.DeadlineExceeded) {
+			return nil, &LoginFailure{Step: StepTokenExchange, Status: resp.StatusCode, cause: readErr}
+		}
 		return nil, &LoginFailure{Step: StepTokenExchange, Status: resp.StatusCode, cause: errors.New("invalid token response")}
 	}
 	if resp.StatusCode != http.StatusOK {
@@ -329,6 +338,9 @@ func doGet(ctx context.Context, client *http.Client, reqURL string) ([]byte, int
 		return nil, resp.StatusCode, fmt.Errorf("unexpected status %d", resp.StatusCode)
 	}
 	respBody, err := readLoginBody(resp.Body)
+	if err != nil && ctx.Err() != nil {
+		return nil, resp.StatusCode, ctx.Err()
+	}
 	return respBody, resp.StatusCode, err
 }
 
@@ -393,7 +405,13 @@ func extractAuthCode(location string) string {
 func readLoginBody(body io.Reader) ([]byte, error) {
 	const limit = 1 << 20
 	raw, err := io.ReadAll(io.LimitReader(body, limit+1))
-	if err != nil || len(raw) > limit {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return nil, err
+	}
+	if len(raw) > limit {
+		return nil, ErrResponseTooLarge
+	}
+	if err != nil {
 		return nil, errors.New("invalid login response")
 	}
 	return raw, nil

@@ -65,3 +65,37 @@ func TestOversizedRefreshedUnauthorizedInvalidatesFinalToken(t *testing.T) {
 		t.Fatal("unexpected invalidation sequence")
 	}
 }
+
+func TestOversizedUnauthorizedInvalidatesBeforeNextCall(t *testing.T) {
+	var credentials []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		credentials = append(credentials, r.Header.Get("Authorization"))
+		if len(credentials) == 1 {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(strings.Repeat("x", 32)))
+			return
+		}
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+	source := &trackedRefreshSource{}
+	client := New(Config{HTTPClient: server.Client(), TokenSource: source})
+	req := Request{URL: server.URL, MaxBody: 8, BodyLimitOverridesStatus: true}
+	if _, err := client.DoJSONStatus(context.Background(), req, nil); !errors.Is(err, ErrBodyTooLarge) {
+		t.Fatalf("error %v", err)
+	}
+	if len(credentials) != 1 || source.count.Load() != 1 {
+		t.Fatal("oversized response resent")
+	}
+	if err := client.DoJSON(context.Background(), req, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(credentials) != 2 || credentials[0] != "Bearer token-1" || credentials[1] != "Bearer token-2" {
+		t.Fatalf("credentials %v", credentials)
+	}
+	source.mu.Lock()
+	defer source.mu.Unlock()
+	if len(source.invalidated) != 1 || source.invalidated[0] != "token-1" {
+		t.Fatal("wrong token invalidated")
+	}
+}

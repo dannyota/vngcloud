@@ -505,6 +505,10 @@ func (c *Client) send(ctx context.Context, req Request, client *http.Client) (in
 			return resp.StatusCode, "", nil, sentToken, err
 		}
 		if errors.Is(readErr, ErrBodyTooLarge) {
+			if ctx.Err() != nil {
+				failure := bodyFailure(req, resp.StatusCode, ctx.Err())
+				return failure.StatusCode, "", nil, sentToken, failure
+			}
 			return resp.StatusCode, "", nil, sentToken, ErrBodyTooLarge
 		}
 		if readErr != nil {
@@ -545,11 +549,14 @@ func readBody(r io.Reader, maxBody int64) ([]byte, error) {
 		maxBody--
 	}
 	data, err := io.ReadAll(io.LimitReader(r, maxBody+1))
-	if err != nil {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return nil, err
 	}
 	if int64(len(data)) > maxBody {
 		return nil, ErrBodyTooLarge
+	}
+	if err != nil {
+		return nil, err
 	}
 	return data, nil
 }
