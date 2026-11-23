@@ -43,6 +43,12 @@ consume either endpoint. Each authenticated endpoint serves once. The
 helper deletes its per-run directory and script on normal completion or
 timeout.
 
+Playwright MCP echoes the script source after a run, so the embedded
+capability is single-use. The first `/creds` request spends it, before any
+echo; afterwards it gets 403 on every path. That response carries a fresh
+`next` capability for `/totp`. The script keeps it in memory only, and the
+helper never writes it to disk.
+
 Do not read or copy the temporary script into logs or tool output. Process
 termination can leave it behind; remove that private directory after the
 helper stops. The helper checks a three-minute deadline between requests.

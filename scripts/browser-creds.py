@@ -130,20 +130,22 @@ def main(argv=None):
             return 2
     else:
         env = load_env(args.path)
-    capability = secrets.token_urlsafe(32)
+    capabilities = {"/creds": secrets.token_urlsafe(32), "/totp": None}
     served = {path: 0 for path in MAX_SERVED}
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
             authorization = self.headers.get_all("Authorization", [])
+            expected = capabilities.get(self.path)
             if (len(self.headers.get_all("Host", [])) != 1
                     or self.headers.get("Host") not in {
                         f"127.0.0.1:{self.server.server_port}",
                         f"localhost:{self.server.server_port}",
                     }
                     or len(authorization) != 1
+                    or expected is None
                     or not hmac.compare_digest(authorization[0].encode(),
-                                               ("Bearer " + capability).encode())):
+                                               ("Bearer " + expected).encode())):
                 self.send_response(403)
                 self.end_headers()
                 return
@@ -153,12 +155,16 @@ def main(argv=None):
                 return
             served[self.path] += 1
             if self.path == "/creds":
+                capabilities["/creds"] = None
+                capabilities["/totp"] = secrets.token_urlsafe(32)
                 body = {
                     "rootEmail": env.get("VNGCLOUD_ROOT_EMAIL", ""),
                     "username": env.get("VNGCLOUD_USERNAME", ""),
                     "password": env.get("VNGCLOUD_PASSWORD", ""),
+                    "next": capabilities["/totp"],
                 }
             else:
+                capabilities["/totp"] = None
                 secret = env.get("VNGCLOUD_TOTP_SECRET", "")
                 body = {"code": totp(secret) if secret else ""}
             data = json.dumps(body).encode()
@@ -182,7 +188,7 @@ def main(argv=None):
             script = os.path.join(directory, "browser-login.js")
             with open(os.path.join(root, "scripts/browser-login.js"), encoding="utf-8") as source:
                 consumer = source.read().replace('"__VNGCLOUD_BROWSER_CAPABILITY__"',
-                                                 json.dumps(capability)).replace(
+                                                 json.dumps(capabilities["/creds"])).replace(
                     '"__VNGCLOUD_BROWSER_HELPER__"',
                     json.dumps(f"http://127.0.0.1:{server.server_port}"))
             descriptor = os.open(script, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)

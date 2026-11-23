@@ -363,8 +363,10 @@ class CapabilityTest(unittest.TestCase):
                         connection.request("GET", "/creds", headers={"Authorization": "Bearer " + token.group(1)})
                         response = connection.getresponse()
                         self.assertEqual(response.status, 200)
-                        self.assertEqual(json.loads(response.read())["password"], "synthetic-password")
-                        connection.request("GET", "/totp", headers={"Authorization": "Bearer " + token.group(1)})
+                        body = json.loads(response.read())
+                        self.assertEqual(body["password"], "synthetic-password")
+                        self.assertNotEqual(body["next"], token.group(1))
+                        connection.request("GET", "/totp", headers={"Authorization": "Bearer " + body["next"]})
                         response = connection.getresponse()
                         self.assertEqual(response.status, 200)
                         response.read()
@@ -379,7 +381,18 @@ class CapabilityTest(unittest.TestCase):
         self.run_session("synthetic-first-capability", "synthetic-old-capability")
         self.run_session("synthetic-capability", "synthetic-first-capability")
 
-    def run_session(self, capability, stale):
+    def test_creds_capability_is_spent_by_first_request(self):
+        status = self.run_session("synthetic-capability", "synthetic-old-capability")
+        self.assertEqual(status["creds_again"], 403)
+        self.assertEqual(status["totp_with_first"], 403)
+        self.assertEqual(status["totp_wrong_next"], 403)
+        self.assertEqual(status["totp_first_use"], 200)
+        self.assertEqual(status["totp_with_creds"], 403)
+
+    def test_helper_finishes_after_creds_without_totp(self):
+        self.run_session("synthetic-capability", "synthetic-old-capability", totp_secret="", finish_after_creds=True)
+
+    def run_session(self, capability, stale, totp_secret="JBSWY3DPEHPK3PXP", finish_after_creds=False):
         ready = threading.Event()
         servers = []
         server_type = creds.http.server.HTTPServer
@@ -387,7 +400,9 @@ class CapabilityTest(unittest.TestCase):
         fake = {"VNGCLOUD_ROOT_EMAIL": "fake@example.invalid",
                 "VNGCLOUD_USERNAME": "fake-user",
                 "VNGCLOUD_PASSWORD": "synthetic-password",
-                "VNGCLOUD_TOTP_SECRET": "JBSWY3DPEHPK3PXP"}
+                "VNGCLOUD_TOTP_SECRET": totp_secret}
+        next_capability = "synthetic-next-capability"
+        result = {}
 
         def server(address, handler):
             instance = server_type(address, handler)
@@ -411,7 +426,7 @@ class CapabilityTest(unittest.TestCase):
         with mock.patch.object(creds, "load_env", return_value=fake), \
                 mock.patch.object(creds.http.server, "HTTPServer", side_effect=server), \
                 mock.patch.object(creds, "TIMEOUT_SECONDS", 2), \
-                mock.patch("secrets.token_urlsafe", return_value=capability), \
+                mock.patch("secrets.token_urlsafe", side_effect=[capability, next_capability]), \
                 contextlib.redirect_stdout(output), \
                 concurrent.futures.ThreadPoolExecutor() as pool:
             future = pool.submit(creds.main, ["synthetic-input"])
@@ -432,9 +447,16 @@ class CapabilityTest(unittest.TestCase):
                 status, body = request("/creds", capability)
                 self.assertEqual(status, 200)
                 self.assertEqual(json.loads(body)["password"], "synthetic-password")
-                self.assertEqual(request("/creds", capability)[0], 404)
-                self.assertEqual(request("/totp", "wrong-capability")[0], 403)
-                self.assertEqual(request("/totp", capability)[0], 200)
+                self.assertEqual(json.loads(body)["next"], next_capability)
+                if finish_after_creds:
+                    future.result(timeout=4)
+                    self.assertFalse(script.exists())
+                else:
+                    result["creds_again"] = request("/creds", capability)[0]
+                    result["totp_with_first"] = request("/totp", capability)[0]
+                    result["totp_wrong_next"] = request("/totp", "wrong-capability")[0]
+                    result["totp_with_creds"] = request("/creds", next_capability)[0]
+                    result["totp_first_use"] = request("/totp", next_capability)[0]
             finally:
                 future.result(timeout=4)
                 servers[0].server_close()
@@ -442,6 +464,8 @@ class CapabilityTest(unittest.TestCase):
         self.assertFalse(script.parent.exists())
         self.assertNotIn(capability, output.getvalue())
         self.assertNotIn("synthetic-password", output.getvalue())
+        self.assertNotIn(next_capability, output.getvalue())
+        return result
 
 
 if __name__ == "__main__":

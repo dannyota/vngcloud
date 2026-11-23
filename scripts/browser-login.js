@@ -4,10 +4,10 @@ async (page) => {
   if (helper.startsWith('__VNGCLOUD_') || capability.startsWith('__VNGCLOUD_')) {
     throw new Error('run the private browser script printed by make browser-creds');
   }
-  const fetchJSON = async (path) => {
+  const fetchJSON = async (path, token) => {
     try {
       const resp = await page.request.get(helper + path, {
-        headers: { Authorization: 'Bearer ' + capability },
+        headers: { Authorization: 'Bearer ' + token },
         maxRedirects: 0,
       });
       if (resp.ok()) {
@@ -37,7 +37,8 @@ async (page) => {
     }
   };
 
-  const creds = await fetchJSON('/creds');
+  const creds = await fetchJSON('/creds', capability);
+  const next = creds.next;
   if (!creds.rootEmail || !creds.username || !creds.password) {
     throw new Error('browser-creds served empty IAM User values; check .env');
   }
@@ -58,7 +59,7 @@ async (page) => {
   }
 
   if (urlParts().pathname.includes('/ap/auth/iam/google')) {
-    const totp = await fetchJSON('/totp');
+    const totp = await fetchJSON('/totp', next);
     if (!totp.code) {
       throw new Error('2FA required but VNGCLOUD_TOTP_SECRET is empty');
     }
