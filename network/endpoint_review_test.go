@@ -304,3 +304,24 @@ func TestEndpointCreateCancelDuringReplyBodyKeepsContextCause(t *testing.T) {
 		t.Fatal("create resent")
 	}
 }
+
+func TestEndpointSubnetListWithNoncanonicalRowIsRefused(t *testing.T) {
+	lower, upper := "sub-0000000a-0000-0000-0000-00000000000a", "sub-0000000A-0000-0000-0000-00000000000A"
+	row := func(id, status string) string {
+		return `{"uuid":"` + id + `","name":"s","status":"` + status + `","vpcUuid":"` + epVPC + `","zone":{"uuid":"HCM03-1C"}}`
+	}
+	in := epCreateInput()
+	in.SubnetID = lower
+	f := epCreateFake()
+	f.subnets = `{"success":true,"data":[` + row(lower, "ACTIVE") + `]}`
+	if _, err := newEPHarness(t, f).c.QuoteCreateEndpoint(context.Background(), in); err != nil {
+		t.Fatalf("control: %v", err)
+	}
+	f = epCreateFake()
+	f.subnets = `{"success":true,"data":[` + row(lower, "ACTIVE") + `,` + row(upper, "ERROR") + `]}`
+	h := newEPHarness(t, f)
+	out, err := h.c.CreateEndpoint(context.Background(), in)
+	if err == nil || out != nil || f.count(http.MethodPost, epBase) != 0 {
+		t.Fatalf("out=%v err=%v", out, err)
+	}
+}

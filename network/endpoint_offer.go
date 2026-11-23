@@ -209,6 +209,9 @@ func (o *endpointOp) checkPlacement(ctx context.Context, offer endpointOffer, vp
 	}
 	matches := 0
 	for _, s := range subnets {
+		if !subnetPattern.MatchString(s.UUID) {
+			return endpointInvalid(o.op)
+		}
 		if s.UUID == subnet {
 			matches++
 			if s.Status != "ACTIVE" || s.VPCUUID != vpc || s.Zone.UUID != endpointZone {
