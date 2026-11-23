@@ -1,5 +1,11 @@
 # Release Notes
 
+## v1.0.1 - README for the stable release
+
+- The README states the semantic versioning promise and lists the supported
+  resource creates, including credit-paid creates and their `--max-price` or
+  `--yes` guards. No code change.
+
 ## v1.0.0 - First stable release
 
 The SDK and CLI cover AWS CLI-style reads and creates for GreenNode, including
