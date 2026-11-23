@@ -352,8 +352,7 @@ func TestDeleteAbsenceFollowsCollection(t *testing.T) {
 }
 
 func deleteKeys(name string) (exact, collection, id string) {
-	switch name {
-	case "listener":
+	if name == "listener" {
 		return "GET " + glbPrefix + "/global-listeners/" + fxListener, "GET " + glbPrefix + "/global-listeners", fxListener
 	}
 	return "GET " + glbPrefix + "/global-pools/" + fxPool, "GET " + glbPrefix + "/global-pools", fxPool

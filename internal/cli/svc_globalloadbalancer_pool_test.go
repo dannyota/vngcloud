@@ -12,10 +12,10 @@ import (
 )
 
 var childWriteArgs = map[string][]string{
-	"create-pool":        {"create-pool", "--load-balancer-id", "glb-1", "--name", "p", "--member-name", "m", "--backend-server-id", "srv-1", "--backend-vpc-id", "vpc-1", "--backend-subnet-id", "sub-1", "--backend-port", "8080"},
-	"create-listener":    {"create-listener", "--load-balancer-id", "glb-1", "--name", "l", "--pool-id", "pool-1", "--port", "443", "--allowed-cidrs", "192.0.2.5/32", "--allowed-cidrs", "198.51.100.0/24", "--backend-server-id", "srv-1"},
-	"delete-listener":    {"delete-listener", "--load-balancer-id", "glb-1", "--listener-id", "lis-1"},
-	"delete-pool":        {"delete-pool", "--load-balancer-id", "glb-1", "--pool-id", "pool-1"},
+	"create-pool":     {"create-pool", "--load-balancer-id", "glb-1", "--name", "p", "--member-name", "m", "--backend-server-id", "srv-1", "--backend-vpc-id", "vpc-1", "--backend-subnet-id", "sub-1", "--backend-port", "8080"},
+	"create-listener": {"create-listener", "--load-balancer-id", "glb-1", "--name", "l", "--pool-id", "pool-1", "--port", "443", "--allowed-cidrs", "192.0.2.5/32", "--allowed-cidrs", "198.51.100.0/24", "--backend-server-id", "srv-1"},
+	"delete-listener": {"delete-listener", "--load-balancer-id", "glb-1", "--listener-id", "lis-1"},
+	"delete-pool":     {"delete-pool", "--load-balancer-id", "glb-1", "--pool-id", "pool-1"},
 }
 
 func childArgs(command string, extra ...string) []string {
@@ -102,10 +102,10 @@ func TestGLBChildFlagsBindProjectAndRepeatCIDRs(t *testing.T) {
 
 func TestGLBChildHelpStatesBillingAndOrder(t *testing.T) {
 	want := map[string][]string{
-		"create-pool":        {"No quote is available", "bills child usage under the account's terms", "neither selects nor verifies the payment source", "does not promise a refund", "create-listener"},
-		"create-listener":    {"No quote is available", "bills child usage under the account's terms", "neither selects nor verifies the payment source", "does not promise a refund", "/32", "create-pool"},
-		"delete-listener":    {"does not promise a refund", "delete-pool", "pool and its member group stay"},
-		"delete-pool":        {"does not promise a refund", "member group and backend row", "never the vServer", "delete-load-balancer"},
+		"create-pool":     {"No quote is available", "bills child usage under the account's terms", "neither selects nor verifies the payment source", "does not promise a refund", "create-listener"},
+		"create-listener": {"No quote is available", "bills child usage under the account's terms", "neither selects nor verifies the payment source", "does not promise a refund", "/32", "create-pool"},
+		"delete-listener": {"does not promise a refund", "delete-pool", "pool and its member group stay"},
+		"delete-pool":     {"does not promise a refund", "member group and backend row", "never the vServer", "delete-load-balancer"},
 	}
 	for command, words := range want {
 		t.Run(command, func(t *testing.T) {
