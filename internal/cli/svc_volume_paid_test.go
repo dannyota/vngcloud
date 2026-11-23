@@ -126,11 +126,12 @@ func TestVolumeGetDefaultVolumeTypeRequiresZoneID(t *testing.T) {
 	})
 	root, _, _ := newSvcRoot(t, fixture)
 	root.SetArgs([]string{"--region", "hcm-3", "--project-id", "proj-1", "volume", "get-default-volume-type"})
-	if err := root.ExecuteContext(context.Background()); err == nil {
-		t.Fatal("get-default-volume-type without --zone-id succeeded")
+	err := root.ExecuteContext(context.Background())
+	if err == nil || exitCode(err) != 2 || !strings.Contains(err.Error(), "--zone-id is required") {
+		t.Fatalf("error = %v, exitCode = %d, want exit 2 and --zone-id is required", err, exitCode(err))
 	}
-	if _, ok := fixture.queryFor("/v1/proj-1/volume_default_id"); ok {
-		t.Fatal("a request was sent without --zone-id")
+	if n := fixture.requestCount(); n != 0 {
+		t.Fatalf("requestCount = %d, want 0", n)
 	}
 }
 

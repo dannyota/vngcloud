@@ -114,14 +114,13 @@ Free reads a caller needs to build a create:
 | `compute.ListFlavorZones` | `ZoneID` | `Items []FlavorZone` |
 | `compute.ListFlavors` | `FlavorZoneID` or `ZoneID`, `Name` ([lookups](cli-usability.md#flavors-by-zone)) | `Items []Flavor` |
 | `volume.ListVolumesByServer` | `ServerID` (r) | `Items []Volume` |
-| `volume.GetDefaultVolumeType` | gains `ZoneID` | unchanged |
+| `volume.GetDefaultVolumeType` | `ZoneID` (r) | unchanged |
 
 - `ListFlavorZones` filters by `ZoneID` in the SDK, since the API returns
   every zone. `FlavorZone` holds `ID`, `Name`, `Description`, and `ZoneID`.
 - `ListFlavors` decodes into the existing `Flavor` model, which gains
-  `RemainingVMs` and `IsSoldOut`. `GetDefaultVolumeType` sends `zoneId`
-  when set; without it the API uses the region's first zone, which can be
-  disabled.
+  `RemainingVMs` and `IsSoldOut`. `GetDefaultVolumeType` requires `ZoneID`
+  and sends it as `zoneId`.
 
 ## Servers
 

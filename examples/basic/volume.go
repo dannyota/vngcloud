@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/volume"
@@ -37,19 +39,35 @@ func showVolume(ctx context.Context, cfg vngcloud.Config, outputs *sdkOutputStor
 	}
 	record(outputs, cfg, "volume/underlying_volume", "underlying volumes", underlyingVolumes, underlyingErr)
 
-	defaultTypeOut, err := volumeClient.GetDefaultVolumeType(ctx, nil)
-	var defaultType *volume.VolumeType
-	if defaultTypeOut != nil {
-		defaultType = &defaultTypeOut.VolumeType
-	}
-	recordOne(outputs, cfg, "volume/default_type", "default volume type", defaultType, err)
-
 	typeZonesOut, err := volumeClient.ListVolumeTypeZones(ctx, nil)
 	typeZones := []volume.VolumeTypeZone(nil)
 	if typeZonesOut != nil {
 		typeZones = typeZonesOut.Items
 	}
 	record(outputs, cfg, "volume/type_zone", "volume type zones", typeZones, err)
+
+	zoneID := ""
+	for _, zone := range typeZones {
+		if zone.Zone.UUID != "" {
+			zoneID = zone.Zone.UUID
+			break
+		}
+	}
+	var defaultType *volume.VolumeType
+	var defaultErr error
+	switch {
+	case err != nil:
+		defaultErr = fmt.Errorf("default volume type skipped: volume type zones: %w", err)
+	case zoneID == "":
+		defaultErr = errors.New("default volume type skipped: no volume type zone has a zone ID")
+	default:
+		out, callErr := volumeClient.GetDefaultVolumeType(ctx, &volume.GetDefaultVolumeTypeInput{ZoneID: zoneID})
+		defaultErr = callErr
+		if out != nil {
+			defaultType = &out.VolumeType
+		}
+	}
+	recordOne(outputs, cfg, "volume/default_type", "default volume type", defaultType, defaultErr)
 
 	typesOut, err := volumeClient.ListVolumeTypes(ctx, nil)
 	types := []volume.VolumeType(nil)

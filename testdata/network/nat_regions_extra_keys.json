@@ -1,0 +1,1 @@
+{"success":true,"data":[{"uuid":"zone-1","name":"HCM-3","code":"hcm-3","gatewayUrl":"https://hcm-3-vnetwork.console.greennode.ai/vnetwork-gateway/","vnetworkDashboard":"https://hcm-3-vnetwork.console.greennode.ai","VServerEndpoint":"https://x.example/vserver","VLBEndpoint":"https://x.example/vlb"}]}

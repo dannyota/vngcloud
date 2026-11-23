@@ -128,8 +128,8 @@ field names, types, and prices. This document authorizes no run.
 1. `ListFlavorZones` with and without `ZoneID`; `ListFlavors` on one
    flavor zone: raw rows against the models, `remainingVms` and
    `isSoldOut` types.
-2. `GetDefaultVolumeType` with `ZoneID` set to the enabled zone, and
-   without it: 200 and 404.
+2. `GetDefaultVolumeType` with the required `ZoneID` set to the enabled zone:
+   status and shape.
 3. `ListVolumesByServer` on a malformed ID (refused before any request)
    and on a well-formed unknown ID: status and shape.
 4. `QuoteCreateServer` for `s2-general-1x2`, Ubuntu 24.04, 20 GB SSD root:

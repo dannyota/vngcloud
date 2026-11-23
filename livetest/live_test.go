@@ -1248,11 +1248,6 @@ func testLiveVServerPaidWritesP1(ctx context.Context, t *testing.T, cfg vngcloud
 			t.Fatal("GetDefaultVolumeType(ZoneID) returned an empty id")
 		}
 	})
-	t.Run("get-default-volume-type-without-zone", func(t *testing.T) {
-		if _, err := volumeClient.GetDefaultVolumeType(ctx, nil); err != nil {
-			t.Logf("GetDefaultVolumeType(): %v", err)
-		}
-	})
 
 	volType, err := volumeClient.GetDefaultVolumeType(ctx, &volume.GetDefaultVolumeTypeInput{ZoneID: zoneID})
 	if err != nil {

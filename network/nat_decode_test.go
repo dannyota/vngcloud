@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/internal/testutil"
 )
 
 func TestNATRejectAmbiguousKeys(t *testing.T) {
@@ -95,12 +96,11 @@ func assertNATInvalidKeys(t *testing.T, body string, discovery bool) {
 }
 
 func TestNATDiscoveryIgnoresLiveExtraKeys(t *testing.T) {
-	const regions = `{"success":true,"data":[{"uuid":"zone-1","name":"HCM-3","code":"hcm-3","gatewayUrl":"https://hcm-3-vnetwork.console.greennode.ai/vnetwork-gateway/","vnetworkDashboard":"https://hcm-3-vnetwork.console.greennode.ai","VServerEndpoint":"https://x.example/vserver","VLBEndpoint":"https://x.example/vlb"}]}`
 	calls := 0
 	c := natTestClient(t, "hcm-3", "project-1", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
 		if strings.HasSuffix(r.URL.Path, "/regions") {
-			_, _ = w.Write([]byte(regions))
+			testutil.WriteFixture(t, w, "../testdata/network/nat_regions_extra_keys.json")
 			return
 		}
 		if !strings.Contains(r.URL.Path, "/zone-1/project-1/nats") {
