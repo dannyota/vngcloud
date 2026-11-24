@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -19,8 +20,10 @@ func TestCheckNotificationFlags(t *testing.T) {
 		want                 map[string][]string
 		bad                  bool
 	}{
-		{"create overlay", "create-check", `{"Locations":["loc-1"],"Notifications":{"Up":["old-up"],"Undetermined":["old-und"]}}`, []string{"--in-alarm-channel-id", "one,two", "--in-alarm-channel-id", "three"}, map[string][]string{"In-alarm": {"one,two", "three"}, "Up": {"old-up"}, "Undetermined": {"old-und"}}, false},
+		{"opaque IDs", "create-check", `{"Locations":["loc-1"]}`, []string{"--in-alarm-channel-id", "one,two", "--in-alarm-channel-id", "a\r\nb"}, map[string][]string{"In-alarm": {"one,two", "a\r\nb"}, "Up": {}, "Undetermined": {}}, false},
+		{"create overlay", "create-check", `{"Locations":["loc-1"],"Notifications":{"In-alarm":["old-alarm"],"Up":["old-up"],"Undetermined":["old-und"]}}`, []string{"--in-alarm-channel-id", "one,two", "--in-alarm-channel-id", "three"}, map[string][]string{"In-alarm": {"one,two", "three"}, "Up": {"old-up"}, "Undetermined": {"old-und"}}, false},
 		{"update replace", "update-check", `{"Notifications":{"Up":["old"]}}`, []string{"--in-alarm-channel-id", "a", "--up-channel-id=", "--undetermined-channel-id", "u"}, map[string][]string{"In-alarm": {"a"}, "Up": {}, "Undetermined": {"u"}}, false},
+		{"update without JSON", "update-check", "", []string{"--in-alarm-channel-id", "a", "--up-channel-id=", "--undetermined-channel-id", "u"}, map[string][]string{"In-alarm": {"a"}, "Up": {}, "Undetermined": {"u"}}, false},
 		{"update preserves", "update-check", `{}`, []string{"--name", "renamed"}, map[string][]string{"In-alarm": {"current"}, "Up": {"current-up"}, "Undetermined": {}}, false},
 		{"update JSON only", "update-check", `{"Notifications":{"Up":["json-up"]}}`, nil, map[string][]string{"In-alarm": {}, "Up": {"json-up"}, "Undetermined": {}}, false},
 		{"create clear", "create-check", `{"Locations":["loc-1"],"Notifications":{"Up":["old"]}}`, []string{"--up-channel-id="}, map[string][]string{"In-alarm": {}, "Up": {}, "Undetermined": {}}, false},
@@ -31,7 +34,9 @@ func TestCheckNotificationFlags(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			var body []byte
+			var requests []string
 			handler := func(w http.ResponseWriter, r *http.Request) {
+				requests = append(requests, r.Method+" "+r.URL.Path)
 				if r.Method != http.MethodGet {
 					body, _ = io.ReadAll(r.Body)
 				}
@@ -51,7 +56,9 @@ func TestCheckNotificationFlags(t *testing.T) {
 			} else {
 				args = append(args, "--check-id", "chk-1")
 			}
-			args = append(args, "--cli-input-json", tc.input)
+			if tc.input != "" {
+				args = append(args, "--cli-input-json", tc.input)
+			}
 			args = append(args, tc.flags...)
 			root.SetArgs(args)
 			err := root.ExecuteContext(context.Background())
@@ -63,6 +70,13 @@ func TestCheckNotificationFlags(t *testing.T) {
 			}
 			if err != nil {
 				t.Fatalf("err=%v stderr=%s", err, stderr)
+			}
+			wantRequests := []string{"POST /vmonitor-uptime-manager/v1/uptimes"}
+			if tc.command == "update-check" {
+				wantRequests = []string{"GET /vmonitor-uptime-manager/v1/uptimes/chk-1", "PUT /vmonitor-uptime-manager/v1/uptimes/chk-1"}
+			}
+			if !reflect.DeepEqual(requests, wantRequests) {
+				t.Fatalf("requests=%v want=%v", requests, wantRequests)
 			}
 			var got struct {
 				Notifications map[string][]string `json:"notifications"`
@@ -80,8 +94,9 @@ func TestCheckNotificationFlags(t *testing.T) {
 func TestCheckNotificationFlagsReadOnly(t *testing.T) {
 	fixture := newSvcFixture(nil)
 	root, _, _ := newSvcRoot(t, fixture)
-	root.SetArgs([]string{"--region", "hcm-3", "--read-only", "monitor", "update-check", "--check-id", "chk-1", "--in-alarm-channel-id=a", "--up-channel-id=", "--undetermined-channel-id="})
-	if err := root.ExecuteContext(context.Background()); err == nil || fixture.requestCount() != 0 {
+	writeConfigFile(t, os.Getenv("HOME"), "[profile agent]\nregion = hcm-3\nread_only = true\n")
+	root.SetArgs([]string{"--profile", "agent", "monitor", "update-check", "--check-id", "chk-1", "--in-alarm-channel-id=a", "--up-channel-id=", "--undetermined-channel-id="})
+	if err := root.ExecuteContext(context.Background()); err == nil || classify(err).Code != "ReadOnly" || fixture.requestCount() != 0 {
 		t.Fatalf("err=%v requests=%d", err, fixture.requestCount())
 	}
 }

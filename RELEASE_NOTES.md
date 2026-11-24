@@ -1,6 +1,6 @@
 # Release Notes
 
-## Unreleased
+## v1.1.0 - vMonitor check notification flags
 
 - Set per-state notification channels directly on `monitor create-check`
   and `update-check`. `pricing get-quote --help` points to vMonitor's

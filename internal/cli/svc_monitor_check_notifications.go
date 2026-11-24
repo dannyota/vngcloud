@@ -1,18 +1,24 @@
 package cli
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"danny.vn/vngcloud/monitor"
 )
 
-var checkNotificationFlags = []string{"in-alarm-channel-id", "up-channel-id", "undetermined-channel-id"}
+const (
+	inAlarmChannelFlag      = "in-alarm-channel-id"
+	upChannelFlag           = "up-channel-id"
+	undeterminedChannelFlag = "undetermined-channel-id"
+)
 
 func monitorCheckNotificationOp(op Op[monitor.Client]) Op[monitor.Client] {
 	op.extraFlags = func(cmd *cobra.Command) {
-		for _, name := range checkNotificationFlags {
+		for _, name := range []string{inAlarmChannelFlag, upChannelFlag, undeterminedChannelFlag} {
 			cmd.Flags().StringArray(name, nil, "Channel ID; repeat for multiple IDs, or pass an empty value to clear")
 		}
 	}
@@ -21,6 +27,7 @@ func monitorCheckNotificationOp(op Op[monitor.Client]) Op[monitor.Client] {
 }
 
 func populateCheckNotificationFlags(cmd *cobra.Command, input any) error {
+	checkNotificationFlags := [...]string{inAlarmChannelFlag, upChannelFlag, undeterminedChannelFlag}
 	values := make([][]string, len(checkNotificationFlags))
 	changed := 0
 	for i, name := range checkNotificationFlags {
@@ -28,10 +35,11 @@ func populateCheckNotificationFlags(cmd *cobra.Command, input any) error {
 			continue
 		}
 		changed++
-		value, err := cmd.Flags().GetStringArray(name)
-		if err != nil {
-			return err
+		flag, ok := cmd.Flags().Lookup(name).Value.(pflag.SliceValue)
+		if !ok {
+			return fmt.Errorf("notification flag --%s is not a slice", name)
 		}
+		value := flag.GetSlice()
 		for _, id := range value {
 			if id == "" {
 				if len(value) != 1 {
