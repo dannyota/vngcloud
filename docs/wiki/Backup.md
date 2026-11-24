@@ -25,6 +25,10 @@ or zero values select page 1 and size 200. Negative values return
 `Items`, `Page`, `PageSize`, `TotalPage`, and `TotalItem`, with integer
 metadata. Call again with the next page to read more results.
 
+`GetPolicy` takes a required `PolicyID` of letters, digits, and hyphens and
+returns the policy under `Policy`. It reads one policy directly without project
+scope. The CLI equivalent is `vngcloud backup get-policy --policy-id ID`.
+
 Each policy has `ID`, `BackendID`, `ProjectID`, `Product`, `Name`,
 `IsDefault`, `BackupInstanceCount`, `Config`, `CreatedAt`, and `UpdatedAt`.
 `Config` contains `Hour`, `Minute`, `TimeZone`, `IsProtectedServer`,
@@ -38,8 +42,8 @@ Hourly, weekly, and monthly configuration details are omitted. Their enable
 flags do not establish those schedule details. Account `userId`,
 `statusSendEmail`, credentials, and unknown fields are also omitted.
 
-Both reads use token scope. Configuration `ProjectID` does not scope them;
-neither method sends a project ID or discovers projects. Returned project
+All reads use token scope. Configuration `ProjectID` does not scope them;
+no method sends a project ID or discovers projects. Returned project
 IDs identify policies and do not prove filtering or cross-account access.
 
 `EndpointOverrides.BackupCenter` replaces the verified endpoint

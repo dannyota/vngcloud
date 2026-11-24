@@ -9,6 +9,20 @@ Backup Center is separate from `volume` snapshots; see
 Every list prints `{"Items": [...]}` with page metadata beside `Items`,
 so a `--query` starts with `Items`.
 
+## get-policy
+
+Kind: Read.
+
+Reads one policy in `hcm-3`. `--project-id` has no effect. Hourly, weekly, and monthly schedule details are omitted.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--policy-id` | `string` | yes |
+
+```sh
+vngcloud backup get-policy --policy-id <policy-id> --query Policy
+```
+
 ## list-backends
 
 Kind: Read.

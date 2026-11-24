@@ -1,5 +1,11 @@
 # Release Notes
 
+## v1.2.0 - Backup Center policy detail
+
+- Read a Backup Center policy in `hcm-3` with `backup.GetPolicy` or
+  `vngcloud backup get-policy --policy-id`. The command uses the same
+  policy fields as the list and never changes a backup schedule.
+
 ## v1.1.0 - vMonitor check notification flags
 
 - Set per-state notification channels directly on `monitor create-check`

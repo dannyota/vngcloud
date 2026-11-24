@@ -36,6 +36,42 @@ func backupCLI(t *testing.T, handler http.Handler) func(...string) (int, string,
 	}
 }
 
+func TestBackupGetPolicy(t *testing.T) {
+	for _, output := range []string{"json", "table", "text"} {
+		t.Run(output, func(t *testing.T) {
+			run := backupCLI(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != "GET" || r.URL.RequestURI() != "/vbackup-gateway/v1/backup-policies/policy-1" || r.Header.Get("projectId") != "" {
+					t.Error("unexpected request")
+				}
+				_, _ = fmt.Fprint(w, `{"id":"policy-1","name":"example","config":{"statusSendEmail":["BACKUP-SECRET-MARKER"]},"userId":"BACKUP-SECRET-MARKER"}`)
+			}))
+			code, stdout, stderr := run("--profile", "agent", "--read-only", "--debug", "--output", output, "backup", "get-policy", "--cli-input-json", `{"PolicyID":"wrong"}`, "--policy-id", "policy-1")
+			if code != 0 || !strings.Contains(stdout, "policy-1") || strings.Contains(stdout+stderr, backupSecretMarker) {
+				t.Fatalf("exit=%d stdout=%s stderr=%s", code, stdout, stderr)
+			}
+		})
+	}
+}
+
+func TestBackupGetPolicyUnsafeIDWithheld(t *testing.T) {
+	requests := 0
+	run := backupCLI(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
+	code, stdout, stderr := run("--profile", "agent", "backup", "get-policy", "--policy-id", "../BACKUP-SECRET-MARKER")
+	if code != 2 || stdout != "" || strings.Contains(stderr, backupSecretMarker) || requests != 0 {
+		t.Fatalf("exit=%d stdout=%s stderr=%s requests=%d", code, stdout, stderr, requests)
+	}
+}
+
+func TestBackupGetPolicyErrors(t *testing.T) {
+	for _, status := range []int{200, 403, 404} {
+		run := backupCLI(t, http.HandlerFunc(jsonHandler(status, `{"code":"BACKUP-SECRET-MARKER","message":"BACKUP-SECRET-MARKER"}`)))
+		code, stdout, stderr := run("--profile", "agent", "--debug", "backup", "get-policy", "--policy-id", "policy-1")
+		if code == 0 || stdout != "" || strings.Contains(stderr, backupSecretMarker) {
+			t.Fatalf("exit=%d stdout=%s stderr=%s", code, stdout, stderr)
+		}
+	}
+}
+
 func TestBackupLists(t *testing.T) {
 	cases := []struct {
 		name, route, query, body string

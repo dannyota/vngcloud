@@ -7,6 +7,8 @@ import (
 )
 
 var backupOps = []Op[backup.Client]{
+	Read[backup.Client, backup.GetPolicyInput, backup.GetPolicyOutput](
+		kebab("GetPolicy"), (*backup.Client).GetPolicy),
 	Read[backup.Client, backup.ListBackendsInput, backup.ListBackendsOutput](
 		kebab("ListBackends"), (*backup.Client).ListBackends),
 	Read[backup.Client, backup.ListPoliciesInput, backup.ListPoliciesOutput](

@@ -3,6 +3,7 @@ package backup
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -10,6 +11,7 @@ import (
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/jsonresponse"
 	"danny.vn/vngcloud/internal/routes"
 	"danny.vn/vngcloud/internal/transport"
 )
@@ -90,6 +92,58 @@ func (c *Client) ListPolicies(ctx context.Context, in *ListPoliciesInput) (*List
 	return core.NewPagedList(resp.Items, *resp.Page, *resp.PageSize, *resp.TotalPages, *resp.TotalItems), nil
 }
 
+type strictPolicy Policy
+type strictConfig PolicyConfig
+type strictDaily DailyConfig
+
+// GetPolicyInput identifies a policy.
+type GetPolicyInput struct {
+	// PolicyID is the required path-safe policy identifier.
+	PolicyID string `vngcloud:"required"`
+}
+
+// GetPolicyOutput holds the policy projection.
+type GetPolicyOutput struct {
+	Policy Policy
+}
+
+// GetPolicy reads a policy without project scope.
+func (c *Client) GetPolicy(ctx context.Context, in *GetPolicyInput) (*GetPolicyOutput, error) {
+	const op = "backup.GetPolicy"
+	if err := c.checkRegion(op); err != nil {
+		return nil, err
+	}
+	id := ""
+	if in != nil {
+		id = in.PolicyID
+	}
+	if err := core.CheckPathID(op, "PolicyID", id); err != nil {
+		return nil, fmt.Errorf("%w: %s requires PolicyID to match ^[A-Za-z0-9-]+$", core.ErrInvalidInput, op)
+	}
+	var raw json.RawMessage
+	if err := c.getParts(ctx, op, []string{"backup-policies", id}, nil, &raw); err != nil {
+		return nil, err
+	}
+	var fields map[string]json.RawMessage
+	var policy Policy
+	var shape struct {
+		strictPolicy
+		Config struct {
+			strictConfig
+			DailyConfig *strictDaily `json:"dailyConfig"`
+		} `json:"config"`
+	}
+	if jsonresponse.ValidateStrict(raw, &shape) != nil || json.Unmarshal(raw, &fields) != nil || fields == nil {
+		return nil, invalidBody(op)
+	}
+	var gotID string
+	var config map[string]json.RawMessage
+	if json.Unmarshal(fields["id"], &gotID) != nil || gotID == "" || gotID != id || json.Unmarshal(fields["config"], &config) != nil || config == nil || json.Unmarshal(raw, &policy) != nil {
+		return nil, invalidBody(op)
+	}
+	return &GetPolicyOutput{Policy: policy}, nil
+}
+
 func (c *Client) checkRegion(op string) error {
 	if c.c.Region() != "hcm-3" {
 		return fmt.Errorf("%w: %s: Backup Center supports only hcm-3", core.ErrInvalidConfig, op)
@@ -98,7 +152,11 @@ func (c *Client) checkRegion(op string) error {
 }
 
 func (c *Client) get(ctx context.Context, op, path string, q url.Values, out any) error {
-	status, err := c.c.DoJSONStatus(ctx, transport.Request{Operation: op, Method: "GET", URL: c.c.RouteURL(routes.Route{Product: routes.ProductBackupCenter, Version: "v1", Parts: []string{path}, Query: q}), OK: []int{200}, Sensitive: true, WithholdMessage: "Backup Center response withheld"}, out)
+	return c.getParts(ctx, op, []string{path}, q, out)
+}
+
+func (c *Client) getParts(ctx context.Context, op string, parts []string, q url.Values, out any) error {
+	status, err := c.c.DoJSONStatus(ctx, transport.Request{Operation: op, Method: "GET", URL: c.c.RouteURL(routes.Route{Product: routes.ProductBackupCenter, Version: "v1", Parts: parts, Query: q}), OK: []int{200}, Sensitive: true, WithholdMessage: "Backup Center response withheld"}, out)
 	var api *core.APIError
 	if errors.As(err, &api) {
 		if api.StatusCode == 0 && status > 0 {

@@ -1,0 +1,31 @@
+{
+  "backendId": "synthetic",
+  "backupInstanceCount": 0,
+  "config": {
+    "dailyConfig": {
+      "backupType": "synthetic",
+      "incrementalQuantity": 0,
+      "retention": 0
+    },
+    "dailyEnabled": false,
+    "hour": 0,
+    "hourlyConfig": {},
+    "hourlyEnabled": false,
+    "isProtectedServer": false,
+    "minute": 0,
+    "monthlyConfig": {},
+    "monthlyEnabled": false,
+    "statusSendEmail": [],
+    "timeZone": "synthetic",
+    "weeklyConfig": {},
+    "weeklyEnabled": false
+  },
+  "createdAt": "synthetic",
+  "id": "synthetic",
+  "isDefault": false,
+  "name": "synthetic",
+  "product": "synthetic",
+  "projectId": "synthetic",
+  "updatedAt": "synthetic",
+  "userId": 0
+}

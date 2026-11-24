@@ -9,8 +9,9 @@ observations confirm the HCM IAM routes listed below. Other source routes
 remain candidates until their own checks pass.
 
 The first release exposes only `ListBackends` and `ListPolicies` in
-`hcm-3`. Its policy input contains `Page` and `Size` only. Every detail,
-server, destination, point, history, and additional filter remains held.
+`hcm-3`. Its policy input contains `Page` and `Size` only. Policy detail has
+[its own evidence](#observed-policy-detail). Server, destination, point,
+history, and additional filters remain held.
 
 ## Sources
 
@@ -148,6 +149,28 @@ here.
 The first release sends only page and size for policies and no query for
 backends. Both rely on token scope. Configured `ProjectID` and CLI
 `--project-id` are ignored by these methods and must be documented as such.
+
+### Observed policy detail
+
+The verified `hcm-3` IAM profile listed policies with `page=1&size=10`.
+The single returned row supplied the ID for `GET /v1/backup-policies/{id}`
+on the same gateway, with no query. HTTP 200 returned a bare object with
+`id` matching the requested row. The read performed no activation, order,
+or other product write.
+
+The fields already kept by `Policy` and `PolicyConfig` had the expected
+JSON kinds. `config.dailyConfig` contained numeric `retention` and
+`incrementalQuantity` and string `backupType`. The response also contained
+numeric `userId`, a `statusSendEmail` array, and hourly, weekly, and
+monthly configuration objects. Their contents stay outside the current
+projection. One policy does not establish absent or null behavior, other
+cadence shapes, Hanoi access, or failure status semantics.
+
+The raw `backupInstanceCount` was a number and decoded to the existing Go
+`int` without coercion. A GET to the same detail route with a distinct
+random UUID returned HTTP 404. This confirms one missing-ID outcome, not
+all permission or failure semantics. The probe redacted the raw object in
+memory and did not save the original data.
 
 ### First-release output types
 

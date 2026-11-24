@@ -6,6 +6,8 @@ func init() {
 		"[Backup Center](Backup.md).\n\n" +
 		"Every list prints `{\"Items\": [...]}` with page metadata beside `Items`,\n" +
 		"so a `--query` starts with `Items`."
+	docOpNotes["backup get-policy"] = "Reads one policy in `hcm-3`. `--project-id` has no effect. " +
+		"Hourly, weekly, and monthly schedule details are omitted."
 	docOpNotes["backup list-policies"] = "Reads one page. `--page` defaults to 1 and `--size` defaults to 200.\n" +
 		"Hourly, weekly, and monthly schedule details are not included, only their\n" +
 		"enable flags."

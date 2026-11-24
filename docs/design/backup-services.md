@@ -1,8 +1,7 @@
 # Backup Center reads
 
-Status: Accepted (2026-10-10) for the first release: backend and policy
-lists in `hcm-3`. Later releases stay draft until their raw shape checks
-pass.
+Status: Accepted for backend and policy lists and the scoped policy detail
+in `hcm-3`. Other operations stay gated by their own raw response checks.
 
 Add a `backup` SDK package and CLI group. The first release lists backup
 backends and policies in `hcm-3`. Later small releases add server and
@@ -39,10 +38,11 @@ Three approaches were considered:
 
 ## Scope
 
-The first release contains only `ListBackends` and `ListPolicies`.
+The first release contains `ListBackends` and `ListPolicies`.
 `ListPolicies` accepts only `Page` and `Size`. No resource, name, backend,
-or project filters are exposed. Policy detail and every other operation
-below remain held for their own evidence and release.
+or project filters are exposed. [GetPolicy](backup-policy-detail.md)
+reads one policy by ID without adding fields. Every other operation below
+remains held for its own evidence and release.
 
 The proposed operations appear in vendor source. Cookie-free reads confirm
 HCM IAM bearer access, populated backend and policy shapes, and empty
@@ -107,9 +107,10 @@ The word `Server` inside `backup` means a backup configuration. Its
 distinction for both flags. Do not follow IDs into compute or storage
 automatically, and do not cache list or detail results.
 
-### Held policy detail and filters
+### Policy detail and held filters
 
-- `GetPolicy`: required `PolicyID`; output field `Policy`.
+- [GetPolicy](backup-policy-detail.md): required `PolicyID`; output field
+  `Policy` with the same projection as the list.
 - `ListPolicies` filters such as `Name` and `BackendID` require separate
   checks before they can be added.
 

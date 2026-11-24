@@ -13,7 +13,7 @@ These are additive and ship in `1.x`.
 - [ ] Obtain scoped approval and disposable project or CDN prerequisites before another paid storage or CDN live run. [Live-run rules](instructions/live-data.md), [storage contract](docs/design/storage-projects.md), and [CDN contract](docs/design/cdn-writes.md).
 - [ ] Qualify held VKS cluster detail, node groups, nodes, and events with populated evidence, and define a separate kubeconfig contract. [Evidence gate](docs/design/vks.md#evidence-and-release-gate).
 - [ ] Qualify snapshot history and scheduled operations with populated evidence. [Contract](docs/design/server-services.md).
-- [ ] Qualify Backup Center policy detail, server and destination inventory, restore points, and history with populated evidence. [Contract](docs/design/backup-services.md#scope).
+- [ ] Qualify Backup Center server and destination inventory, restore points, and history with populated evidence. [Contract](docs/design/backup-services.md#scope).
 - [ ] Qualify remaining NAT detail and rule reads and network parity reads; NAT and VPN lists are implemented. [Contract](docs/design/network-services.md#scope-and-evidence).
 - [ ] Complete gated vDB engine designs and populated models beyond MySQL 8.0. [Contract](docs/design/database-services.md).
 - [ ] Specify manual one-period renewal orders in a later slice; renewal settings do not place orders. [Contract](docs/design/auto-renew.md).
