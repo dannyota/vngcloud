@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
@@ -121,7 +122,19 @@ func (c *Client) GetPolicy(ctx context.Context, in *GetPolicyInput) (*GetPolicyO
 		return nil, fmt.Errorf("%w: %s requires PolicyID to match ^[A-Za-z0-9-]+$", core.ErrInvalidInput, op)
 	}
 	var raw json.RawMessage
-	if err := c.getParts(ctx, op, []string{"backup-policies", id}, nil, &raw); err != nil {
+	var credentials []string
+	status, err := c.c.DoJSONStatus(ctx, transport.Request{Operation: op, Method: "GET", URL: c.c.RouteURL(routes.Route{Product: routes.ProductBackupCenter, Version: "v1", Parts: []string{"backup-policies", id}}), OK: []int{200}, Sensitive: true, WithholdMessage: "Backup Center response withheld", SentCredentials: &credentials}, &raw)
+	if err != nil {
+		if status == 200 && errors.Is(err, transport.ErrBodyTooLarge) {
+			return nil, &core.APIError{Operation: op, StatusCode: status, Message: "Backup Center response withheld", Err: transport.ErrBodyTooLarge}
+		}
+		var api *core.APIError
+		if errors.As(err, &api) {
+			if api.StatusCode == 0 && status > 0 {
+				api.StatusCode = status
+			}
+			return nil, &core.APIError{Operation: api.Operation, StatusCode: api.StatusCode, Code: core.ResolvedCode(api.StatusCode, ""), Message: api.Message, Retryable: api.Retryable, Err: api.Err}
+		}
 		return nil, err
 	}
 	var fields map[string]json.RawMessage
@@ -140,6 +153,17 @@ func (c *Client) GetPolicy(ctx context.Context, in *GetPolicyInput) (*GetPolicyO
 	var config map[string]json.RawMessage
 	if json.Unmarshal(fields["id"], &gotID) != nil || gotID == "" || gotID != id || json.Unmarshal(fields["config"], &config) != nil || config == nil || json.Unmarshal(raw, &policy) != nil {
 		return nil, invalidBody(op)
+	}
+	values := []string{policy.ID, policy.BackendID, policy.ProjectID, policy.Product, policy.Name, policy.CreatedAt, policy.UpdatedAt, policy.Config.TimeZone}
+	if policy.Config.DailyConfig != nil && policy.Config.DailyConfig.BackupType != nil {
+		values = append(values, *policy.Config.DailyConfig.BackupType)
+	}
+	for _, credential := range credentials {
+		for _, value := range values {
+			if credential != "" && strings.Contains(value, credential) {
+				return nil, &core.APIError{Operation: op, StatusCode: 200, Code: "InvalidResponse", Message: "Backup Center response withheld"}
+			}
+		}
 	}
 	return &GetPolicyOutput{Policy: policy}, nil
 }

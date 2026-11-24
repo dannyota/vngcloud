@@ -50,8 +50,11 @@ timestamps and timezone; infer no defaults, schedules, or next runs. Omit
 
 Keep the shared bounded transport, `Sensitive: true`, fixed withholding text,
 and status-derived codes. Preserve HTTP status, operation, retryability, and
-standard error causes. Expose no raw body, arbitrary server error, or partial
-policy through capture, debug, errors, or CLI output. Use no new dependency.
+standard error causes, including overflow on a successful HTTP status. Reject
+a retained policy string that contains a credential sent by this read, even
+if the token came from an earlier attempt. Omitted fields stay omitted. Do
+not expose raw bodies, arbitrary server errors, or partial policy results.
+Use no new dependency.
 
 ## Fixture and checks
 

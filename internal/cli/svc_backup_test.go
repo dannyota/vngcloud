@@ -62,6 +62,18 @@ func TestBackupGetPolicyUnsafeIDWithheld(t *testing.T) {
 	}
 }
 
+func TestBackupGetPolicyReflectedCredential(t *testing.T) {
+	for _, output := range []string{"json", "table", "text"} {
+		t.Run(output, func(t *testing.T) {
+			run := backupCLI(t, http.HandlerFunc(jsonHandler(200, `{"id":"policy-1","config":{"timeZone":"prefix-test-token"}}`)))
+			code, stdout, stderr := run("--profile", "agent", "--debug", "--output", output, "backup", "get-policy", "--policy-id", "policy-1")
+			if code == 0 || stdout != "" || strings.Contains(stderr, "test-token") || !strings.Contains(stderr, "InvalidResponse") {
+				t.Fatalf("exit=%d stdout=%s stderr=%s", code, stdout, stderr)
+			}
+		})
+	}
+}
+
 func TestBackupGetPolicyErrors(t *testing.T) {
 	for _, status := range []int{200, 403, 404} {
 		run := backupCLI(t, http.HandlerFunc(jsonHandler(status, `{"code":"BACKUP-SECRET-MARKER","message":"BACKUP-SECRET-MARKER"}`)))

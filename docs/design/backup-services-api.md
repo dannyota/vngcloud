@@ -192,10 +192,11 @@ the same wire keys map to `Items`, `Page`, `PageSize`, `TotalPage`, and
 
 ## Candidate GET routes
 
-All paths below start with `/v1/`. Detail IDs are path segments. Only
-`ListBackends` and `ListPolicies` enter the first release. All other rows
-record held candidates, even where a console request confirmed an empty
-envelope. Each held route needs its own complete evidence before release.
+All paths below start with `/v1/`. Detail IDs are path segments.
+`ListBackends`, `ListPolicies`, and [GetPolicy](#observed-policy-detail)
+have verified HCM IAM responses. The other rows are held candidates,
+even where the console confirmed an empty envelope. Each needs separate
+populated evidence before release.
 
 | SDK operation | Relative path |
 | --- | --- |

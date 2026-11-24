@@ -341,7 +341,8 @@ CI on its exact commit.
 
 1. HCM backend and policy lists only. This establishes the client and the
    confirmed typed models with no speculative filters.
-2. Policy detail and additional cadence settings, after their raw checks.
+2. HCM policy detail with the existing policy projection. Additional
+   cadence settings remain held for their own populated evidence.
 3. Server and destination inventory and details, including quota and usage,
    after populated models and filter behavior are verified.
 4. Server volume and restore point reads after their own evidence.
