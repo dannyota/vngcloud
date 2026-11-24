@@ -24,4 +24,4 @@ These are additive and ship in `1.x`.
 - [ ] Quote a replacement or upgrade of an existing notification quota. [Quote contract](docs/design/monitor-quotas.md#quote-and-price-contract).
 - [ ] Consider release binaries with checksums and provenance attestations for CI installs; pinned `go install` with the Go checksum database is the supported path today. [Unattended CI](docs/design/cli.md).
 - [ ] Add an auto-renew read and toggle for endpoint billing records, like the vStorage project toggle; the endpoint create request for renewal off is not reflected in billing. [Auto-renew](docs/design/auto-renew.md).
-- [ ] Refuse a `QuoteCreateServer` or `CreateServer` root disk type that belongs to another zone before any request; today the quote succeeds and the create gets HTTP 400. [Server writes](docs/design/vserver-paid-writes.md).
+- [ ] Verify a non-ordering root disk compatibility rule, then reject proven mismatches in `QuoteCreateServer` and `CreateServer` before pricing or ordering. [Catalog evidence and limits](docs/design/vserver-root-disk-zone.md).

@@ -159,6 +159,8 @@ All methods live in `compute`. "(r)" marks `vngcloud:"required"`.
 | `MaxPrice` | VND a month; default 0 |
 | `NoWait` | Skip the wait |
 
+- Root disk type and network zone compatibility remains a provider check.
+  See the [catalog evidence and its limits](vserver-root-disk-zone.md).
 - Encryption follows [encrypted volumes](encrypted-volumes.md). The SDK
   never sends the fields in [Non-goals](#non-goals).
 - The duplicate-name check lists servers and matches the name exactly,
