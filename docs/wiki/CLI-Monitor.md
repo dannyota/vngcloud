@@ -29,7 +29,7 @@ vngcloud monitor create-channel --name <name> --type Webhook --cli-input-json fi
 
 Kind: Write.
 
-Notifications' three lists, In-alarm, Up, and Undetermined, name by ID which channels a check alerts on each alarm transition; setting Notifications through --cli-input-json replaces all three at once, so a partial value, such as only In-alarm, clears the other two. Each key is the API's own wire spelling, not the Go field name (In-alarm, never InAlarm); an unrecognized key is refused with exit code 2 before any request.
+Notifications' In-alarm, Up, and Undetermined lists name channel IDs. Use repeatable --in-alarm-channel-id, --up-channel-id, and --undetermined-channel-id flags, one ID per occurrence; an empty value clears a list, but cannot be mixed with other values. Whitespace-only IDs are refused. On create, flags replace only supplied lists; on update all three flags are required together and replace JSON Notifications. Without flags, JSON Notifications replaces all three lists. JSON keys use the wire spelling In-alarm, not InAlarm; unrecognized keys are refused before any request.
 
 Suppresses response captures during channel and check writes, including prerequisite and confirmation reads. Known credentials are withheld from error codes, messages, and retained causes. Reflections outside documented secret fields make a response invalid. After a write whose response was withheld, confirm the result with reads before deciding on another write.
 
@@ -50,6 +50,9 @@ Check response validation distinguishes ordinary request data from credentials i
 | `--failed-locations` | `int` |  |
 | `Assertions` (via `--cli-input-json` only) | `[]monitor.Assertion` |  |
 | `Notifications` (via `--cli-input-json` only) | `monitor.CheckNotifications` |  |
+| `--in-alarm-channel-id` | `stringArray` |  |
+| `--undetermined-channel-id` | `stringArray` |  |
+| `--up-channel-id` | `stringArray` |  |
 
 ```sh
 vngcloud monitor create-check --name <name> --url <url> --locations <locations>
@@ -732,7 +735,7 @@ vngcloud monitor update-channel --channel-id <channel-id> --cli-input-json file:
 
 Kind: Write.
 
-Notifications' three lists, In-alarm, Up, and Undetermined, name by ID which channels a check alerts on each alarm transition; setting Notifications through --cli-input-json replaces all three at once, so a partial value, such as only In-alarm, clears the other two. Each key is the API's own wire spelling, not the Go field name (In-alarm, never InAlarm); an unrecognized key is refused with exit code 2 before any request.
+Notifications' In-alarm, Up, and Undetermined lists name channel IDs. Use repeatable --in-alarm-channel-id, --up-channel-id, and --undetermined-channel-id flags, one ID per occurrence; an empty value clears a list, but cannot be mixed with other values. Whitespace-only IDs are refused. On create, flags replace only supplied lists; on update all three flags are required together and replace JSON Notifications. Without flags, JSON Notifications replaces all three lists. JSON keys use the wire spelling In-alarm, not InAlarm; unrecognized keys are refused before any request.
 
 Suppresses response captures during channel and check writes, including prerequisite and confirmation reads. Known credentials are withheld from error codes, messages, and retained causes. Reflections outside documented secret fields make a response invalid. After a write whose response was withheld, confirm the result with reads before deciding on another write.
 
@@ -756,6 +759,9 @@ Within one SDK client, pause, resume, and update serialize calls for the same ch
 | `--locations` | `*[]string` |  |
 | `Assertions` (via `--cli-input-json` only) | `*[]monitor.Assertion` |  |
 | `Notifications` (via `--cli-input-json` only) | `*monitor.CheckNotifications` |  |
+| `--in-alarm-channel-id` | `stringArray` |  |
+| `--undetermined-channel-id` | `stringArray` |  |
+| `--up-channel-id` | `stringArray` |  |
 
 ```sh
 vngcloud monitor update-check --check-id <check-id> --name <name>

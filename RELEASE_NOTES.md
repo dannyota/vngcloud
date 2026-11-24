@@ -1,5 +1,11 @@
 # Release Notes
 
+## Unreleased
+
+- Set per-state notification channels directly on `monitor create-check`
+  and `update-check`. `pricing get-quote --help` points to vMonitor's
+  product-specific quotes.
+
 ## v1.0.1 - README for the stable release
 
 - The README states the semantic versioning promise and lists the supported

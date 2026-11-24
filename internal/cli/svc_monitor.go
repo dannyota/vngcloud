@@ -134,10 +134,10 @@ var monitorOps = []Op[monitor.Client]{
 		kebab("PauseCheck"), (*monitor.Client).PauseCheck),
 	Write[monitor.Client, monitor.ResumeCheckInput, monitor.ResumeCheckOutput](
 		kebab("ResumeCheck"), (*monitor.Client).ResumeCheck),
-	Write[monitor.Client, monitor.CreateCheckInput, monitor.CreateCheckOutput](
-		kebab("CreateCheck"), (*monitor.Client).CreateCheck),
-	Write[monitor.Client, monitor.UpdateCheckInput, monitor.UpdateCheckOutput](
-		kebab("UpdateCheck"), (*monitor.Client).UpdateCheck),
+	monitorCheckNotificationOp(Write[monitor.Client, monitor.CreateCheckInput, monitor.CreateCheckOutput](
+		kebab("CreateCheck"), (*monitor.Client).CreateCheck)),
+	monitorCheckNotificationOp(Write[monitor.Client, monitor.UpdateCheckInput, monitor.UpdateCheckOutput](
+		kebab("UpdateCheck"), (*monitor.Client).UpdateCheck)),
 	Write[monitor.Client, monitor.DeleteCheckInput, monitor.DeleteCheckOutput](
 		kebab("DeleteCheck"), (*monitor.Client).DeleteCheck, Destructive()),
 	Read[monitor.Client, monitor.ListLocationsInput, monitor.ListLocationsOutput](

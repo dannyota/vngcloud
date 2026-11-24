@@ -200,6 +200,21 @@ one the caller means to change. To change one list, read the check first
 with `GetCheck` and send back its full `Notifications` with that one list
 changed.
 
+For the CLI, supply all three notification flags together on update. Repeat a
+flag for multiple IDs; an empty value clears that list. Read the current lists
+first when retaining any of them. A partial flag set is rejected even when
+JSON supplies `Notifications`.
+
+```sh
+vngcloud monitor update-check --check-id "$CHECK_ID" \
+  --in-alarm-channel-id "$CHANNEL_ID" --up-channel-id "$CHANNEL_ID" \
+  --undetermined-channel-id=''
+```
+
+On create, each supplied flag replaces only its corresponding JSON list. Without
+notification flags, existing JSON and update behavior remain unchanged.
+Whitespace-only IDs and an empty value mixed with another value are rejected.
+
 `UpdateCheck` refuses, before any `PUT`, a `Locations` that is set but
 empty, the same as `CreateCheck` refuses an empty `Locations`. It also
 refuses, after reading the check and before any `PUT`, a pre-update read

@@ -18,7 +18,7 @@ Quotes reserve no price or capacity and never represent a complete bill.
 See the pricing CLI reference for the full JSON schema and examples.`
 
 func init() {
-	docOpNotes["pricing get-quote"] = vatInclusivePriceNote + " " +
+	docOpNotes["pricing get-quote"] = "For vMonitor, use monitor quote-create-notification-quota, monitor quote-create-synthetic-quota, monitor quote-renew-synthetic-quota, or monitor quote-create-log-project instead. " + vatInclusivePriceNote + " " +
 		"Empty --action sends create. Only exact --action resize accepts a negative OptimumPrice, for any resource type. " +
 		"Missing, null, malformed, and nonfinite prices are refused; zero is a valid quote read. " +
 		"Responses are limited to 1 MiB. Quotes refuse redirects. " +

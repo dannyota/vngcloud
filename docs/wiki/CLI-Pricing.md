@@ -95,7 +95,7 @@ vngcloud pricing estimate --cli-input-json file://setup.json --allow-partial --m
 
 Kind: Read.
 
-Prices are VND totals that include VAT; the API gives no VAT breakdown. Empty --action sends create. Only exact --action resize accepts a negative OptimumPrice, for any resource type. Missing, null, malformed, and nonfinite prices are refused; zero is a valid quote read. Responses are limited to 1 MiB. Quotes refuse redirects. Malformed successful replies return InvalidResponse with the observed HTTP status. OptimumPrice is the signed quoted adjustment in VND for the remaining period. A negative value is an expected credit, not a confirmed refund. JSON, table, and text retain the minus sign.
+For vMonitor, use monitor quote-create-notification-quota, monitor quote-create-synthetic-quota, monitor quote-renew-synthetic-quota, or monitor quote-create-log-project instead. Prices are VND totals that include VAT; the API gives no VAT breakdown. Empty --action sends create. Only exact --action resize accepts a negative OptimumPrice, for any resource type. Missing, null, malformed, and nonfinite prices are refused; zero is a valid quote read. Responses are limited to 1 MiB. Quotes refuse redirects. Malformed successful replies return InvalidResponse with the observed HTTP status. OptimumPrice is the signed quoted adjustment in VND for the remaining period. A negative value is an expected credit, not a confirmed refund. JSON, table, and text retain the minus sign.
 
 | Flag | Type | Required |
 |-|-|-|

@@ -48,15 +48,12 @@ const monitorChannelOTPFlowNote = "Email, Slack, SMS, and Telegram need an OTP t
 	"step, like the create or update itself, is never retried after an ambiguous failure. Webhook needs " +
 	"neither flag."
 
-// monitorCheckNotificationsNote documents Notifications' own nested shape
-// for create-check and update-check: the flag table shows it only as a Go
-// type, monitor.CheckNotifications, with no field-level detail, since
-// --cli-input-json is the only way to set it at all.
-const monitorCheckNotificationsNote = "Notifications' three lists, In-alarm, Up, and Undetermined, name by " +
-	"ID which channels a check alerts on each alarm transition; setting Notifications through " +
-	"--cli-input-json replaces all three at once, so a partial value, such as only In-alarm, clears the " +
-	"other two. Each key is the API's own wire spelling, not the Go field name (In-alarm, never InAlarm); " +
-	"an unrecognized key is refused with exit code 2 before any request."
+const monitorCheckNotificationsNote = "Notifications' In-alarm, Up, and Undetermined lists name channel IDs. " +
+	"Use repeatable --in-alarm-channel-id, --up-channel-id, and --undetermined-channel-id flags, one ID per occurrence; " +
+	"an empty value clears a list, but cannot be mixed with other values. Whitespace-only IDs are refused. " +
+	"On create, flags replace only supplied lists; on update all three flags are required together and replace JSON Notifications. " +
+	"Without flags, JSON Notifications replaces all three lists. JSON keys use the wire spelling In-alarm, not InAlarm; " +
+	"unrecognized keys are refused before any request."
 
 // computeGetSSHKeyNote documents that SSHKey never carries a private key,
 // since the flag table gives no hint that one exists at all: only

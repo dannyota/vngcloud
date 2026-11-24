@@ -1,13 +1,10 @@
 # vMonitor Alerts Design
 
-Status: Accepted (2026-09-26).
+Status: Accepted.
 
-This design adds vMonitor notification channels, check notifications, log
-projects, and log alarms to the SDK and CLI. aboutme needs its app-down
-check to alert someone, a log project for its logs, and alarms on those
-logs. It extends [vMonitor](monitor.md) and follows [SDK and
-CLI](sdk-and-cli.md) and [ADR 0002](../adr/0002-write-api-conventions.md).
-Log alarm writes are in [vMonitor Log Alarms](monitor-log-alarms.md).
+Notification channels, check notifications, and log projects extend
+[vMonitor](monitor.md) under [ADR 0002](../adr/0002-write-api-conventions.md).
+[vMonitor Log Alarms](monitor-log-alarms.md) covers alarm writes.
 
 ## Source
 
@@ -322,8 +319,11 @@ The CLI error codes gain `OTPRejected` and `PriceAboveMax`. `ErrFailed` and
 - A read-only profile refuses every write, `send-channel-otp` included.
 - Deletes need `--yes`. A new channel has a new ID that every check and
   alarm must be pointed at again, and a deleted project loses its logs.
-- Check notifications stay on `--cli-input-json`; no all-states channel flag.
-  JSON preserves separate state lists without new merge/precedence rules.
+- Both check commands accept repeatable `--in-alarm-channel-id`,
+  `--up-channel-id`, and `--undetermined-channel-id` flags. A single empty
+  value clears its list. On create, each flag overrides its list in
+  `--cli-input-json`. On update, use all three flags or none: the full set
+  replaces `Notifications`. JSON-only input still works as before.
 - `create-channel` and `update-channel` refuse `--address` for `Webhook`
   and `Slack` with exit 2 and name `--cli-input-json file://channel.json`,
   as `configure` refuses a literal password: a webhook URL in argv reaches

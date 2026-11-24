@@ -18,11 +18,10 @@ These are additive and ship in `1.x`.
 - [ ] Complete gated vDB engine designs and populated models beyond MySQL 8.0. [Contract](docs/design/database-services.md).
 - [ ] Specify manual one-period renewal orders in a later slice; renewal settings do not place orders. [Contract](docs/design/auto-renew.md).
 - [ ] Keep root-checkout NAT outside the approved IAM write slice; obtain separate approval for any future contract. [Auth boundary](docs/design/network-writes-nat.md#purchase-and-auth).
-- [ ] Add flags to set a check's In-alarm, Up, and Undetermined channel lists on `create-check` and `update-check`; today only `--cli-input-json` attaches channels. [Check notifications](docs/design/monitor-alerts.md#check-notifications).
 - [ ] Add a read of a check's per-location test results, so a user can see why one location alarms while another stays OK. [vMonitor](docs/design/monitor.md).
 - [ ] Discover and add a channel test send, so a user can prove delivery without breaking a check. [Channels](docs/design/monitor-alerts.md#channels).
 - [ ] Add vMonitor dashboard list, get, and delete for user dashboards; GreenNode creates one dashboard per resource and the console does not allow deleting those. [vMonitor](docs/design/monitor.md).
-- [ ] Quote a replacement or upgrade of an existing notification quota, and point `pricing get-quote` help at the vMonitor quote commands. [Quote contract](docs/design/monitor-quotas.md#quote-and-price-contract).
+- [ ] Quote a replacement or upgrade of an existing notification quota. [Quote contract](docs/design/monitor-quotas.md#quote-and-price-contract).
 - [ ] Record API evidence under `docs/design/` for the wire models whose type comment says no design document records it (`git grep -n "No design document records"`), then cite that record in the comment. [Go rules](instructions/go.md#formatting-and-comments).
 - [ ] Consider release binaries with checksums and provenance attestations for CI installs; pinned `go install` with the Go checksum database is the supported path today. [Unattended CI](docs/design/cli.md).
 - [ ] Add an auto-renew read and toggle for endpoint billing records, like the vStorage project toggle; the endpoint create request for renewal off is not reflected in billing. [Auto-renew](docs/design/auto-renew.md).
