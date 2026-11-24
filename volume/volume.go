@@ -566,7 +566,7 @@ type EncryptionType struct {
 }
 
 // Snapshot holds snapshot data from the API.
-// No design document records the API evidence for this type.
+// See docs/design/wire-model-evidence.md#volume.
 type Snapshot struct {
 	ID               string `json:"id"`
 	UUID             string `json:"uuid"`

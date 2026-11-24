@@ -22,7 +22,6 @@ These are additive and ship in `1.x`.
 - [ ] Discover and add a channel test send, so a user can prove delivery without breaking a check. [Channels](docs/design/monitor-alerts.md#channels).
 - [ ] Add vMonitor dashboard list, get, and delete for user dashboards; GreenNode creates one dashboard per resource and the console does not allow deleting those. [vMonitor](docs/design/monitor.md).
 - [ ] Quote a replacement or upgrade of an existing notification quota. [Quote contract](docs/design/monitor-quotas.md#quote-and-price-contract).
-- [ ] Record API evidence under `docs/design/` for the wire models whose type comment says no design document records it (`git grep -n "No design document records"`), then cite that record in the comment. [Go rules](instructions/go.md#formatting-and-comments).
 - [ ] Consider release binaries with checksums and provenance attestations for CI installs; pinned `go install` with the Go checksum database is the supported path today. [Unattended CI](docs/design/cli.md).
 - [ ] Add an auto-renew read and toggle for endpoint billing records, like the vStorage project toggle; the endpoint create request for renewal off is not reflected in billing. [Auto-renew](docs/design/auto-renew.md).
 - [ ] Refuse a `QuoteCreateServer` or `CreateServer` root disk type that belongs to another zone before any request; today the quote succeeds and the create gets HTTP 400. [Server writes](docs/design/vserver-paid-writes.md).

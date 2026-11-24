@@ -505,7 +505,7 @@ type LoadBalancer struct {
 }
 
 // Node holds node data from the API.
-// No design document records the API evidence for this type.
+// See docs/design/wire-model-evidence.md#regional-load-balancer.
 type Node struct {
 	Status   string `json:"status"`
 	ZoneID   string `json:"zoneId"`
@@ -551,7 +551,7 @@ type Certificate struct {
 }
 
 // Tag holds tag data from the API.
-// No design document records the API evidence for this type.
+// See docs/design/wire-model-evidence.md#regional-load-balancer.
 type Tag struct {
 	Key       string `json:"key"`
 	Value     string `json:"value"`
@@ -560,7 +560,7 @@ type Tag struct {
 }
 
 // ListenerInsertHeader holds listener insert header data from the API.
-// No design document records the API evidence for this type.
+// See docs/design/wire-model-evidence.md#regional-load-balancer.
 type ListenerInsertHeader struct {
 	HeaderName  string `json:"headerName"`
 	HeaderValue string `json:"headerValue"`
@@ -667,7 +667,7 @@ type Policy struct {
 }
 
 // L7Rule holds l7 rule data from the API.
-// No design document records the API evidence for this type.
+// See docs/design/wire-model-evidence.md#regional-load-balancer.
 type L7Rule struct {
 	UUID               string `json:"uuid"`
 	CompareType        string `json:"compareType"`

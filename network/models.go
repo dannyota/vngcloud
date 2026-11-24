@@ -168,7 +168,7 @@ type DHCPOptions struct {
 }
 
 // WANIP holds wanip data from the API.
-// No design document records the API evidence for this type.
+// See docs/design/wire-model-evidence.md#network.
 type WANIP struct {
 	UUID               string `json:"uuid"`
 	ID                 string `json:"id"`
@@ -183,7 +183,7 @@ type WANIP struct {
 }
 
 // ElasticNetworkInterface holds elastic network interface data from the API.
-// No design document records the API evidence for this type.
+// See docs/design/wire-model-evidence.md#network.
 type ElasticNetworkInterface struct {
 	UUID        string `json:"uuid"`
 	ID          string `json:"id"`
@@ -258,7 +258,7 @@ type RouteTable struct {
 }
 
 // Peering holds peering data from the API.
-// No design document records the API evidence for this type.
+// See docs/design/wire-model-evidence.md#network.
 type Peering struct {
 	UUID        string `json:"uuid"`
 	Name        string `json:"name"`
@@ -347,7 +347,7 @@ type Subnet struct {
 }
 
 // SubnetSecondarySubnet holds subnet secondary subnet data from the API.
-// No design document records the API evidence for this type.
+// See docs/design/wire-model-evidence.md#network.
 type SubnetSecondarySubnet struct {
 	UUID string `json:"uuid"`
 	Name string `json:"name"`
@@ -465,7 +465,7 @@ type Tag struct {
 }
 
 // Interconnect holds interconnect data from the API.
-// No design document records the API evidence for this type.
+// See docs/design/wire-model-evidence.md#network.
 type Interconnect struct {
 	UUID         string `json:"uuid"`
 	ID           string `json:"id"`
@@ -487,7 +487,7 @@ type Interconnect struct {
 }
 
 // AddressPair holds address pair data from the API.
-// No design document records the API evidence for this type.
+// See docs/design/wire-model-evidence.md#network.
 type AddressPair struct {
 	UUID               string `json:"uuid"`
 	VirtualIPAddressID string `json:"virtualIpAddressId"`

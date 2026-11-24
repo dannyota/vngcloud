@@ -238,7 +238,7 @@ type listRecordsResponse struct {
 }
 
 // VPCMapRegion maps a VPC to a region in a hosted zone response.
-// No design document records the API evidence for this type.
+// See docs/design/wire-model-evidence.md#dns.
 type VPCMapRegion struct {
 	VPCID  string `json:"vpcId"`
 	Region string `json:"region"`

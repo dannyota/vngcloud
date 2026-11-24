@@ -254,7 +254,7 @@ type CostResource struct {
 }
 
 // CostResourceSummary totals the per-resource cost list.
-// No design document records the API evidence for this type.
+// See docs/design/wire-model-evidence.md#billing.
 type CostResourceSummary struct {
 	TotalAll       float64 `json:"totalAll"`
 	ActiveCount    int     `json:"activeCount"`
