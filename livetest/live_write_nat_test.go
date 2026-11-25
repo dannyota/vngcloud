@@ -34,6 +34,10 @@ func TestLiveWriteNAT(t *testing.T) {
 	if err != nil {
 		t.Fatal("invalid NAT region")
 	}
+	project := os.Getenv("VNGCLOUD_PROJECT_ID")
+	if natProjectPreflight(region, project) != nil {
+		t.Fatal("HCM requires an explicit path-safe VNGCLOUD_PROJECT_ID")
+	}
 	hold, err := newNATHold(os.Getenv("VNGCLOUD_LIVE_NAT_HOLD_DIR"), os.Getenv("VNGCLOUD_LIVE_NAT_HOLD_MAX"))
 	if err != nil {
 		t.Fatal("invalid NAT hold configuration; parent directory must be private and stable")
@@ -58,18 +62,20 @@ func TestLiveWriteNAT(t *testing.T) {
 	defer cancel()
 	natID := ""
 	deleteTransport := &natDeleteTransport{base: http.DefaultTransport, natID: &natID}
-	cfg := liveWriteConfig(ctx, t, vngcloud.WithRegion(region), vngcloud.WithTransport(deleteTransport))
+	options := []vngcloud.LoadOption{vngcloud.WithRegion(region), vngcloud.WithTransport(deleteTransport)}
+	if region == "hcm-3" {
+		options = append(options, vngcloud.WithProjectID(project))
+	}
+	cfg := liveWriteConfig(ctx, t, options...)
 	if core.ClientOf(cfg).Region() != region || !core.ClientOf(cfg).UsesIAMUserLogin() {
 		t.Fatal("live NAT writes require SDK IAM-user login in the selected region")
 	}
 	if region == "hcm-3" {
-		balance, balanceErr := billing.New(cfg).GetBalances(ctx, nil)
-		if balanceErr != nil || balance == nil || balance.Balances.CashAvailable == nil {
-			t.Fatal("available NAT credit could not be verified")
+		if core.ClientOf(cfg).ConfiguredProjectID() != project {
+			t.Fatal("HCM project scope does not match the explicit project")
 		}
-		maxPrice, err = natCreditCap(maxPrice, *balance.Balances.CashAvailable)
-		if err != nil {
-			t.Fatal("available NAT credit is invalid")
+		if _, err = natReadCreditCap(ctx, billing.New(cfg), maxPrice); err != nil {
+			t.Fatal("available NAT credit could not be verified")
 		}
 		quotas, quotaErr := portal.New(cfg).ListQuotaUsed(ctx, nil)
 		if quotaErr != nil || quotas == nil || !natQuotaAvailable(quotas.Items) {
@@ -254,32 +260,12 @@ func TestLiveWriteNAT(t *testing.T) {
 	if err != nil {
 		t.Fatal("NAT zone catalog failed")
 	}
-	az := ""
-	for _, zone := range offers.Items {
-		if zone.ZoneType == "AVAILABILITY" && zone.IsEnabled {
-			az = zone.UUID
-			break
-		}
-	}
-	if az == "" {
-		t.Fatal("no enabled NAT availability zone")
-	}
-	packages, err := client.ListNATPackages(ctx, &network.ListNATPackagesInput{ZoneID: zoneID, AvailabilityZoneID: az})
+	az, packageID, err := natSelectPlacement(ctx, client, region, zoneID, offers.Items)
 	if err != nil {
-		t.Fatal("NAT package catalog failed")
+		t.Fatal("NAT placement or package selection failed")
 	}
-	packageID := ""
-	for _, offer := range packages.Items {
-		if offer.BillingSKU == "nat.s-standard" && offer.CurrencyUnit == "VND" {
-			if packageID != "" {
-				t.Fatal("ambiguous Standard NAT package")
-			}
-			packageID = offer.UUID
-		}
-	}
-	if packageID == "" {
-		t.Fatal("no Standard NAT package")
-	}
+	report["availabilityZoneID"] = az
+	report["packageID"] = packageID
 	expectedPackage = packageID
 	in := &network.CreateNATInstanceInput{Name: name, ZoneID: zoneID, AvailabilityZoneID: az, PackageID: packageID, VPCID: vpcID, MaxPrice: maxPrice}
 	quote, err := client.QuoteCreateNATInstance(ctx, in)
@@ -289,7 +275,7 @@ func TestLiveWriteNAT(t *testing.T) {
 	if quote.TotalPrice <= 0 || quote.TotalPrice > in.MaxPrice {
 		t.Fatal("NAT quote is outside the approved cap")
 	}
-	t.Logf("catalog zones=%d packages=%d package=nat.s-standard quote monthly=%.0f total=%.0f VND", len(offers.Items), len(packages.Items), quote.MonthlyPrice, quote.TotalPrice)
+	t.Logf("catalog zones=%d package=nat.s-standard quote monthly=%.0f total=%.0f VND", len(offers.Items), quote.MonthlyPrice, quote.TotalPrice)
 	money := billing.New(cfg)
 	beforeCash, cashErr := storageProjectCash(ctx, money)
 	if cashErr != nil {
@@ -304,6 +290,12 @@ func TestLiveWriteNAT(t *testing.T) {
 	report["quotedTotal"] = quote.TotalPrice
 	if liveNATSaveReport(report) != nil {
 		t.Fatal("private baseline report failed before purchase")
+	}
+	if region == "hcm-3" {
+		in.MaxPrice, err = natReadCreditCap(ctx, money, maxPrice)
+		if err != nil {
+			t.Fatal("fresh NAT credit could not be verified")
+		}
 	}
 	started := time.Now()
 	natAttempted = true
