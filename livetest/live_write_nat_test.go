@@ -28,8 +28,28 @@ func TestLiveWriteNAT(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" || os.Getenv("VNGCLOUD_LIVE_NAT_WRITE") != "1" {
 		t.Skip("set VNGCLOUD_LIVE_WRITE=1 and VNGCLOUD_LIVE_NAT_WRITE=1 for the approved paid HAN run")
 	}
+	hold, err := newNATHold(os.Getenv("VNGCLOUD_LIVE_NAT_HOLD_DIR"), os.Getenv("VNGCLOUD_LIVE_NAT_HOLD_MAX"))
+	if err != nil {
+		t.Fatal("invalid NAT hold configuration")
+	}
+	defer hold.Close()
+	maxPrice, err := natMaxPrice(os.Getenv("VNGCLOUD_LIVE_NAT_MAX_PRICE"))
+	if err != nil {
+		t.Fatal("invalid NAT maximum price")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Minute)
 	defer cancel()
+	if hold.root != nil {
+		if deadline, ok := t.Deadline(); ok {
+			cleanupDeadline := deadline.Add(-30 * time.Minute)
+			if time.Until(cleanupDeadline) <= 0 {
+				t.Fatal("NAT hold requires at least 30 minutes reserved for cleanup")
+			}
+			var stop context.CancelFunc
+			ctx, stop = context.WithDeadline(ctx, cleanupDeadline)
+			defer stop()
+		}
+	}
 	cfg := liveWriteConfig(ctx, t, vngcloud.WithRegion("han-1"))
 	if core.ClientOf(cfg).Region() != "han-1" || !core.ClientOf(cfg).UsesIAMUserLogin() {
 		t.Fatal("live NAT writes require SDK IAM-user login in han-1")
@@ -217,7 +237,7 @@ func TestLiveWriteNAT(t *testing.T) {
 		t.Fatal("no Standard NAT package")
 	}
 	expectedPackage = packageID
-	in := &network.CreateNATInstanceInput{Name: name, ZoneID: zoneID, AvailabilityZoneID: az, PackageID: packageID, VPCID: vpcID, MaxPrice: 1000000}
+	in := &network.CreateNATInstanceInput{Name: name, ZoneID: zoneID, AvailabilityZoneID: az, PackageID: packageID, VPCID: vpcID, MaxPrice: maxPrice}
 	quote, err := client.QuoteCreateNATInstance(ctx, in)
 	if err != nil {
 		t.Fatal("NAT quote failed")
@@ -225,7 +245,7 @@ func TestLiveWriteNAT(t *testing.T) {
 	if quote.TotalPrice <= 0 || quote.TotalPrice > in.MaxPrice {
 		t.Fatal("NAT quote is outside the approved cap")
 	}
-	t.Logf("catalog zones=%d packages=%d quote monthly=%.0f total=%.0f VND", len(offers.Items), len(packages.Items), quote.MonthlyPrice, quote.TotalPrice)
+	t.Logf("catalog zones=%d packages=%d package=nat.s-standard quote monthly=%.0f total=%.0f VND", len(offers.Items), len(packages.Items), quote.MonthlyPrice, quote.TotalPrice)
 	money := billing.New(cfg)
 	beforeCash, cashErr := storageProjectCash(ctx, money)
 	if cashErr != nil {
@@ -304,6 +324,12 @@ func TestLiveWriteNAT(t *testing.T) {
 		t.Fatal("NAT billing row is not unique")
 	}
 	t.Logf("NAT state=ACTIVE renewal=MANUAL create duration=%s monthly=%.0f total=%.0f VND", time.Since(started).Round(time.Second), out.MonthlyPrice, out.TotalPrice)
+	holdErr := hold.wait(ctx, natHoldIDs{NAT: natID, VPC: vpcID, VNetworkRegion: zoneID, Project: core.ClientOf(cfg).ProjectID()}, func() { t.Log("hold: waiting") }, natHoldSleep)
+	if errors.Is(holdErr, errNATHoldTimeout) {
+		t.Error("NAT hold timed out")
+	} else if holdErr != nil {
+		t.Fatal("NAT hold failed; cleanup will run")
+	}
 	natDeleteAttempted = true
 	if _, err = client.DeleteNATInstance(ctx, &network.DeleteNATInstanceInput{ZoneID: zoneID, VPCID: vpcID, NATID: natID}); err != nil {
 		t.Fatal("NAT delete failed; inspect leftovers before another action")
@@ -327,6 +353,7 @@ func TestLiveWriteNAT(t *testing.T) {
 		t.Fatal("NAT billing row remains after delete")
 	}
 	report["billingAbsent"] = true
+	t.Log("NAT after delete=absent billing=absent")
 	if !liveNATDeleteVPC(ctx, client, vpcID) {
 		t.Fatal("VPC delete did not settle within 10 minutes")
 	}
