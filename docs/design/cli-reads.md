@@ -262,7 +262,7 @@ all other flags are optional.
 
 |Command|Flags|State|
 |-|-|-|
-|`list-load-balancers`|`--name`, `--page`, `--size`|Empty|
+|`list-load-balancers`|`--name`, `--page`, `--size`|Live|
 |`get-load-balancer`|`--load-balancer-id`|Live|
 |`list-packages`|`--zone-id`|Live|
 |`list-certificates`|`--name`, `--page`, `--size`|Empty|
