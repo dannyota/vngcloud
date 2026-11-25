@@ -455,7 +455,7 @@ vngcloud monitor list-check-alarm-history --check-id <check-id>
 
 Kind: Read.
 
-HTTP checks only. The window is at most 24 hours and defaults to the last 24 hours. Values are average response times in milliseconds per probe location, in 5-minute buckets for a 24-hour window. Use get-check-alarm for location names.
+HTTP checks only. --start and --end are RFC 3339; --end defaults to now and --start to 24 hours before --end. The window is at most 24 hours. Values are average response times in milliseconds per probe location, in 5-minute buckets for a 24-hour window. Use get-check-alarm for location names.
 
 | Flag | Type | Required |
 |-|-|-|

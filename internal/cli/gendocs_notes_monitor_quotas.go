@@ -11,7 +11,8 @@ const monitorCheckHistoryNote = "--start and --end are RFC 3339 strings. End def
 	"paging and truncation are unknown, and no state at the window start is supplied. Empty Items " +
 	"proves neither that no transition occurred nor that an alarm exists. Use get-check-alarm for current state."
 
-const monitorResponseTimesNote = "HTTP checks only. The window is at most 24 hours and defaults to the last 24 hours. " +
+const monitorResponseTimesNote = "HTTP checks only. --start and --end are RFC 3339; --end defaults to now and --start to 24 hours before --end. " +
+	"The window is at most 24 hours. " +
 	"Values are average response times in milliseconds per probe location, in 5-minute buckets for a 24-hour window. " +
 	"Use get-check-alarm for location names."
 

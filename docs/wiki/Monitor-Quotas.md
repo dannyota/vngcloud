@@ -40,7 +40,8 @@ alarm exists. Use `GetCheckAlarm` for current state.
 
 `ListCheckResponseTimes` reads an HTTP check's average response time per
 probe location. Each series has a `LocationID` and points of `Timestamp`
-and `ValueMillis`; for a 24-hour window the points are 5 minutes apart.
+and `ValueMillis`. A 24-hour window uses 5-minute buckets and a one-hour
+window 1-minute buckets; buckets can be missing.
 Take location names from `GetCheckAlarm`.
 
 ```sh
@@ -52,7 +53,9 @@ hours before it; a window longer than 24 hours, an empty or reversed one,
 or a non-HTTP check fails before the statistics request. The first point
 of a 24-hour window can start up to 5 minutes before `Start`. Missing
 buckets are not filled, and a missing point does not mean the check was
-healthy. An unexpected response returns `InvalidResponse` with no output.
+healthy. An unexpected response returns `InvalidResponse`, and more than
+64 series or 100,000 points returns `ResponseLimitExceeded`; both give no
+output.
 
 ## Quota reads
 
