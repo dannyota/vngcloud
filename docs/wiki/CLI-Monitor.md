@@ -307,7 +307,7 @@ vngcloud monitor get-check-alarm --check-id <check-id> --query Alarm
 
 Kind: Read.
 
-Reads one dashboard without widgets. Custom dashboards are listed by default; --system lists dashboards GreenNode generates per resource. There is no delete command.
+Reads one dashboard without widgets. There is no delete command.
 
 | Flag | Type | Required |
 |-|-|-|

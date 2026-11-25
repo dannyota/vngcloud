@@ -84,6 +84,23 @@ func (c *Client) ListDashboards(ctx context.Context, in *ListDashboardsInput) (*
 	if jsonresponse.ValidateStrict(raw, &p) != nil || !dashboardExactKeys(raw, []string{"lstData", "page", "pageSize", "totalItem", "totalPage"}) || json.Unmarshal(raw, &p) != nil || p.Items == nil || p.Page == nil || p.PageSize == nil || p.TotalItem == nil || p.TotalPage == nil || *p.Page != page || *p.PageSize != size || *p.TotalItem < 0 || *p.TotalPage < 0 || len(p.Items) > size {
 		return nil, dashboardInvalid(op)
 	}
+	totalPages := *p.TotalItem / size
+	if *p.TotalItem%size != 0 {
+		totalPages++
+	}
+	if *p.TotalPage != totalPages {
+		return nil, dashboardInvalid(op)
+	}
+	expected := 0
+	if page <= totalPages {
+		expected = size
+		if page == totalPages && *p.TotalItem%size != 0 {
+			expected = *p.TotalItem % size
+		}
+	}
+	if len(p.Items) != expected {
+		return nil, dashboardInvalid(op)
+	}
 	items := make([]Dashboard, 0, len(p.Items))
 	seen := map[string]bool{}
 	for _, row := range p.Items {
@@ -123,7 +140,7 @@ func decodeDashboard(raw json.RawMessage, creds []string) (Dashboard, bool) {
 	var fields map[string]json.RawMessage
 	var id string
 	var system *bool
-	if jsonresponse.ValidateStrict(raw, &d) != nil || !dashboardExactKeys(raw, []string{"id", "name", "system", "favorite", "createdAt", "updatedAt"}) || json.Unmarshal(raw, &fields) != nil || fields == nil || json.Unmarshal(fields["id"], &id) != nil || id == "" || json.Unmarshal(fields["system"], &system) != nil || system == nil || json.Unmarshal(raw, &d) != nil {
+	if jsonresponse.ValidateStrict(raw, &d) != nil || !dashboardExactKeys(raw, []string{"id", "name", "system", "favorite", "createdAt", "updatedAt"}) || json.Unmarshal(raw, &fields) != nil || fields == nil || json.Unmarshal(fields["id"], &id) != nil || core.CheckPathID("", "DashboardID", id) != nil || json.Unmarshal(fields["system"], &system) != nil || system == nil || json.Unmarshal(raw, &d) != nil {
 		return Dashboard{}, false
 	}
 	for _, credential := range creds {
@@ -151,6 +168,9 @@ func (c *Client) dashboardGet(ctx context.Context, op string, parts []string, q 
 		}
 		var api *core.APIError
 		if errors.As(err, &api) {
+			if status == 200 && api.Message == "response failed to decode; body withheld" {
+				return nil, nil, dashboardInvalid(op)
+			}
 			if api.StatusCode == 0 && status > 0 {
 				api.StatusCode = status
 			}

@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -55,7 +58,8 @@ func TestDashboardFixtures(t *testing.T) {
 					if tc.system {
 						filter = "systemType:productVng"
 					}
-					if r.URL.Path != "/vmonitor-api/api/v1/dashboards" || len(q) != 5 || q.Get("filter") != filter || q.Get("page") != "1" || q.Get("size") != "10" || !q.Has("searching-field") || !q.Has("searching-text") {
+					want := url.Values{"filter": {filter}, "page": {"1"}, "size": {"10"}, "searching-field": {""}, "searching-text": {""}}
+					if r.URL.Path != "/vmonitor-api/api/v1/dashboards" || !reflect.DeepEqual(q, want) {
 						t.Error(r.URL)
 					}
 				}
@@ -215,5 +219,71 @@ func TestDashboardListRefreshReflection(t *testing.T) {
 				assertMonitorCredentialsAbsent(t, out, err, "first-secret", "second-secret")
 			})
 		}
+	}
+}
+
+func TestDashboardPageConsistency(t *testing.T) {
+	for _, tc := range []struct {
+		name                           string
+		page, size, total, pages, rows int
+		valid                          bool
+	}{
+		{"contradiction", 1, 10, 0, 0, 1, false}, {"short last", 3, 2, 5, 3, 1, true}, {"short last missing", 3, 2, 5, 3, 0, false}, {"middle full", 2, 2, 6, 3, 2, true}, {"middle short", 2, 2, 6, 3, 1, false}, {"beyond", 4, 2, 5, 3, 0, true}, {"beyond nonempty", 4, 2, 5, 3, 1, false}, {"wrong total pages", 1, 10, 1, 2, 1, false}, {"max last", math.MaxInt, 1, math.MaxInt, math.MaxInt, 1, true}, {"max beyond", math.MaxInt, 2, math.MaxInt, math.MaxInt/2 + 1, 0, true}, {"max last partial", math.MaxInt/2 + 1, 2, math.MaxInt, math.MaxInt/2 + 1, 1, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rows := make([]string, tc.rows)
+			for i := range rows {
+				rows[i] = fmt.Sprintf(`{"id":"row-%d","system":false}`, i)
+			}
+			body := fmt.Sprintf(`{"lstData":[%s],"page":%d,"pageSize":%d,"totalItem":%d,"totalPage":%d}`, strings.Join(rows, ","), tc.page, tc.size, tc.total, tc.pages)
+			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = fmt.Fprint(w, body) }))
+			defer s.Close()
+			out, err := New(lifecycleProfileConfig(t, s, "false")).ListDashboards(context.Background(), &ListDashboardsInput{Page: tc.page, Size: tc.size})
+			if tc.valid {
+				if err != nil || out == nil {
+					t.Fatal(out, err)
+				}
+			} else {
+				var api *vngcloud.APIError
+				if out != nil || !errors.As(err, &api) || api.Code != "InvalidResponse" {
+					t.Fatal(out, err)
+				}
+			}
+		})
+	}
+}
+
+func TestDashboardMalformedAndUnsafeIDs(t *testing.T) {
+	for _, body := range []string{`{`, `{"id":"dash-1",`, `{"lstData":`} {
+		for _, list := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s-%t", body, list), func(t *testing.T) {
+				s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = fmt.Fprint(w, body) }))
+				defer s.Close()
+				c := New(lifecycleProfileConfig(t, s, "false"))
+				var err error
+				if list {
+					_, err = c.ListDashboards(context.Background(), nil)
+				} else {
+					_, err = c.GetDashboard(context.Background(), &GetDashboardInput{DashboardID: "dash-1"})
+				}
+				var api *vngcloud.APIError
+				if !errors.As(err, &api) || api.Code != "InvalidResponse" || api.StatusCode != 200 || api.Message != "vMonitor response withheld" {
+					t.Fatal(err)
+				}
+			})
+		}
+	}
+	for _, id := range []string{"a_b", "white space", "../bad"} {
+		t.Run(id, func(t *testing.T) {
+			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = fmt.Fprintf(w, `{"lstData":[{"id":%q,"system":false}],"page":1,"pageSize":10,"totalItem":1,"totalPage":1}`, id)
+			}))
+			defer s.Close()
+			out, err := New(lifecycleProfileConfig(t, s, "false")).ListDashboards(context.Background(), nil)
+			var api *vngcloud.APIError
+			if out != nil || !errors.As(err, &api) || api.Code != "InvalidResponse" {
+				t.Fatal(out, err)
+			}
+		})
 	}
 }

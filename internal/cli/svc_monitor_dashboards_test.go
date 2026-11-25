@@ -13,13 +13,14 @@ import (
 	"danny.vn/vngcloud"
 )
 
-func dashboardCLI(t *testing.T, handler http.Handler) func(...string) (int, string, string) {
+func dashboardCLI(t *testing.T, handler http.Handler, extra ...vngcloud.LoadOption) func(...string) (int, string, string) {
 	t.Helper()
 	home := withCleanEnv(t)
 	writeConfigFile(t, home, "[profile agent]\nregion = hcm-3\nread_only = true\n")
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
-	withTestOptions(t, vngcloud.WithStaticToken("test-token"), vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{Monitor: server.URL}), vngcloud.WithHTTPClient(&http.Client{Transport: refusingTransport{base: server.Client().Transport}}), vngcloud.WithRetry(0, 0))
+	opts := []vngcloud.LoadOption{vngcloud.WithStaticToken("test-token"), vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{Monitor: server.URL}), vngcloud.WithHTTPClient(&http.Client{Transport: refusingTransport{base: server.Client().Transport}}), vngcloud.WithRetry(0, 0)}
+	withTestOptions(t, append(opts, extra...)...)
 	return func(args ...string) (int, string, string) {
 		var stdout, stderr bytes.Buffer
 		code := Main(context.Background(), args, strings.NewReader(""), &stdout, &stderr)
@@ -129,3 +130,57 @@ const dashboardCLIGetJSON = `{
   }
 }
 `
+
+func TestDashboardCLIReflectionAndCapture(t *testing.T) {
+	var captures []vngcloud.ResponseCapture
+	reflected := false
+	run := dashboardCLI(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		name := "safe"
+		if reflected {
+			name = "prefix-test-token"
+		}
+		row := fmt.Sprintf(`{"id":"dash-1","name":%q,"system":true,"widgets":["BODY-SECRET-MARKER"]}`, name)
+		if strings.HasSuffix(r.URL.Path, "/dash-1") {
+			_, _ = fmt.Fprint(w, row)
+		} else {
+			_, _ = fmt.Fprintf(w, `{"lstData":[%s],"page":1,"pageSize":10,"totalItem":1,"totalPage":1}`, row)
+		}
+	}), vngcloud.WithResponseCapture(func(c vngcloud.ResponseCapture) { captures = append(captures, c) }))
+	for _, command := range [][]string{{"list-dashboards", "--system"}, {"get-dashboard", "--dashboard-id", "dash-1"}} {
+		for _, format := range []string{"json", "table", "text"} {
+			for _, query := range []bool{false, true} {
+				args := []string{"--profile", "agent", "--debug", "--output", format}
+				if query {
+					expression := "Items[*].Name"
+					if command[0] == "get-dashboard" {
+						expression = "Dashboard.Name"
+					}
+					args = append(args, "--query", expression)
+				}
+				args = append(args, "monitor")
+				args = append(args, command...)
+				reflected = false
+				code, out, errout := run(args...)
+				if code != 0 || strings.Contains(out+errout, "BODY-SECRET-MARKER") {
+					t.Fatal(out, errout)
+				}
+				reflected = true
+				code, out, errout = run(args...)
+				if code == 0 || out != "" || !strings.Contains(errout, "InvalidResponse") || strings.Contains(errout, "test-token") || strings.Contains(errout, "BODY-SECRET-MARKER") {
+					t.Fatal(code, out, errout)
+				}
+			}
+		}
+	}
+	for _, capture := range captures {
+		if len(capture.Body) != 0 {
+			t.Fatal("sensitive response reached capture hook")
+		}
+	}
+}
+
+func TestDashboardGetNoteExcludesSystemFlag(t *testing.T) {
+	if strings.Contains(docOpNotes["monitor get-dashboard"], "--system") {
+		t.Fatal(docOpNotes["monitor get-dashboard"])
+	}
+}

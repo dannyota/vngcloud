@@ -31,7 +31,7 @@ const monitorSyntheticUsageNote = "Reads synthetic usage counters and their desc
 
 func init() {
 	docOpNotes["monitor list-dashboards"] = "Lists custom dashboards by default; --system lists dashboards GreenNode generates per resource. Widgets are not returned; there is no delete command."
-	docOpNotes["monitor get-dashboard"] = "Reads one dashboard without widgets. Custom dashboards are listed by default; --system lists dashboards GreenNode generates per resource. There is no delete command."
+	docOpNotes["monitor get-dashboard"] = "Reads one dashboard without widgets. There is no delete command."
 	for _, command := range []string{"recover-synthetic-quota", "renew-synthetic-quota"} {
 		docExampleOverride["monitor "+command] = "vngcloud monitor get-synthetic-quota"
 		docOpNotes["monitor "+command] = "Requires an explicit identity guard and MaxPrice consent through flags or JSON, including zero. " +
