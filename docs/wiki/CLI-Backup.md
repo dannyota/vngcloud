@@ -2,7 +2,7 @@
 
 # CLI: Backup
 
-Only `hcm-3` is supported. `--project-id` does not scope these reads.
+Works in `hcm-3` and `han-1`. `--project-id` does not scope these reads.
 Backup Center is separate from `volume` snapshots; see
 [Backup Center](Backup.md).
 
@@ -13,7 +13,7 @@ so a `--query` starts with `Items`.
 
 Kind: Read.
 
-Reads one policy in `hcm-3`. `--project-id` has no effect. Hourly, weekly, and monthly schedule details are omitted.
+Reads one policy in `hcm-3` or `han-1`. `--project-id` has no effect. Hourly, weekly, and monthly schedule details are omitted.
 
 | Flag | Type | Required |
 |-|-|-|

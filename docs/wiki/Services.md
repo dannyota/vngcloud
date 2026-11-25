@@ -68,7 +68,7 @@ create/delete still require SDK IAM-user login in Hanoi. See
 |---|---|---|---|---|
 | Billing | `billing` | Budgets, thresholds, cost, balance, alerts, prepaid resources | Typed | Budgets and thresholds support writes; see [Billing and Pricing](Billing-and-Pricing.md). |
 | Pricing | `pricing` | Generic resource price quotes | Typed | Quotes are reads; see [Billing and Pricing](Billing-and-Pricing.md). |
-| Backup Center | `backup` | Backends and policies | Typed | See [Backup](Backup.md); `hcm-3` only, no project scope. |
+| Backup Center | `backup` | Backends and policies | Typed | See [Backup](Backup.md); `hcm-3` and `han-1`; no project scope. |
 | Project | `project` | Project listing for the configured region | Typed | Used by optional project discovery. |
 | Portal | `portal` | User info, zones, quota usage, quota detail, tag quota | Typed zones; map-backed account and quotas | Useful for account and quota metadata. |
 | Compute | `compute` | Servers, SSH keys and writes, placement groups and policies, images, flavor price discovery, paid server writes | Typed | Some methods flatten nested list data; see [Compute](Compute.md) and [Compute Servers](Compute-Servers.md). |

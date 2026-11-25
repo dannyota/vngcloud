@@ -141,8 +141,8 @@ func TestBackupLocalValidation(t *testing.T) {
 	for _, args := range [][]string{
 		{"--region", "hcm-3", "backup", "list-policies", "--page", "-1"},
 		{"--region", "hcm-3", "backup", "list-policies", "--size", "-1"},
-		{"--region", "han-1", "backup", "list-policies"},
-		{"--region", "han-1", "backup", "list-backends"},
+		{"--region", "unknown", "backup", "list-policies"},
+		{"--region", "unknown", "backup", "list-backends"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			calls := 0
@@ -152,7 +152,7 @@ func TestBackupLocalValidation(t *testing.T) {
 				t.Fatalf("exit=%d calls=%d stdout=%s stderr=%s", code, calls, stdout, stderr)
 			}
 			want := "InvalidUsage"
-			if args[1] == "han-1" {
+			if args[1] == "unknown" {
 				want = "InvalidConfig"
 			}
 			if !strings.Contains(stderr, want) {

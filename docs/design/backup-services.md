@@ -150,7 +150,8 @@ pretend these routes return current job state.
 ## Scope and routing
 
 Use the existing IAM user or static bearer provider. The console sends
-IAM authorization to `https://hcm-3.api.vngcloud.vn/vbackup-gateway/`.
+IAM authorization to `https://hcm-3.api.vngcloud.vn/vbackup-gateway/`;
+Hanoi uses `https://han-1.api.vngcloud.vn/vbackup-gateway/`.
 The public API hostname is intentional; do not invent a console gateway.
 Fresh isolated requests without cookies confirm IAM bearer access. No
 additional auth, project, or region header appeared in those requests.
@@ -158,12 +159,12 @@ Service-account authentication is outside this design.
 
 Add `EndpointOverrides.BackupCenter`, the matching internal endpoint
 field, and `routes.ProductBackupCenter`. Resolve the default from a fixed
-map containing only `hcm-3` and the URL above. Do not interpolate a region
+map containing `hcm-3` and `han-1` and the URLs above. Do not interpolate a region
 into a hostname. Every backup operation rejects any other resolved region
 with `ErrInvalidConfig` before authentication or network access, even when
-`BackupCenter` is overridden. An override replaces only the verified
+`BackupCenter` is overridden. An override replaces only a mapped
 region's endpoint; it does not enable a region. Cross-host redirects remain
-forbidden. The source's Hanoi URL is held until IAM verification.
+forbidden.
 
 The separate vServer snapshot proxy uses `VServerBackup` and
 `routes.ProductVServerBackup`; these are not aliases for Backup Center.

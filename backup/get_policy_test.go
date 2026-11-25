@@ -53,7 +53,7 @@ func TestGetPolicyInvalid(t *testing.T) {
 	if p.calls != 0 {
 		t.Fatal("unexpected authentication")
 	}
-	c = client(t, func(http.ResponseWriter, *http.Request) { t.Error("unexpected request") }, vngcloud.WithRegion("han-1"), vngcloud.WithCredentialsProvider(p))
+	c = client(t, func(http.ResponseWriter, *http.Request) { t.Error("unexpected request") }, vngcloud.WithRegion("unknown"), vngcloud.WithCredentialsProvider(p))
 	if _, err := c.GetPolicy(context.Background(), &backup.GetPolicyInput{PolicyID: "policy-1"}); !errors.Is(err, vngcloud.ErrInvalidConfig) || p.calls != 0 {
 		t.Fatalf("region validation: %v", err)
 	}

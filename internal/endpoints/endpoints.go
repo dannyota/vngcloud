@@ -98,10 +98,13 @@ type Set struct {
 	Database      string
 }
 
-// Backup Center IAM routing is verified only in hcm-3.
 var backupCenterEndpoints = map[string]string{
 	"hcm-3": "https://hcm-3.api.vngcloud.vn/vbackup-gateway/",
+	"han-1": "https://han-1.api.vngcloud.vn/vbackup-gateway/",
 }
+
+// BackupCenter returns the mapped Backup Center gateway.
+func BackupCenter(region string) string { return backupCenterEndpoints[region] }
 
 // ResolveIAMUser resolves regional endpoints and applies overrides.
 func ResolveIAMUser(region string, overrides Overrides) Set {
@@ -188,10 +191,10 @@ func ResolveIAMUser(region string, overrides Overrides) Set {
 	if overrides.CDN != "" {
 		set.CDN = overrides.CDN
 	}
-	if overrides.VServerBackup != "" {
+	if overrides.VServerBackup != "" && set.VServerBackup != "" {
 		set.VServerBackup = overrides.VServerBackup
 	}
-	if overrides.BackupCenter != "" {
+	if overrides.BackupCenter != "" && set.BackupCenter != "" {
 		set.BackupCenter = overrides.BackupCenter
 	}
 	if overrides.Database != "" {
@@ -250,13 +253,14 @@ func VNetworkRegionalGateway(region string) string {
 	return fmt.Sprintf("https://%s-vnetwork.%s/vnetwork-gateway/", region, ConsoleDomain)
 }
 
-// VServerBackup returns only gateways verified for snapshot policy reads.
+// VServerBackup returns the mapped gateway for snapshot policy reads.
 func VServerBackup(region string) string {
 	return vServerBackupEndpoints[region]
 }
 
 var vServerBackupEndpoints = map[string]string{
 	"hcm-3": "https://hcm-3.console.greennode.ai/vserver/vbackup-gateway/",
+	"han-1": "https://han-1.console.greennode.ai/vserver/vbackup-gateway/",
 }
 
 // ValidRegion reports whether region is a lowercase DNS label.

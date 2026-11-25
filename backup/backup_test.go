@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -117,7 +118,7 @@ func TestLocalValidation(t *testing.T) {
 			p := &provider{}
 			requests := 0
 			c := client(t, func(http.ResponseWriter, *http.Request) { requests++ }, vngcloud.WithRegion(region), vngcloud.WithCredentialsProvider(p))
-			if region != "hcm-3" {
+			if region == "unknown" {
 				for _, call := range []func() error{func() error { _, e := c.ListBackends(context.Background(), nil); return e }, func() error { _, e := c.ListPolicies(context.Background(), nil); return e }} {
 					if !errors.Is(call(), vngcloud.ErrInvalidConfig) {
 						t.Fatal("region accepted")
@@ -285,6 +286,77 @@ func TestPolicyWholeNumbers(t *testing.T) {
 				}
 			} else if err == nil {
 				t.Fatal("non-integer accepted")
+			}
+		})
+	}
+}
+
+func TestRegionalOverride(t *testing.T) {
+	for _, region := range []string{"hcm-3", "han-1"} {
+		t.Run(region, func(t *testing.T) {
+			requests := 0
+			c := client(t, func(w http.ResponseWriter, r *http.Request) {
+				requests++
+				if r.URL.Path != "/vbackup-gateway/v1/backends" {
+					t.Error(r.URL.Path)
+				}
+				_, _ = fmt.Fprint(w, fixture(t, "backends"))
+			}, vngcloud.WithRegion(region))
+			if _, err := c.ListBackends(context.Background(), nil); err != nil {
+				t.Fatal(err)
+			}
+			if requests != 1 {
+				t.Fatal(requests)
+			}
+		})
+	}
+}
+
+func TestUnmappedWithoutOverride(t *testing.T) {
+	p := &provider{}
+	requests := 0
+	cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("unknown"), vngcloud.WithCredentialsProvider(p), vngcloud.WithHTTPClient(&http.Client{Transport: backupTransport(func(*http.Request) (*http.Response, error) { requests++; return nil, errors.New("unexpected request") })}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := backup.New(cfg)
+	for _, call := range []func() error{func() error { _, e := c.ListBackends(context.Background(), nil); return e }, func() error { _, e := c.ListPolicies(context.Background(), nil); return e }, func() error {
+		_, e := c.GetPolicy(context.Background(), &backup.GetPolicyInput{PolicyID: "policy-1"})
+		return e
+	}} {
+		if err := call(); !errors.Is(err, vngcloud.ErrInvalidConfig) {
+			t.Fatal(err)
+		}
+	}
+	if p.calls != 0 || requests != 0 {
+		t.Fatal("unexpected access")
+	}
+}
+
+type backupTransport func(*http.Request) (*http.Response, error)
+
+func (f backupTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestRegionalDefaultDestination(t *testing.T) {
+	for _, region := range []string{"hcm-3", "han-1"} {
+		t.Run(region, func(t *testing.T) {
+			p := &provider{}
+			requests := 0
+			cfg, err := vngcloud.NewConfig(vngcloud.WithRegion(region), vngcloud.WithCredentialsProvider(p), vngcloud.WithHTTPClient(&http.Client{Transport: backupTransport(func(r *http.Request) (*http.Response, error) {
+				requests++
+				if r.URL.Scheme != "https" || r.URL.Host != region+".api.vngcloud.vn" || r.URL.Path != "/vbackup-gateway/v1/backends" {
+					t.Errorf("unexpected URL %s", r.URL)
+				}
+				return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(fixture(t, "backends")))}, nil
+			})}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := backup.New(cfg).ListBackends(context.Background(), nil); err != nil {
+				t.Fatal(err)
+			}
+			if requests != 1 || p.calls != 1 {
+				t.Fatalf("requests=%d credentials=%d", requests, p.calls)
 			}
 		})
 	}

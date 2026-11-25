@@ -64,7 +64,6 @@ func (c *Client) ListSnapshotPolicies(ctx context.Context, in *ListSnapshotPolic
 }
 
 func (c *Client) checkSnapshotRegion(op string) error {
-	// Overrides cannot expand the verified region scope.
 	if endpoints.VServerBackup(c.c.Region()) == "" {
 		return fmt.Errorf("%w: %s requires a supported snapshot region", core.ErrInvalidConfig, op)
 	}

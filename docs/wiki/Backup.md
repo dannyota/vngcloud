@@ -1,7 +1,7 @@
 # Backup Center
 
 `danny.vn/vngcloud/backup` reads Backup Center backends and policies in
-`hcm-3`. The client shares the configuration's IAM credential provider or
+`hcm-3` and `han-1`. The client shares the configuration's IAM credential provider or
 static bearer token with other SDK clients.
 
 ```go
@@ -46,8 +46,9 @@ All reads use token scope. Configuration `ProjectID` does not scope them;
 no method sends a project ID or discovers projects. Returned project
 IDs identify policies and do not prove filtering or cross-account access.
 
-`EndpointOverrides.BackupCenter` replaces the verified endpoint
-`https://hcm-3.api.vngcloud.vn/vbackup-gateway/`. Every other region returns
+`EndpointOverrides.BackupCenter` replaces the mapped regional endpoint:
+`https://hcm-3.api.vngcloud.vn/vbackup-gateway/` or
+`https://han-1.api.vngcloud.vn/vbackup-gateway/`. Every other region returns
 `ErrInvalidConfig` before authentication or network access, even with an
 endpoint override. Backup Center remains separate from vServer volume
 snapshots in [Volume](Volume.md).

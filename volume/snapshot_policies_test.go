@@ -102,7 +102,7 @@ func TestSnapshotPoliciesRequestAndFixture(t *testing.T) {
 }
 
 func TestSnapshotReadsRejectBeforeAccess(t *testing.T) {
-	for _, region := range []string{"han-1", "unknown"} {
+	for _, region := range []string{"unknown"} {
 		for _, override := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/%t", region, override), func(t *testing.T) {
 				c, p, requests := snapshotClient(t, region, override, "", http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("unexpected request") }))
@@ -340,39 +340,43 @@ type snapshotTransport func(*http.Request) (*http.Response, error)
 func (f snapshotTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestSnapshotReadsDefaultDestination(t *testing.T) {
-	provider := &snapshotCredentials{}
-	requests := 0
-	cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("hcm-3"), vngcloud.WithProjectID("project-1"), vngcloud.WithCredentialsProvider(provider), vngcloud.WithHTTPClient(&http.Client{Transport: snapshotTransport(func(r *http.Request) (*http.Response, error) {
-		requests++
-		if r.Method != "GET" || r.URL.Host != "hcm-3.console.greennode.ai" || r.URL.Scheme != "https" || r.Header.Get("Authorization") != "Bearer test-token" {
-			t.Error("wrong destination or authentication")
-		}
-		switch r.URL.Path {
-		case "/vserver/vbackup-gateway/v1/backends":
-			if r.URL.RawQuery != "backend=HCM-03" {
-				t.Error("wrong backend query")
+	for _, region := range []string{"hcm-3", "han-1"} {
+		t.Run(region, func(t *testing.T) {
+			provider := &snapshotCredentials{}
+			requests := 0
+			cfg, err := vngcloud.NewConfig(vngcloud.WithRegion(region), vngcloud.WithProjectID("project-1"), vngcloud.WithCredentialsProvider(provider), vngcloud.WithHTTPClient(&http.Client{Transport: snapshotTransport(func(r *http.Request) (*http.Response, error) {
+				requests++
+				if r.Method != "GET" || r.URL.Host != region+".console.greennode.ai" || r.URL.Scheme != "https" || r.Header.Get("Authorization") != "Bearer test-token" {
+					t.Error("wrong destination or authentication")
+				}
+				switch r.URL.Path {
+				case "/vserver/vbackup-gateway/v1/backends":
+					if r.URL.RawQuery != "backend=HCM-03" {
+						t.Error("wrong backend query")
+					}
+				case "/vserver/vbackup-gateway/v1/snapshot-policies":
+					if r.URL.RawQuery != "backendId=backend-1&page=1&projectId=project-1&size=10" {
+						t.Error("wrong policy query")
+					}
+				default:
+					t.Error("unverified route")
+				}
+				return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"items":[],"page":1,"pageSize":10,"totalPages":0,"totalItems":0}`))}, nil
+			})}))
+			if err != nil {
+				t.Fatal(err)
 			}
-		case "/vserver/vbackup-gateway/v1/snapshot-policies":
-			if r.URL.RawQuery != "backendId=backend-1&page=1&projectId=project-1&size=10" {
-				t.Error("wrong policy query")
+			c := New(cfg)
+			if _, err := c.ListSnapshotBackends(context.Background(), &ListSnapshotBackendsInput{Name: "HCM-03"}); err != nil {
+				t.Fatal(err)
 			}
-		default:
-			t.Error("unverified route")
-		}
-		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"items":[],"page":1,"pageSize":10,"totalPages":0,"totalItems":0}`))}, nil
-	})}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	c := New(cfg)
-	if _, err := c.ListSnapshotBackends(context.Background(), &ListSnapshotBackendsInput{Name: "HCM-03"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := c.ListSnapshotPolicies(context.Background(), &ListSnapshotPoliciesInput{BackendID: "backend-1"}); err != nil {
-		t.Fatal(err)
-	}
-	if requests != 2 || provider.calls != 2 {
-		t.Fatalf("requests=%d; credential calls=%d", requests, provider.calls)
+			if _, err := c.ListSnapshotPolicies(context.Background(), &ListSnapshotPoliciesInput{BackendID: "backend-1"}); err != nil {
+				t.Fatal(err)
+			}
+			if requests != 2 || provider.calls != 2 {
+				t.Fatalf("requests=%d; credential calls=%d", requests, provider.calls)
+			}
+		})
 	}
 }
 
@@ -394,5 +398,24 @@ func TestSnapshotPolicySyntheticFieldsAndSecretOmissions(t *testing.T) {
 	}
 	if strings.Contains(string(encoded), "secret-marker") {
 		t.Fatal("unknown secret field exposed")
+	}
+}
+
+func TestSnapshotRegionalOverride(t *testing.T) {
+	for _, region := range []string{"hcm-3", "han-1"} {
+		t.Run(region, func(t *testing.T) {
+			c, p, requests := snapshotClient(t, region, true, "project-1", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/vserver/vbackup-gateway/v1/backends" {
+					t.Error(r.URL.Path)
+				}
+				_, _ = fmt.Fprint(w, `{"items":[]}`)
+			}))
+			if _, err := c.ListSnapshotBackends(context.Background(), &ListSnapshotBackendsInput{Name: "example"}); err != nil {
+				t.Fatal(err)
+			}
+			if *requests != 1 || p.calls != 1 {
+				t.Fatal("unexpected access count")
+			}
+		})
 	}
 }

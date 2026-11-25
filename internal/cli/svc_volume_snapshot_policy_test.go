@@ -101,8 +101,8 @@ func TestVolumeSnapshotReadsRejectBeforeRequest(t *testing.T) {
 		{"missing-name", "hcm-3", "--name", []string{"list-snapshot-backends"}},
 		{"missing-backend-id", "hcm-3", "--backend-id", []string{"list-snapshot-policies"}},
 		{"malformed-backend-id", "hcm-3", "BackendID", []string{"list-snapshot-policies", "--backend-id", "../backend"}},
-		{"han-backends", "han-1", "supported snapshot region", []string{"list-snapshot-backends", "--name", "HCM-03"}},
-		{"han-policies", "han-1", "supported snapshot region", []string{"list-snapshot-policies", "--backend-id", "backend-1"}},
+		{"unknown-backends", "unknown", "supported snapshot region", []string{"list-snapshot-backends", "--name", "HCM-03"}},
+		{"unknown-policies", "unknown", "supported snapshot region", []string{"list-snapshot-policies", "--backend-id", "backend-1"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

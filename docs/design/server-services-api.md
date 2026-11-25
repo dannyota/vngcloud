@@ -43,24 +43,25 @@ needed for this read is not established by a successful authorized request.
 ### Endpoint and region scope
 
 Endpoint configuration uses `VServerBackup`; the route product is
-`ProductVServerBackup`. The default endpoint map initially has exactly one
-entry:
+`ProductVServerBackup`. The default endpoint map has two entries:
 
 | Config region | Base URL |
 |-|-|
 | `hcm-3` | `https://hcm-3.console.greennode.ai/vserver/vbackup-gateway/` |
+| `han-1` | `https://han-1.console.greennode.ai/vserver/vbackup-gateway/` |
 
 Both backend lookup and policy listing reject any unmapped region with
 `ErrInvalidConfig` before authentication, project discovery, or HTTP access.
 A `VServerBackup` override changes the destination only after this semantic
-region check succeeds. It cannot enable `han-1` or an unknown region. No
+region check succeeds. It cannot enable an unmapped region. No
 host is derived from an arbitrary region string.
 
 The release must test supported and unsupported regions with and without an
 override, counting both credential-provider calls and HTTP requests. Test
 that only `ProductVServerBackup` consumes the `VServerBackup` override.
-HAN-01 stays unsupported until cookie-free IAM requests verify backend lookup
-and policy listing there, followed by an explicit map change and review.
+Cookie-free IAM requests in `han-1` returned HTTP 200 for
+`backends?backend=HAN-01` and for policy listing with the returned ID, in
+the HCM shapes.
 
 Backup Center has a separate `BackupCenter` endpoint and `ProductBackupCenter`
 route product. This release does not add either. Snapshot reads never use a
@@ -82,7 +83,8 @@ complete unpaged list. Do not invent pagination inputs for it.
 
 Require an explicit backend ID on policy reads. Selecting the first returned
 backend or deriving a name from config could select the wrong scope. The
-verified name `HCM-03` does not establish the name or endpoint in HAN-01.
+names `HCM-03` and `HAN-01` are observed values; each backend ID is valid
+only at the gateway that returned it.
 
 Backend IDs are scoped to the endpoint and product that returned them. Pass
 snapshot backend IDs only to the vServer snapshot gateway. Never pass those

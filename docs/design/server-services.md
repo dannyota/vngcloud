@@ -69,11 +69,12 @@ activation, or restore operation. These would change schedules or paid
 resources.
 
 Add `VServerBackup` to endpoint configuration and `ProductVServerBackup` to
-internal routes. Resolve its default base from a fixed map containing only
-`hcm-3`:
+internal routes. Resolve its default base from a fixed map containing
+`hcm-3` and `han-1`:
 
 ```text
 https://hcm-3.console.greennode.ai/vserver/vbackup-gateway/
+https://han-1.console.greennode.ai/vserver/vbackup-gateway/
 ```
 
 Both snapshot reads reject an unmapped region with `ErrInvalidConfig` before
@@ -81,8 +82,7 @@ authentication, project discovery, or network access. An endpoint override
 changes the transport destination for a supported region only; it never
 bypasses the supported-region check. Do not interpolate arbitrary region
 names into hosts or replace gateway prefixes through string manipulation.
-HAN-01 support requires cookie-free IAM proof and an explicit map entry in a
-later release. Reuse the current session and transport with the verified IAM
+Reuse the current session and transport with the verified IAM
 bearer flow. Preserve TLS verification and same-host redirect restrictions.
 
 Backup Center uses the separate names `BackupCenter` and

@@ -380,11 +380,10 @@ from that state; keep such a volume's writes in its own tool.
 
 ## Snapshot policies
 
-Snapshot backend and policy reads use the vServer backup gateway in `hcm-3`.
-Other regions return `vngcloud.ErrInvalidConfig` before authentication,
-project discovery, or HTTP access. `EndpointOverrides.VServerBackup` changes
-only this gateway and cannot enable another region. Snapshot backend IDs
-belong to this gateway and must not be used with Backup Center.
+Snapshot backend and policy reads use the vServer backup gateway in `hcm-3` and `han-1`.
+Other regions return `vngcloud.ErrInvalidConfig` before authentication, project discovery, or HTTP access.
+`EndpointOverrides.VServerBackup` cannot enable another region. Snapshot backend IDs belong to this gateway and must not be used with Backup Center.
+Backend names follow the region, such as `HCM-03` and `HAN-01`.
 
 ```go
 backends, err := client.ListSnapshotBackends(ctx,

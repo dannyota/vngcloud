@@ -1,7 +1,7 @@
 # Backup Center policy detail
 
 Accepted addendum to [Backup Center reads](backup-services.md). Qualify
-only `GetPolicy` in `hcm-3`. Do not expand the public schedule model, add
+only `GetPolicy` in the regions mapped for Backup Center. Do not expand the public schedule model, add
 filters or other routes, or activate or mutate resources. Full cadence
 decoding needs populated evidence and separate public fields. Reusing
 `Policy` leaves those settings unavailable.
@@ -25,8 +25,8 @@ and returns `(*GetPolicyOutput, error)`. The input has only `PolicyID string`
 tagged `vngcloud:"required"`. The output has only `Policy Policy`.
 Reject nil, empty, or invalid input with `ErrInvalidInput` using
 `core.CheckPathID` (`^[A-Za-z0-9-]+$`) without echoing the rejected value.
-Reject regions other than `hcm-3` with `ErrInvalidConfig`, even with an
-endpoint override. Validate before authentication or requests. Send
+Reject unmapped regions with `ErrInvalidConfig`, even with an endpoint
+override. Validate before authentication or requests. Send
 `GET /v1/backup-policies/{id}` with the ID as a separate path segment, no
 query or project scope. Reuse bearer routing, retries, and refresh; do not
 fetch the list or add pagination or auth.

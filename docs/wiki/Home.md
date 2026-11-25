@@ -15,7 +15,7 @@ rename; the module keeps the `vngcloud` name.
 - [Errors](Errors.md): `APIError`, `LoginError`, and debug logging.
 - [Services](Services.md): service overview, SDK method examples, and links
   to detailed guides.
-- [Backup](Backup.md): Backup Center backends and policies in `hcm-3`.
+- [Backup](Backup.md): Backup Center backends and policies in `hcm-3` and `han-1`.
 - [Billing and Pricing](Billing-and-Pricing.md): budgets, cost, balances, and
   price quotes.
 - [Price Quotes](Price-Quotes.md): price quotes, vServer prices, and

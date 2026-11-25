@@ -1,15 +1,16 @@
 # Backup Center API evidence
 
-Status: Accepted (2026-10-10) for the first release. HCM bearer reads
-confirmed.
+Status: Accepted (2026-10-10) for the first release. HCM and HAN bearer
+reads confirmed.
 
 This file records evidence for [Backup Center reads](backup-services.md).
 Public source establishes candidate routes and field meanings. Console
-observations confirm the HCM IAM routes listed below. Other source routes
+observations confirm the HCM IAM routes listed below; HAN uses the same
+routes on its own gateway. Other source routes
 remain candidates until their own checks pass.
 
-The first release exposes only `ListBackends` and `ListPolicies` in
-`hcm-3`. Its policy input contains `Page` and `Size` only. Policy detail has
+The SDK exposes `ListBackends`, `ListPolicies`, and `GetPolicy` in
+`hcm-3` and `han-1`. Its policy input contains `Page` and `Size` only. Policy detail has
 [its own evidence](#observed-policy-detail). Server, destination, point,
 history, and additional filters remain held.
 
@@ -55,12 +56,14 @@ Do not substitute `.console` for `.api` or insert `iam-`.
 
 Fresh isolated requests with no cookies and only IAM bearer authorization
 returned HTTP 200 for the HCM routes listed below. These checks establish
-cookie-free IAM access and the HCM endpoint default. The SDK endpoint map
-contains only `hcm-3`. `EndpointOverrides.BackupCenter` and
-`routes.ProductBackupCenter` identify this service. Any other resolved
-region fails with `ErrInvalidConfig` before authentication or network
-access, including when an override is present. The source's `HAN` host is
-unverified and held; no hostname is built by region interpolation.
+cookie-free IAM access and the HCM endpoint default. The same cookie-free
+IAM checks on the source's `HAN` host returned HTTP 200 for the backend and
+policy lists with the HCM shapes, and a random policy ID returned 404. The
+SDK endpoint map contains `hcm-3` and `han-1` with the two hosts above.
+`EndpointOverrides.BackupCenter` and `routes.ProductBackupCenter` identify
+this service. Any other resolved region fails with `ErrInvalidConfig`
+before authentication or network access, including when an override is
+present. No hostname is built by region interpolation.
 
 The vServer snapshot proxy has separate names `VServerBackup` and
 `routes.ProductVServerBackup`. Backend IDs are scoped to their product and

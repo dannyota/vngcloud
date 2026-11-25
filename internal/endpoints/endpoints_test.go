@@ -160,14 +160,18 @@ func TestVServerBackupEndpoint(t *testing.T) {
 	for _, region := range []string{"hcm-3", "han-1", "unknown"} {
 		got := ResolveIAMUser(region, Overrides{})
 		want := ""
-		if region == "hcm-3" {
-			want = "https://hcm-3.console.greennode.ai/vserver/vbackup-gateway/"
+		if region == "hcm-3" || region == "han-1" {
+			want = "https://" + region + ".console.greennode.ai/vserver/vbackup-gateway/"
 		}
 		if got.VServerBackup != want || VServerBackup(region) != want {
 			t.Errorf("region %s: unexpected backup endpoint", region)
 		}
 		overridden := ResolveIAMUser(region, Overrides{VServerBackup: "https://backup.example.test/gateway"})
-		if overridden.VServerBackup != "https://backup.example.test/gateway/" || overridden.VServer != got.VServer || overridden.Portal != got.Portal {
+		overrideWant := "https://backup.example.test/gateway/"
+		if want == "" {
+			overrideWant = ""
+		}
+		if overridden.VServerBackup != overrideWant || overridden.VServer != got.VServer || overridden.Portal != got.Portal {
 			t.Fatal("backup override is not isolated")
 		}
 	}
@@ -188,7 +192,7 @@ func TestBackupCenter(t *testing.T) {
 	if got := ResolveIAMUser("hcm-3", Overrides{}).BackupCenter; got != "https://hcm-3.api.vngcloud.vn/vbackup-gateway/" {
 		t.Fatal(got)
 	}
-	if got := ResolveIAMUser("han-1", Overrides{}).BackupCenter; got != "" {
+	if got := ResolveIAMUser("han-1", Overrides{}).BackupCenter; got != "https://han-1.api.vngcloud.vn/vbackup-gateway/" {
 		t.Fatal(got)
 	}
 	if got := ResolveIAMUser("hcm-3", Overrides{BackupCenter: "https://backup.example/gateway"}).BackupCenter; got != "https://backup.example/gateway/" {

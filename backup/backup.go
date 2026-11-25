@@ -1,4 +1,4 @@
-// Package backup reads Backup Center backends and policies in hcm-3.
+// Package backup reads Backup Center backends and policies.
 package backup
 
 import (
@@ -12,6 +12,7 @@ import (
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/endpoints"
 	"danny.vn/vngcloud/internal/jsonresponse"
 	"danny.vn/vngcloud/internal/routes"
 	"danny.vn/vngcloud/internal/transport"
@@ -169,8 +170,8 @@ func (c *Client) GetPolicy(ctx context.Context, in *GetPolicyInput) (*GetPolicyO
 }
 
 func (c *Client) checkRegion(op string) error {
-	if c.c.Region() != "hcm-3" {
-		return fmt.Errorf("%w: %s: Backup Center supports only hcm-3", core.ErrInvalidConfig, op)
+	if endpoints.BackupCenter(c.c.Region()) == "" {
+		return fmt.Errorf("%w: %s: requires a supported Backup Center region", core.ErrInvalidConfig, op)
 	}
 	return nil
 }
