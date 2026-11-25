@@ -1,0 +1,1 @@
+{"success":true,"data":{"uuid":"nat-1","natName":"example","status":"ACTIVE","natGatewayIp":"192.0.2.1","publicIp":"198.51.100.1","createdAt":"example-time","natPackage":{"uuid":"pkg-1","name":"small","status":null},"vpc":{"uuid":"vpc-1","name":"example-vpc","createdAt":null},"subnet":null,"ignored":"example"}}
