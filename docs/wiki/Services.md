@@ -59,7 +59,7 @@ and universal permission coverage are not live-verified. Server enumeration,
 expiry-wait behavior, and deletion/activation revocation remain unverified.
 Explicit project selection is recommended; discovery denial remains a
 permission error and never switches identities or grants policies. NAT
-create/delete still require SDK IAM-user login in Hanoi. See
+create/delete still require SDK IAM-user login. See
 [Authentication](Authentication.md#service-account) for auth and rotation.
 
 ## Coverage
@@ -73,7 +73,7 @@ create/delete still require SDK IAM-user login in Hanoi. See
 | Portal | `portal` | User info, zones, quota usage, quota detail, tag quota | Typed zones; map-backed account and quotas | Useful for account and quota metadata. |
 | Compute | `compute` | Servers, SSH keys and writes, placement groups and policies, images, flavor price discovery, paid server writes | Typed | Some methods flatten nested list data; see [Compute](Compute.md) and [Compute Servers](Compute-Servers.md). |
 | Volume | `volume` | Volumes, underlying volumes, snapshots and policies, volume types and encryption types, price discovery, create, delete, attach, detach, resize | Typed | See [Volume](Volume.md) for discovery, snapshot policies, and write behavior. |
-| Network | `network` | VPCs, subnets, WAN IPs, interfaces, security groups, virtual IPs, routes, ACLs, endpoints, DHCP options, VPN inventory, Public NAT inventory and catalogs, public-IP price discovery, NAT quotes and writes | Typed | NAT create/delete supports `han-1` with IAM-user login; see [Network](Network.md), [Network-VPN](Network-VPN.md), and [Network-NAT](Network-NAT.md). |
+| Network | `network` | VPCs, subnets, WAN IPs, interfaces, security groups, virtual IPs, routes, ACLs, endpoints, DHCP options, VPN inventory, Public NAT inventory and catalogs, public-IP price discovery, NAT quotes and writes | Typed | NAT create/delete supports `han-1` and `hcm-3` with IAM-user login; see [Network](Network.md), [Network-VPN](Network-VPN.md), and [Network-NAT](Network-NAT.md). |
 | Load Balancer | `loadbalancer` | Load balancers, listeners, pools, health monitors, pool members, policies, tags, packages, certificates, plus certificate writes, create/resize price quotes, and load balancer, pool, listener, and policy writes | Typed | Requires IAM User permissions for the target load balancer resources; see [Load Balancer](LoadBalancer.md) for writes, the price guard, and waits. |
 | Global Load Balancer | `globalloadbalancer` | Packages, regions, load balancers, listeners, pools, pool members, usage history | Typed | Catalog methods do not require project selection. |
 | Database | `database` | Engine versions, zones, flavors, storage types, networks, instance list and get, plus create and delete of a private MySQL 8.0 instance | Typed | `hcm-3` only; create spends credits and delete needs `--yes`; see [Database](Database.md). |

@@ -157,7 +157,11 @@ idempotency key or conditional create.
 The V3 whitelist must explicitly enable all users. There is no subnet
 input, membership check, or legacy fallback.
 
-Purchase and delete support only `han-1` with the SDK's IAM-user login.
+Purchase and delete support `han-1` and `hcm-3` with the SDK's IAM-user
+login. Whether an account can buy depends on its own catalog: the chosen
+AZ must be enabled and listed for the VPC in the NAT picker, so an account
+whose VPCs list only a disabled AZ is refused before purchase. Live runs
+have verified `han-1`; `hcm-3` has not yet been live-verified.
 Static bearer tokens and custom credentials providers cannot establish
 that login provenance. Paid-write provenance trusts the SDK token cache,
 protected by file mode 0600 in a 0700 directory. Unsupported auth or region
