@@ -263,18 +263,18 @@ all other flags are optional.
 |Command|Flags|State|
 |-|-|-|
 |`list-load-balancers`|`--name`, `--page`, `--size`|Empty|
-|`get-load-balancer`|`--load-balancer-id`|Shape|
+|`get-load-balancer`|`--load-balancer-id`|Live|
 |`list-packages`|`--zone-id`|Live|
 |`list-certificates`|`--name`, `--page`, `--size`|Empty|
-|`get-certificate`|`--certificate-id`|Shape|
-|`list-listeners`|`--load-balancer-id`|Shape|
-|`get-listener`|`--load-balancer-id`, `--listener-id`|Shape|
-|`list-pools`|`--load-balancer-id`|Shape|
-|`get-pool`|`--load-balancer-id`, `--pool-id`|Shape|
-|`get-pool-health-monitor`|`--load-balancer-id`, `--pool-id`|Shape|
-|`list-pool-members`|`--load-balancer-id`, `--pool-id`|Shape|
+|`get-certificate`|`--certificate-id`|Live|
+|`list-listeners`|`--load-balancer-id`|Live|
+|`get-listener`|`--load-balancer-id`, `--listener-id`|Live|
+|`list-pools`|`--load-balancer-id`|Live|
+|`get-pool`|`--load-balancer-id`, `--pool-id`|Live|
+|`get-pool-health-monitor`|`--load-balancer-id`, `--pool-id`|Live|
+|`list-pool-members`|`--load-balancer-id`, `--pool-id`|Live|
 |`list-policies`|`--load-balancer-id`, `--listener-id`|Shape|
-|`get-policy`|`--load-balancer-id`, `--listener-id`, `--policy-id`|Shape|
+|`get-policy`|`--load-balancer-id`, `--listener-id`, `--policy-id`|Live|
 |`list-tags`|`--load-balancer-id`|Shape|
 
 - A `LoadBalancer` row has 24 columns in `table`. The wiki example uses
@@ -315,8 +315,8 @@ Short description: "Container registry repositories".
 
 | Command | Flags | Scope | State |
 |-|-|-|-|
-| `list-repositories` | `--access-level` | Global | Empty |
-| `list-users` | `--name`, `--page`, `--size` | Global | Empty |
+| `list-repositories` | `--access-level` | Global | Live |
+| `list-users` | `--name`, `--page`, `--size` | Global | Live |
 
 `--access-level` defaults to `ALL`; other values are unknown. Both models
 are typed from live rows.

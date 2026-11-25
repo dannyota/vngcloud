@@ -219,8 +219,6 @@ vngcloud loadbalancer get-certificate --certificate-id <certificate-id> --query 
 
 Kind: Read.
 
-Unverified live: no populated response has been captured, so this output shape comes from GreenNode's official SDK.
-
 | Flag | Type | Required |
 |-|-|-|
 | `--load-balancer-id` | `string` | yes |
@@ -246,8 +244,6 @@ vngcloud loadbalancer get-load-balancer --load-balancer-id <load-balancer-id> --
 
 Kind: Read.
 
-Unverified live: no populated response has been captured, so this output shape comes from GreenNode's official SDK.
-
 | Flag | Type | Required |
 |-|-|-|
 | `--load-balancer-id` | `string` | yes |
@@ -262,8 +258,6 @@ vngcloud loadbalancer get-policy --load-balancer-id <load-balancer-id> --listene
 
 Kind: Read.
 
-Unverified live: no populated response has been captured, so this output shape comes from GreenNode's official SDK.
-
 | Flag | Type | Required |
 |-|-|-|
 | `--load-balancer-id` | `string` | yes |
@@ -276,8 +270,6 @@ vngcloud loadbalancer get-pool --load-balancer-id <load-balancer-id> --pool-id <
 ## get-pool-health-monitor
 
 Kind: Read.
-
-Unverified live: no populated response has been captured, so this output shape comes from GreenNode's official SDK.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -379,8 +371,6 @@ vngcloud loadbalancer list-policies --load-balancer-id <load-balancer-id> --list
 ## list-pool-members
 
 Kind: Read.
-
-Unverified live: no populated response has been captured, so this output shape comes from GreenNode's official SDK.
 
 | Flag | Type | Required |
 |-|-|-|

@@ -340,8 +340,8 @@ It adds fields and fills `GetAlarm`'s `Kind`, so no caller breaks.
    Approved. The console shows a null Status call result as
    `CREATING`; if that lasts until the first evaluation, it can outlast
    any fair bound.
-4. Build and review now; live check and tag after the monthly limit
-   resets. Approved.
+4. Build and review now; the live check uses an existing `ACTIVE` log
+   project, or waits for an order slot when none exists. Approved.
 
 ## Open questions
 
