@@ -6,18 +6,43 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
+
+	"danny.vn/vngcloud"
+	"danny.vn/vngcloud/billing"
+	"danny.vn/vngcloud/network"
 )
 
 var errNATHoldTimeout = errors.New("NAT hold timed out")
 var errNATHoldUnlink = errors.New("NAT hold IDs removal failed")
 var errNATHoldPanic = errors.New("NAT hold failed")
 
-func runNATPostActive(hold func() error, reconcile func(context.Context), report func(error)) {
+func natHoldDeadlines(now, deadline time.Time, holdMax time.Duration) (time.Time, time.Time, error) {
+	cleanup := deadline.Add(-time.Minute)
+	holdEnd := cleanup.Add(-45 * time.Minute)
+	if holdEnd.Before(now.Add(40*time.Minute + holdMax)) {
+		return time.Time{}, time.Time{}, errors.New("NAT hold requires at least 86 minutes plus the hold maximum; use -timeout=120m")
+	}
+	return cleanup, holdEnd, nil
+}
+
+func recordNATPostOrderCash(report map[string]any, before, after float64, err error) {
+	report["afterOrderCashAvailable"] = err == nil
+	if err == nil {
+		report["afterOrderCash"] = after
+		report["debit"] = before - after
+	}
+}
+
+func runNATPostActive(ctx context.Context, hold func() error, reconcile func(context.Context), report func(error)) {
 	var holdErr error
 	func() {
 		defer func() {
@@ -28,9 +53,66 @@ func runNATPostActive(hold func() error, reconcile func(context.Context), report
 		holdErr = hold()
 	}()
 	defer func() { report(holdErr) }()
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
-	defer cancel()
 	reconcile(ctx)
+}
+
+type natReconcileState struct {
+	client                                      *network.Client
+	money                                       *billing.Client
+	report                                      map[string]any
+	zone, vpc, nat                              string
+	before                                      float64
+	after                                       *float64
+	cashErr                                     *error
+	cashRead, deleteAttempted, natGone, vpcGone *bool
+}
+
+func (s natReconcileState) run(ctx context.Context) error {
+	if !*s.cashRead {
+		cashCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		*s.after, *s.cashErr = storageProjectCash(cashCtx, s.money)
+		cancel()
+		*s.cashRead = *s.cashErr == nil
+		recordNATPostOrderCash(s.report, s.before, *s.after, *s.cashErr)
+	}
+	*s.deleteAttempted = true
+	if _, err := s.client.DeleteNATInstance(ctx, &network.DeleteNATInstanceInput{ZoneID: s.zone, VPCID: s.vpc, NATID: s.nat}); err != nil {
+		return errors.New("NAT delete failed; inspect leftovers before another action")
+	}
+	after, err := liveNATInventory(ctx, s.client, s.zone)
+	if err != nil {
+		return errors.New("NAT absence confirmation failed")
+	}
+	for _, row := range after {
+		if row.UUID == s.nat {
+			return errors.New("NAT remains after delete")
+		}
+	}
+	*s.natGone = true
+	routes, err := liveNATRoutes(ctx, s.client, s.vpc)
+	if err != nil || len(routes) != 0 {
+		return errors.New("NAT route removal was not confirmed")
+	}
+	s.report["afterDeleteRoutes"] = routes
+	if !liveNATBillingAbsent(ctx, s.money, s.nat) {
+		return errors.New("NAT billing row remains after delete")
+	}
+	s.report["billingAbsent"] = true
+	if !liveNATDeleteVPC(ctx, s.client, s.vpc) {
+		return errors.New("VPC delete did not settle within 10 minutes")
+	}
+	*s.vpcGone = true
+	if !*s.cashRead {
+		return errors.New("NAT debit unavailable; refund cannot be reconciled")
+	}
+	finalCash, refundErr := liveNATRefund(ctx, s.money, s.before, *s.after)
+	s.report["finalCash"] = finalCash
+	s.report["refund"] = finalCash - *s.after
+	s.report["netCost"] = s.before - finalCash
+	if refundErr != nil {
+		return errors.New("NAT refund remains unresolved; reconcile the private report and transactions")
+	}
+	return nil
 }
 
 type natHoldIDs struct {
@@ -191,7 +273,17 @@ func natHoldSleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
+func natHoldSupported(goos string) bool { return goos == "darwin" || goos == "linux" }
+
+func requireNATHoldPlatform(t *testing.T) {
+	t.Helper()
+	if !natHoldSupported(runtime.GOOS) {
+		t.Skip("hold unsupported")
+	}
+}
+
 func TestNATHold(t *testing.T) {
+	requireNATHoldPlatform(t)
 	dir := t.TempDir()
 	if err := os.Chmod(dir, 0700); err != nil {
 		t.Fatal(err)
@@ -259,6 +351,7 @@ func TestNATHold(t *testing.T) {
 }
 
 func TestNATHoldFreshDirectory(t *testing.T) {
+	requireNATHoldPlatform(t)
 	for _, name := range []string{"release", "nat-ids.json"} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -291,6 +384,7 @@ func TestNATHoldFreshDirectory(t *testing.T) {
 }
 
 func TestNATHoldRejectsNonRegularRelease(t *testing.T) {
+	requireNATHoldPlatform(t)
 	for _, symlink := range []bool{false, true} {
 		dir := t.TempDir()
 		if err := os.Chmod(dir, 0700); err != nil {
@@ -315,6 +409,7 @@ func TestNATHoldRejectsNonRegularRelease(t *testing.T) {
 }
 
 func TestNATHoldUnlinkFailure(t *testing.T) {
+	requireNATHoldPlatform(t)
 	dir := t.TempDir()
 	if err := os.Chmod(dir, 0700); err != nil {
 		t.Fatal(err)
@@ -336,6 +431,7 @@ func TestNATHoldUnlinkFailure(t *testing.T) {
 }
 
 func TestNATHoldPanicAndUnlink(t *testing.T) {
+	requireNATHoldPlatform(t)
 	dir := t.TempDir()
 	if err := os.Chmod(dir, 0700); err != nil {
 		t.Fatal(err)
@@ -346,7 +442,7 @@ func TestNATHoldPanicAndUnlink(t *testing.T) {
 	}
 	defer h.Close()
 	var result error
-	runNATPostActive(func() error {
+	runNATPostActive(context.Background(), func() error {
 		return h.wait(context.Background(), natHoldIDs{}, func() {}, func(context.Context, time.Duration) error {
 			if err := os.Remove(filepath.Join(dir, "nat-ids.json")); err != nil {
 				t.Fatal(err)
@@ -363,7 +459,7 @@ func TestNATPostActiveOrder(t *testing.T) {
 	for _, panicHold := range []bool{false, true} {
 		var steps []string
 		var err error
-		runNATPostActive(func() error {
+		runNATPostActive(context.Background(), func() error {
 			steps = append(steps, "hold")
 			if panicHold {
 				panic("private")
@@ -378,6 +474,159 @@ func TestNATPostActiveOrder(t *testing.T) {
 		if err == nil || len(steps) != 4 || steps[0] != "hold" || steps[1] != "delete" || steps[2] != "reconcile" || steps[3] != "report" {
 			t.Fatalf("order %v error %v", steps, err)
 		}
+	}
+}
+
+func runNATTransportScenario(t *testing.T, writeFailure bool) {
+	t.Helper()
+	var deletes, natReads, routeReads, billingReads int
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body := ""
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/v3-whitelist"):
+			body = `{"code":200,"success":true,"data":{"enabledForAll":true,"whitelistedPortalUserIds":[]}}`
+		case strings.HasSuffix(r.URL.Path, "/vpcs"):
+			body = `{"success":true,"page":1,"size":1000,"totalPage":1,"total":1,"data":[{"uuid":"vpc-1","projectId":"66b500000000000000000002","regionId":"66b500000000000000000001","zones":[{"uuid":"HAN01-1B"}],"projectUuid":"pro-00000000-0000-0000-0000-000000000001","regionUuid":"66b500000000000000000001"}]}`
+		case strings.HasSuffix(r.URL.Path, "/nats/nat-1") && r.Method == http.MethodDelete:
+			if r.Context().Err() != nil {
+				t.Error("delete context canceled")
+			}
+			deletes++
+			body = `{"code":0,"success":true}`
+		case strings.HasSuffix(r.URL.Path, "/nats"):
+			natReads++
+			if deletes == 0 {
+				body = `{"success":true,"page":1,"size":1000,"totalPage":1,"total":1,"data":[{"uuid":"nat-1","natName":"example","status":"ACTIVE","projectUuid":"pro-00000000-0000-0000-0000-000000000001","zoneUuid":"HAN01-1B","natPackage":{"uuid":"package-1"},"vpc":{"uuid":"vpc-1","projectId":"66b500000000000000000002","projectUuid":null,"regionUuid":null,"regionId":"66b500000000000000000001"}}]}`
+			} else {
+				body = `{"success":true,"page":1,"size":1000,"totalPage":0,"total":0,"data":[]}`
+			}
+		case strings.HasSuffix(r.URL.Path, "/route-table"):
+			routeReads++
+			body = `{"listData":[],"page":1,"pageSize":1000,"totalPage":0,"totalItem":0}`
+		case r.URL.Path == "/gateway/api/v1/home/user-info":
+			body = `{"code":200,"data":{"userId":123456}}`
+		case r.URL.Path == "/gateway/api/v1/resources":
+			billingReads++
+			body = `{"code":200,"data":{"data":[]}}`
+		case strings.Contains(r.URL.Path, "/navbar/balances/v1"):
+			body = `{"code":200,"data":{"cash":100,"poc":null,"cashAvailable":null,"cashHolding":null,"pocHolding":null}}`
+		case strings.HasSuffix(r.URL.Path, "/networks/vpc-1"):
+			w.WriteHeader(http.StatusNotFound)
+			return
+		default:
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		_, _ = w.Write([]byte(body))
+	}))
+	defer api.Close()
+	token := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"accessToken":"synthetic-token","expiresIn":3600}`))
+	}))
+	defer token.Close()
+	signin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			http.Redirect(w, r, token.URL+"/callback?code=synthetic-code", http.StatusFound)
+		} else {
+			_, _ = w.Write([]byte(`<input name="_csrf" value="synthetic-csrf">`))
+		}
+	}))
+	defer signin.Close()
+	cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("han-1"), vngcloud.WithProjectID("pro-00000000-0000-0000-0000-000000000001"), vngcloud.WithRetry(0, 0), vngcloud.WithIAMUser(&vngcloud.IAMUserAuth{RootEmail: "root@example.test", Username: "user", Password: "synthetic", SigninBaseURL: signin.URL, TokenURL: token.URL, DashboardURI: token.URL + "/"}), vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{VNetwork: api.URL + "/", Billing: api.URL + "/", VServer: api.URL + "/"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	h, err := newNATHold(dir, "2s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close()
+	if writeFailure {
+		if err := os.WriteFile(filepath.Join(dir, "nat-ids.json"), nil, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	after, cashErr, cashRead := float64(80), error(nil), true
+	attempted, natGone, vpcGone := false, false, false
+	report := map[string]any{}
+	state := natReconcileState{client: network.New(cfg), money: billing.New(cfg), report: report, zone: "66b500000000000000000001", vpc: "vpc-1", nat: "nat-1", before: 100, after: &after, cashErr: &cashErr, cashRead: &cashRead, deleteAttempted: &attempted, natGone: &natGone, vpcGone: &vpcGone}
+	var holdErr, reconcileErr error
+	runNATPostActive(context.Background(), func() error {
+		return h.wait(context.Background(), natHoldIDs{}, func() {}, func(context.Context, time.Duration) error { return nil })
+	}, func(ctx context.Context) { reconcileErr = state.run(ctx) }, func(err error) {
+		if deletes != 1 || natReads < 3 || routeReads != 1 || billingReads != 1 || !natGone || !vpcGone {
+			t.Error("hold failure reported before reconciliation completed")
+		}
+		holdErr = err
+	})
+	if holdErr == nil || (!writeFailure && !errors.Is(holdErr, errNATHoldTimeout)) {
+		t.Fatalf("hold error: %v", holdErr)
+	}
+	if reconcileErr != nil {
+		t.Fatalf("reconcile: %v", reconcileErr)
+	}
+	if deletes != 1 || natReads < 3 || routeReads != 1 || billingReads != 1 || !natGone || !vpcGone {
+		t.Fatalf("counts %d %d %d %d gone %v %v", deletes, natReads, routeReads, billingReads, natGone, vpcGone)
+	}
+}
+
+func TestNATRealPostActiveTransport(t *testing.T) {
+	requireNATHoldPlatform(t)
+	for _, writeFailure := range []bool{false, true} {
+		t.Run(strconv.FormatBool(writeFailure), func(t *testing.T) {
+			runNATTransportScenario(t, writeFailure)
+		})
+	}
+}
+
+func TestNATDefaultBudget(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Minute)
+	defer cancel()
+	runNATPostActive(ctx, func() error { return nil }, func(got context.Context) {
+		wantDeadline, _ := ctx.Deadline()
+		gotDeadline, _ := got.Deadline()
+		if !gotDeadline.Equal(wantDeadline) {
+			t.Fatal("default reconciliation deadline changed")
+		}
+	}, func(error) {})
+}
+
+func TestNATHoldPlatformSupport(t *testing.T) {
+	for _, tc := range []struct {
+		goos      string
+		supported bool
+	}{{"windows", false}, {"darwin", true}, {"linux", true}, {"freebsd", false}} {
+		if natHoldSupported(tc.goos) != tc.supported {
+			t.Fatalf("platform %s", tc.goos)
+		}
+	}
+}
+
+func TestNATHoldBudget(t *testing.T) {
+	now := time.Unix(0, 0)
+	if _, _, err := natHoldDeadlines(now, now.Add(100*time.Minute), 15*time.Minute); err == nil {
+		t.Fatal("short timeout accepted")
+	}
+	cleanup, holdEnd, err := natHoldDeadlines(now, now.Add(120*time.Minute), 15*time.Minute)
+	if err != nil || !cleanup.Equal(now.Add(119*time.Minute)) || !holdEnd.Equal(now.Add(74*time.Minute)) {
+		t.Fatalf("deadlines %v %v: %v", cleanup, holdEnd, err)
+	}
+}
+
+func TestNATRecordPostOrderCash(t *testing.T) {
+	r := map[string]any{}
+	recordNATPostOrderCash(r, 100, 80, nil)
+	if r["afterOrderCashAvailable"] != true || r["afterOrderCash"] != float64(80) || r["debit"] != float64(20) {
+		t.Fatal(r)
+	}
+	recordNATPostOrderCash(r, 100, 0, errors.New("unavailable"))
+	if r["afterOrderCashAvailable"] != false {
+		t.Fatal(r)
 	}
 }
 
