@@ -72,8 +72,14 @@ description, creation time, and `System`. `PortRangeMin` and
 ```go
 nat, err := client.GetNATInstance(ctx,
     &network.GetNATInstanceInput{NATID: id})
+if err != nil {
+    return err
+}
 rules, err := client.ListNATInboundRules(ctx,
     &network.ListNATInboundRulesInput{NATID: id})
+if err != nil {
+    return err
+}
 ```
 
 Both use the same regions, login, project, and `ZoneID` discovery as
@@ -81,8 +87,10 @@ Both use the same regions, login, project, and `ZoneID` discovery as
 `hcm-3` a different shape fails closed. Statuses pass through unchanged.
 Fields may be empty on a NAT that is not `ACTIVE`; an `ACTIVE` NAT must
 carry them all. A response for another NAT ID, a missing required field, a
-sign of a second rule page, or a sent credential in any returned or
-discovered value returns `InvalidResponse` with no output.
+sent credential in any returned or discovered value, or rule paging with
+`totalPage` above 1, a total above the row count, `page` above 1, or a
+non-empty `next` returns `InvalidResponse` with no output. Other paging
+keys are not checked.
 
 ## Catalogs and purchase
 
