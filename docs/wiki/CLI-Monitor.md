@@ -303,6 +303,20 @@ Reads the current alarm state and its location states through the check's Histor
 vngcloud monitor get-check-alarm --check-id <check-id> --query Alarm
 ```
 
+## get-dashboard
+
+Kind: Read.
+
+Reads one dashboard without widgets. Custom dashboards are listed by default; --system lists dashboards GreenNode generates per resource. There is no delete command.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--dashboard-id` | `string` | yes |
+
+```sh
+vngcloud monitor get-dashboard --dashboard-id <dashboard-id> --query Dashboard
+```
+
 ## get-log-project
 
 Kind: Read.
@@ -449,6 +463,22 @@ No fields.
 
 ```sh
 vngcloud monitor list-checks
+```
+
+## list-dashboards
+
+Kind: Read.
+
+Lists custom dashboards by default; --system lists dashboards GreenNode generates per resource. Widgets are not returned; there is no delete command.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--page` | `int` |  |
+| `--size` | `int` |  |
+| `--system` | `bool` |  |
+
+```sh
+vngcloud monitor list-dashboards
 ```
 
 ## list-locations

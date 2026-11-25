@@ -1,5 +1,13 @@
 # Release Notes
 
+## v1.3.0 - vMonitor dashboard reads
+
+- List and read vMonitor dashboards with `monitor list-dashboards` and
+  `monitor get-dashboard` (SDK `ListDashboards`, `GetDashboard`). Custom
+  dashboards are the default; `--system` lists the dashboards GreenNode
+  generates for each resource. Widgets are not returned, and there is no
+  delete command.
+
 ## v1.2.1 - Create-server refusal hint
 
 - When GreenNode refuses `compute create-server` (SDK `CreateServer`) with

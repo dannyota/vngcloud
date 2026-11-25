@@ -20,7 +20,7 @@ These are additive and ship in `1.x`.
 - [ ] Keep root-checkout NAT outside the approved IAM write slice; obtain separate approval for any future contract. [Auth boundary](docs/design/network-writes-nat.md#purchase-and-auth).
 - [ ] Add a read of a check's per-location test results, so a user can see why one location alarms while another stays OK. [vMonitor](docs/design/monitor.md).
 - [ ] Discover and add a channel test send, so a user can prove delivery without breaking a check. [Channels](docs/design/monitor-alerts.md#channels).
-- [ ] Add vMonitor dashboard list, get, and delete for user dashboards; GreenNode creates one dashboard per resource and the console does not allow deleting those. [vMonitor](docs/design/monitor.md).
-- [ ] Quote a replacement or upgrade of an existing notification quota. [Quote contract](docs/design/monitor-quotas.md#quote-and-price-contract).
+- [ ] Add vMonitor dashboard delete for custom dashboards once the provider is shown to refuse deleting generated dashboards. [Dashboards](docs/design/monitor-console-reads.md#dashboards).
+- [ ] Quote an upgrade of an existing Email or SMS notification quota after observing the resize quote on an active quota; the account has none. [Resize quote](docs/design/monitor-console-reads.md#existing-notification-quota-resize-quote).
 - [ ] Consider release binaries with checksums and provenance attestations for CI installs; pinned `go install` with the Go checksum database is the supported path today. [Unattended CI](docs/design/cli.md).
 - [ ] Add an auto-renew read and toggle for endpoint billing records, like the vStorage project toggle; the endpoint create request for renewal off is not reflected in billing. [Auto-renew](docs/design/auto-renew.md).

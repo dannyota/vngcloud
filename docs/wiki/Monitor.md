@@ -57,6 +57,27 @@ func main() {
 The rest of this page assumes `cfg` and `ctx` from this setup, plus
 `client := monitor.New(cfg)`.
 
+## Dashboards
+
+List custom dashboards by default, or select GreenNode-generated resource
+dashboards with `System: true`. Widgets are not returned, and there is no
+dashboard delete command.
+
+```go
+page, err := client.ListDashboards(ctx, &monitor.ListDashboardsInput{System: true})
+if err != nil {
+    log.Fatal(err)
+}
+for _, dashboard := range page.Items {
+    log.Println(dashboard.ID, dashboard.Name)
+}
+```
+
+```sh
+vngcloud monitor list-dashboards --system
+vngcloud monitor get-dashboard --dashboard-id <dashboard-id>
+```
+
 ## Reading checks
 
 ```go

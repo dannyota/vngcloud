@@ -126,6 +126,10 @@ var monitorOps = []Op[monitor.Client]{
 	Read[monitor.Client, monitor.GetSyntheticQuotaUsageInput, monitor.GetSyntheticQuotaUsageOutput](
 		kebab("GetSyntheticQuotaUsage"), (*monitor.Client).GetSyntheticQuotaUsage),
 
+	monitorDashboardView(Read[monitor.Client, monitor.ListDashboardsInput, monitor.ListDashboardsOutput](
+		kebab("ListDashboards"), (*monitor.Client).ListDashboards)),
+	monitorDashboardView(Read[monitor.Client, monitor.GetDashboardInput, monitor.GetDashboardOutput](
+		kebab("GetDashboard"), (*monitor.Client).GetDashboard)),
 	Read[monitor.Client, monitor.ListChecksInput, monitor.ListChecksOutput](
 		kebab("ListChecks"), (*monitor.Client).ListChecks),
 	Read[monitor.Client, monitor.GetCheckInput, monitor.GetCheckOutput](
