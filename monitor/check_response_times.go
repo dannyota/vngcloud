@@ -8,12 +8,14 @@ import (
 	"io"
 	"math"
 	"net/url"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/transport"
 )
 
 // ListCheckResponseTimesInput identifies a check and time window.
@@ -55,6 +57,13 @@ func (c *Client) ListCheckResponseTimes(ctx context.Context, in *ListCheckRespon
 	if err := core.CheckPathID(op, "CheckID", in.CheckID); err != nil {
 		return nil, err
 	}
+	for _, value := range []string{in.Start, in.End} {
+		if value != "" {
+			if _, err := responseParseTime(value); err != nil {
+				return nil, checkHistoryInputError(op)
+			}
+		}
+	}
 	start, end, err := c.checkHistoryRange(op, &ListCheckAlarmHistoryInput{Start: in.Start, End: in.End})
 	if err != nil {
 		return nil, err
@@ -93,17 +102,28 @@ func (c *Client) ListCheckResponseTimes(ctx context.Context, in *ListCheckRespon
 	if !responseSafe(texts, credentials) {
 		return nil, checkAlarmResponseError(op, "InvalidResponse")
 	}
+	if alarm != "" && core.CheckPathID(op, "HistoryAlarmID", alarm) != nil {
+		return nil, checkAlarmResponseError(op, "InvalidResponse")
+	}
 	if subtype != "HTTP" {
 		return nil, &core.APIError{Operation: op, Code: "InvalidInput", Message: "check subtype must be HTTP", Err: core.ErrInvalidInput}
 	}
 	if alarm == "" {
 		return nil, &core.APIError{Operation: op, Code: "NotFound", Message: "check has no alarm reference", Err: core.ErrNotFound}
 	}
-	if core.CheckPathID(op, "HistoryAlarmID", alarm) != nil {
+	q := url.Values{"name": {responseMetric}, "dimensions": {"syntt_id:" + in.CheckID}, "statistics": {"avg"}, "start_time": {strconv.FormatInt(start.UnixMilli(), 10)}, "end_time": {strconv.FormatInt(end.UnixMilli(), 10)}, "group_by": {"location_id"}, "alarm": {alarm}}
+	blocked := false
+	ctx = transport.WithCredentialObserver(ctx, func(value string) ([]string, error) {
+		if !credentials.add([]string{value}) || !responseSafe(texts, credentials) {
+			blocked = true
+			return nil, errors.New("credential safety check failed")
+		}
+		return credentials, nil
+	})
+	_, err = c.readCheckAlarmJSON(ctx, op, c.alarmRoute([]string{"statistics", "synthetics"}, q), checkHistoryMaxBody, &raw, &credentials)
+	if blocked {
 		return nil, checkAlarmResponseError(op, "InvalidResponse")
 	}
-	q := url.Values{"name": {responseMetric}, "dimensions": {"syntt_id:" + in.CheckID}, "statistics": {"avg"}, "start_time": {strconv.FormatInt(start.UnixMilli(), 10)}, "end_time": {strconv.FormatInt(end.UnixMilli(), 10)}, "group_by": {"location_id"}, "alarm": {alarm}}
-	_, err = c.readCheckAlarmJSON(ctx, op, c.alarmRoute([]string{"statistics", "synthetics"}, q), checkHistoryMaxBody, &raw, &credentials)
 	if err != nil {
 		return nil, err
 	}
@@ -120,6 +140,15 @@ func (c *Client) ListCheckResponseTimes(ctx context.Context, in *ListCheckRespon
 	}
 	slices.SortFunc(decoded.items, func(a, b CheckResponseTimeSeries) int { return strings.Compare(a.LocationID, b.LocationID) })
 	return &ListCheckResponseTimesOutput{Items: decoded.items, Start: start, End: end}, nil
+}
+
+var responseRFC3339 = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$`)
+
+func responseParseTime(value string) (time.Time, error) {
+	if !responseRFC3339.MatchString(value) {
+		return time.Time{}, errors.New("invalid RFC 3339 timestamp")
+	}
+	return time.Parse(time.RFC3339, value)
 }
 
 func responseSafe(texts []string, credentials monitorReadCredentials) bool {
@@ -253,7 +282,7 @@ func (d *responseSeriesDecoder) UnmarshalJSON(raw []byte) error {
 			if !responseSafe([]string{key, value}, d.credentials) {
 				return errors.New("reflected credential")
 			}
-			timestamp, e := time.Parse(time.RFC3339, key)
+			timestamp, e := responseParseTime(key)
 			if e != nil {
 				return e
 			}

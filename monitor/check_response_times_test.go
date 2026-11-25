@@ -5,12 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
 	"time"
 
 	"danny.vn/vngcloud/internal/core"
+	"danny.vn/vngcloud/internal/endpoints"
+	"danny.vn/vngcloud/internal/transport"
 )
 
 func TestCheckResponseTimesValidation(t *testing.T) {
@@ -110,10 +113,21 @@ func TestCheckResponseTimesEarlyBucket(t *testing.T) {
 	for _, tc := range []struct {
 		body, start string
 		good        bool
-	}{{`[` + early + `]`, "", true}, {`[` + early + `]`, "2000-01-01T00:00:01Z", false}, {`[` + strings.Replace(early, `}]}`, `},{"key":"1999-12-31T23:56:00Z","value":"1"}]}`, 1) + `]`, "", false}} {
+	}{
+		{`[` + early + `]`, "", true},
+		{`[` + strings.Replace(early, "23:55:00Z", "23:56:00Z", 1) + `]`, "2000-01-01T00:00:01Z", false},
+		{`[` + strings.Replace(early, `}]}`, `},{"key":"1999-12-31T23:56:00Z","value":"1"}]}`, 1) + `]`, "", false},
+	} {
 		out, err := responseClient(t, responseSnapshot, tc.body, nil).ListCheckResponseTimes(context.Background(), &ListCheckResponseTimesInput{CheckID: "chk-1", Start: tc.start})
-		if (err == nil) != tc.good || (out != nil) != tc.good {
-			t.Fatalf("out=%v err=%v", out, err)
+		if tc.good {
+			if err != nil || out == nil {
+				t.Fatalf("out=%v err=%v", out, err)
+			}
+		} else {
+			var api *core.APIError
+			if out != nil || !errors.As(err, &api) || api.Code != "InvalidResponse" {
+				t.Fatalf("out=%v err=%v", out, err)
+			}
 		}
 	}
 }
@@ -149,7 +163,7 @@ func TestCheckResponseTimesFixture(t *testing.T) {
 }
 
 func TestCheckResponseTimesRefreshReflection(t *testing.T) {
-	for _, pair := range [][2]string{{"12.5", "synthetic-new"}, {"synthetic-old", "loc-2"}} {
+	for _, pair := range [][2]string{{"12.5", "synthetic-new"}, {"synthetic-old", "12.5"}} {
 		t.Run(pair[0], func(t *testing.T) {
 			target := "/vmonitor-api/api/v1/statistics/synthetics"
 			c := monitorRefreshClient(t, pair[0], pair[1], target, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -168,4 +182,188 @@ func TestCheckResponseTimesRefreshReflection(t *testing.T) {
 			assertMonitorCredentialsAbsent(t, out, err, pair[0], pair[1])
 		})
 	}
+}
+
+func TestCheckResponseTimesBlocksRefreshedAlarmCredential(t *testing.T) {
+	source := &monitorRefreshTokens{first: "synthetic-first", second: "alarm-1"}
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/vmonitor-uptime-manager/v1/uptimes/chk-1" {
+			_, _ = w.Write([]byte(responseSnapshot))
+			return
+		}
+		attempts++
+		if attempts == 1 {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer server.Close()
+	c := New(core.NewTestConfig("hcm-3", "", endpoints.Set{Monitor: server.URL + "/"}, transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: source})))
+	c.now = func() time.Time { return time.Date(2000, 1, 2, 0, 0, 0, 0, time.UTC) }
+	out, err := c.ListCheckResponseTimes(context.Background(), &ListCheckResponseTimesInput{CheckID: "chk-1"})
+	var api *core.APIError
+	if out != nil || !errors.As(err, &api) || api.Code != "InvalidResponse" || attempts != 1 || source.calls != 2 {
+		t.Fatalf("out=%v err=%v attempts=%d token calls=%d", out, err, attempts, source.calls)
+	}
+	assertMonitorCredentialsAbsent(t, out, err, "synthetic-first", "alarm-1")
+}
+
+func TestCheckResponseTimesStrictInputTime(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("unexpected request") }))
+	for _, in := range []*ListCheckResponseTimesInput{{CheckID: "chk-1", Start: "2000-01-01T1:00:00Z"}, {CheckID: "chk-1", End: "2000-01-01T1:00:00Z"}, {CheckID: "chk-1", Start: "2000-01-01T00:00:00+24:00"}} {
+		out, err := c.ListCheckResponseTimes(context.Background(), in)
+		if out != nil || !errors.Is(err, core.ErrInvalidInput) {
+			t.Fatalf("out=%v err=%v", out, err)
+		}
+	}
+}
+
+func TestCheckResponseTimesStrictBucketTime(t *testing.T) {
+	for _, key := range []string{"2000-01-01T1:00:00Z", "2000-01-01T01:00:00,5Z", "2000-01-01T01:00:00+00:60"} {
+		body := `[` + strings.Replace(responseGroup, "2000-01-01T01:00:00Z", key, 1) + `]`
+		out, err := responseClient(t, responseSnapshot, body, nil).ListCheckResponseTimes(context.Background(), &ListCheckResponseTimesInput{CheckID: "chk-1"})
+		var api *core.APIError
+		if out != nil || !errors.As(err, &api) || api.Code != "InvalidResponse" {
+			t.Fatalf("out=%v err=%v", out, err)
+		}
+	}
+}
+
+func TestCheckResponseTimesMalformedNonHTTP(t *testing.T) {
+	snapshot := strings.ReplaceAll(strings.ReplaceAll(responseSnapshot, "HTTP", "PING"), "alarm-1", "../bad")
+	out, err := responseClient(t, snapshot, `[]`, nil).ListCheckResponseTimes(context.Background(), &ListCheckResponseTimesInput{CheckID: "chk-1"})
+	var api *core.APIError
+	if out != nil || !errors.As(err, &api) || api.Code != "InvalidResponse" {
+		t.Fatalf("out=%v err=%v", out, err)
+	}
+}
+
+func TestCheckResponseTimesExplicitEnd(t *testing.T) {
+	calls := 0
+	c := responseClient(t, responseSnapshot, `[]`, func(r *http.Request) {
+		calls++
+		if r.URL.Query().Get("start_time") != "946728000000" || r.URL.Query().Get("end_time") != "946814400000" {
+			t.Errorf("query=%v", r.URL.Query())
+		}
+	})
+	out, err := c.ListCheckResponseTimes(context.Background(), &ListCheckResponseTimesInput{CheckID: "chk-1", End: "2000-01-02T12:00:00Z"})
+	if err != nil || out == nil || calls != 1 || !out.End.Equal(time.Date(2000, 1, 2, 12, 0, 0, 0, time.UTC)) || !out.Start.Equal(time.Date(2000, 1, 1, 12, 0, 0, 0, time.UTC)) {
+		t.Fatalf("out=%v err=%v calls=%d", out, err, calls)
+	}
+}
+
+func TestCheckResponseTimesZeroMillisecondWindow(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("unexpected request") }))
+	out, err := c.ListCheckResponseTimes(context.Background(), &ListCheckResponseTimesInput{CheckID: "chk-1", Start: "2000-01-01T00:00:00.0001Z", End: "2000-01-01T00:00:00.0009Z"})
+	if out != nil || !errors.Is(err, core.ErrInvalidInput) {
+		t.Fatalf("out=%v err=%v", out, err)
+	}
+}
+
+func TestCheckResponseTimesMalformedSnapshotFields(t *testing.T) {
+	cases := map[string]string{"wrong-id": strings.Replace(responseSnapshot, `"chk-1"`, `"chk-2"`, 1), "missing-subtype": strings.Replace(responseSnapshot, `"subtype":"HTTP",`, "", 1)}
+	for name, snapshot := range cases {
+		t.Run(name, func(t *testing.T) {
+			out, err := responseClient(t, snapshot, `[]`, func(*http.Request) { t.Error("unexpected statistics request") }).ListCheckResponseTimes(context.Background(), &ListCheckResponseTimesInput{CheckID: "chk-1"})
+			var api *core.APIError
+			if out != nil || !errors.As(err, &api) || api.Code != "InvalidResponse" {
+				t.Fatalf("out=%v err=%v", out, err)
+			}
+		})
+	}
+}
+
+func TestCheckResponseTimesRejectsWrongFieldCase(t *testing.T) {
+	for _, field := range []string{"name", "statistics"} {
+		t.Run(field, func(t *testing.T) {
+			wrong := strings.ToUpper(field[:1]) + field[1:]
+			body := `[` + strings.Replace(responseGroup, `"`+field+`":`, `"`+wrong+`":`, 1) + `]`
+			out, err := responseClient(t, responseSnapshot, body, nil).ListCheckResponseTimes(context.Background(), &ListCheckResponseTimesInput{CheckID: "chk-1"})
+			var api *core.APIError
+			if out != nil || !errors.As(err, &api) || api.Code != "InvalidResponse" {
+				t.Fatalf("out=%v err=%v", out, err)
+			}
+		})
+	}
+}
+
+func TestCheckResponseTimesHTTPStatus(t *testing.T) {
+	for _, target := range []string{"/vmonitor-uptime-manager/v1/uptimes/chk-1", "/vmonitor-api/api/v1/statistics/synthetics"} {
+		t.Run(target, func(t *testing.T) {
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == target {
+					w.WriteHeader(http.StatusForbidden)
+					_, _ = w.Write([]byte(`{"message":"withheld-text"}`))
+					return
+				}
+				if r.URL.Path == "/vmonitor-uptime-manager/v1/uptimes/chk-1" {
+					_, _ = w.Write([]byte(responseSnapshot))
+					return
+				}
+				t.Errorf("unexpected request %s", r.URL.Path)
+			}))
+			out, err := c.ListCheckResponseTimes(context.Background(), &ListCheckResponseTimesInput{CheckID: "chk-1"})
+			var api *core.APIError
+			if out != nil || !errors.As(err, &api) || api.StatusCode != http.StatusForbidden || api.Code != "Forbidden" || !errors.Is(err, core.ErrPermission) || strings.Contains(err.Error(), "withheld-text") {
+				t.Fatalf("out=%v err=%v", out, err)
+			}
+		})
+	}
+}
+
+func TestCheckResponseTimesSnapshotBodyLimit(t *testing.T) {
+	snapshot := responseSnapshot + strings.Repeat(" ", 1<<20)
+	c := responseClient(t, snapshot, `[]`, func(*http.Request) { t.Error("unexpected statistics request") })
+	out, err := c.ListCheckResponseTimes(context.Background(), &ListCheckResponseTimesInput{CheckID: "chk-1"})
+	var api *core.APIError
+	if out != nil || !errors.As(err, &api) || api.Code != "ResponseLimitExceeded" {
+		t.Fatalf("out=%v err=%v", out, err)
+	}
+}
+
+func TestCheckResponseTimesPointLimitAcrossSeries(t *testing.T) {
+	var body strings.Builder
+	body.WriteString(`[{"name":"syntt.http.response_time","dimensions":{"location_id":"loc-1"},"statistics":[`)
+	for i := range 50001 {
+		if i > 0 {
+			body.WriteByte(',')
+		}
+		fmt.Fprintf(&body, `{"key":"2000-01-01T01:00:00.%09dZ","value":"1"}`, i)
+	}
+	body.WriteString(`]},{"name":"syntt.http.response_time","dimensions":{"location_id":"loc-2"},"statistics":[`)
+	for i := range 50000 {
+		if i > 0 {
+			body.WriteByte(',')
+		}
+		fmt.Fprintf(&body, `{"key":"2000-01-01T01:00:00.%09dZ","value":"1"}`, i)
+	}
+	body.WriteString(`]}]`)
+	out, err := responseClient(t, responseSnapshot, body.String(), nil).ListCheckResponseTimes(context.Background(), &ListCheckResponseTimesInput{CheckID: "chk-1"})
+	var api *core.APIError
+	if out != nil || !errors.As(err, &api) || api.Code != "ResponseLimitExceeded" {
+		t.Fatalf("out=%v err=%v", out, err)
+	}
+}
+
+func TestCheckResponseTimesBlocksSnapshotCredential(t *testing.T) {
+	source := &monitorRefreshTokens{first: "alarm-1", second: "alarm-1"}
+	stats := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/vmonitor-uptime-manager/v1/uptimes/chk-1" {
+			_, _ = w.Write([]byte(responseSnapshot))
+			return
+		}
+		stats++
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer server.Close()
+	c := New(core.NewTestConfig("hcm-3", "", endpoints.Set{Monitor: server.URL + "/"}, transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: source})))
+	out, err := c.ListCheckResponseTimes(context.Background(), &ListCheckResponseTimesInput{CheckID: "chk-1"})
+	var api *core.APIError
+	if out != nil || !errors.As(err, &api) || api.Code != "InvalidResponse" || stats != 0 {
+		t.Fatalf("out=%v err=%v stats=%d", out, err, stats)
+	}
+	assertMonitorCredentialsAbsent(t, out, err, "alarm-1")
 }
