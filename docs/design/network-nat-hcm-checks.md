@@ -41,7 +41,10 @@ of the following.
    and SKU in the AZ-filtered catalog. Check for the HAN test's Standard
    offer (`nat.s-standard`) in HCM. Keep the selected AZ and offer in the
    private report for comparison. If the offer or placement is ambiguous
-   or unavailable, stop and resolve selection before any purchase.
+   or unavailable, stop and resolve selection before any purchase. A first
+   preflight stopped before ordering because HCM03-1B and HCM03-1C both
+   offered Standard at 712,400 VND; `VNGCLOUD_LIVE_NAT_AZ` then names one
+   candidate AZ, and any other value stops the run.
 3. A valid positive quote at or below 720,000 VND and enough credit. Create
    rechecks `MaxPrice` against its immediate quote. If the HCM quote exceeds
    the cap or HCM needs a different offer, obtain owner approval before

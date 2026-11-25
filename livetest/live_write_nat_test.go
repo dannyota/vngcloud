@@ -220,7 +220,7 @@ func TestLiveWriteNAT(t *testing.T) {
 	if err != nil {
 		t.Fatal("NAT zone catalog failed")
 	}
-	az, packageID, err := natSelectPlacement(ctx, client, region, zoneID, offers.Items)
+	az, packageID, err := natSelectPlacement(ctx, client, region, zoneID, os.Getenv("VNGCLOUD_LIVE_NAT_AZ"), offers.Items)
 	if err != nil {
 		t.Fatal("NAT placement or package selection failed")
 	}

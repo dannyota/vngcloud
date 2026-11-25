@@ -30,7 +30,7 @@ func natReadCreditCap(ctx context.Context, reader natBalanceReader, cap float64)
 	return natCreditCap(cap, *out.Balances.CashAvailable)
 }
 
-func natSelectPlacement(ctx context.Context, client *network.Client, region, scope string, zones []network.NATAvailabilityZone) (string, string, error) {
+func natSelectPlacement(ctx context.Context, client *network.Client, region, scope, requested string, zones []network.NATAvailabilityZone) (string, string, error) {
 	fetch := func(ctx context.Context, az string) ([]network.NATPackageOffer, error) {
 		out, err := client.ListNATPackages(ctx, &network.ListNATPackagesInput{ZoneID: scope, AvailabilityZoneID: az})
 		if err != nil {
@@ -42,18 +42,22 @@ func natSelectPlacement(ctx context.Context, client *network.Client, region, sco
 		return out.Items, nil
 	}
 	if region == "hcm-3" {
-		return natSelectHCM(ctx, zones, fetch)
+		return natSelectHCM(ctx, zones, requested, fetch)
 	}
 	for _, zone := range zones {
 		if zone.ZoneType == "AVAILABILITY" && zone.IsEnabled {
-			return natSelectHCM(ctx, []network.NATAvailabilityZone{zone}, fetch)
+			return natSelectHCM(ctx, []network.NATAvailabilityZone{zone}, "", fetch)
 		}
 	}
 	return "", "", errors.New("no enabled NAT availability zone")
 }
 
-func natSelectHCM(ctx context.Context, zones []network.NATAvailabilityZone, fetch func(context.Context, string) ([]network.NATPackageOffer, error)) (string, string, error) {
+func natSelectHCM(ctx context.Context, zones []network.NATAvailabilityZone, requested string, fetch func(context.Context, string) ([]network.NATPackageOffer, error)) (string, string, error) {
+	if requested != "" && core.CheckPathID("NAT selection", "AZ", requested) != nil {
+		return "", "", errors.New("invalid requested NAT AZ")
+	}
 	selectedAZ, selectedOffer := "", ""
+	candidates := 0
 	seen := map[string]bool{}
 	for _, zone := range zones {
 		if !zone.IsEnabled || zone.ZoneType != "AVAILABILITY" {
@@ -67,18 +71,26 @@ func natSelectHCM(ctx context.Context, zones []network.NATAvailabilityZone, fetc
 		if err != nil {
 			return "", "", errors.New("NAT package catalog failed")
 		}
+		offerID := ""
 		for _, offer := range offers {
 			if offer.BillingSKU != "nat.s-standard" || offer.CurrencyUnit != "VND" {
 				continue
 			}
-			if selectedAZ != "" || core.CheckPathID("NAT selection", "offer", offer.UUID) != nil {
+			if offerID != "" || core.CheckPathID("NAT selection", "offer", offer.UUID) != nil {
 				return "", "", errors.New("ambiguous NAT offer")
 			}
-			selectedAZ, selectedOffer = zone.UUID, offer.UUID
+			offerID = offer.UUID
+		}
+		if offerID == "" {
+			continue
+		}
+		candidates++
+		if requested == "" || requested == zone.UUID {
+			selectedAZ, selectedOffer = zone.UUID, offerID
 		}
 	}
-	if selectedAZ == "" {
-		return "", "", errors.New("no eligible NAT offer")
+	if selectedAZ == "" || (requested == "" && candidates != 1) {
+		return "", "", errors.New("ambiguous or unavailable NAT AZ")
 	}
 	return selectedAZ, selectedOffer, nil
 }

@@ -61,17 +61,17 @@ func TestNATHarnessHCMSelection(t *testing.T) {
 		}
 		return nil, nil
 	}
-	az, pkg, err := natSelectHCM(context.Background(), zones, fetch)
+	az, pkg, err := natSelectHCM(context.Background(), zones, "", fetch)
 	if err != nil || az != "az-1" || pkg != "offer-1" {
 		t.Fatalf("selection %q %q %v", az, pkg, err)
 	}
-	_, _, err = natSelectHCM(context.Background(), zones, func(context.Context, string) ([]network.NATPackageOffer, error) {
+	_, _, err = natSelectHCM(context.Background(), zones, "", func(context.Context, string) ([]network.NATPackageOffer, error) {
 		return []network.NATPackageOffer{offer}, nil
 	})
 	if err == nil {
 		t.Fatal("multiple AZ candidates accepted")
 	}
-	_, _, err = natSelectHCM(context.Background(), zones[:1], func(context.Context, string) ([]network.NATPackageOffer, error) {
+	_, _, err = natSelectHCM(context.Background(), zones[:1], "", func(context.Context, string) ([]network.NATPackageOffer, error) {
 		return []network.NATPackageOffer{offer, offer}, nil
 	})
 	if err == nil {
