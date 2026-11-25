@@ -1,5 +1,12 @@
 # Release Notes
 
+## v1.5.0 - Public NAT detail and inbound rules
+
+- Read one Public NAT with `network get-nat-instance --nat-id` (SDK
+  `GetNATInstance`) and its inbound rules with
+  `network list-nat-inbound-rules --nat-id` (SDK `ListNATInboundRules`), in
+  `hcm-3` and `han-1`. Unexpected responses fail with no output.
+
 ## v1.4.0 - Backup Center and snapshot reads in Hanoi
 
 - `backup` reads (`list-backends`, `list-policies`, `get-policy`) and

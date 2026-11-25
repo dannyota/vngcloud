@@ -58,7 +58,31 @@ nonnegative totals, and an array of rows with nonempty UUIDs. A verified
 empty response may omit `data` only when both totals are explicitly zero.
 `data: null`, missing metadata, wrong types, and malformed bodies return
 `InvalidResponse`. NAT keeps the shared API errors, cancellation, and GET
-retry policy. NAT detail and rule methods are not exposed.
+retry policy.
+
+## Detail and inbound rules
+
+`GetNATInstance` reads one NAT by `NATID` and returns `NATDetail`: ID, name,
+status, gateway and public IPs, creation time, and the package and VPC IDs
+and names. `ListNATInboundRules` returns the NAT's inbound rules as
+`Items []NATInboundRule`: ID, protocol, ether type, direction, port range,
+description, creation time, and `System`. `PortRangeMin` and
+`PortRangeMax` are `*int`; nil means the API sent null.
+
+```go
+nat, err := client.GetNATInstance(ctx,
+    &network.GetNATInstanceInput{NATID: id})
+rules, err := client.ListNATInboundRules(ctx,
+    &network.ListNATInboundRulesInput{NATID: id})
+```
+
+Both use the same regions, login, project, and `ZoneID` discovery as
+`ListNATInstances`. Live responses have been observed only in `han-1`; in
+`hcm-3` a different shape fails closed. Statuses pass through unchanged.
+Fields may be empty on a NAT that is not `ACTIVE`; an `ACTIVE` NAT must
+carry them all. A response for another NAT ID, a missing required field, a
+sign of a second rule page, or a sent credential in any returned or
+discovered value returns `InvalidResponse` with no output.
 
 ## Catalogs and purchase
 
