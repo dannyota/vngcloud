@@ -12,8 +12,9 @@ VND, while HCM03-1A is the default AZ and disabled. The NAT VPC picker
 lists only HCM03-1A for both an existing VPC and the run's disposable VPC,
 so the SDK guard refuses 1B and 1C with "VPC does not list the
 availability zone". The disposable VPC was removed and nothing was bought.
-HCM NAT writes stay refused in the SDK until GreenNode enables an AZ that
-VPCs list, and this run then passes.
+The SDK still enables HCM writes for accounts whose VPCs list an enabled
+AZ (owner decision); this run stays open until the test account can
+complete it.
 
 ## Run
 
