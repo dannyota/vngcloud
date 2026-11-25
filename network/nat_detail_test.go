@@ -27,6 +27,77 @@ func (s natFailingTokenSource) Token(context.Context) (transport.Token, error) {
 }
 func (natFailingTokenSource) Invalidate(string) {}
 
+func TestNATReadRejectsBearerInDiscoveredScope(t *testing.T) {
+	for _, scope := range []string{"project", "region"} {
+		t.Run(scope, func(t *testing.T) {
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				n := calls.Add(1)
+				if n == 1 {
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				if strings.HasSuffix(r.URL.Path, "/projects") {
+					project := "project-1"
+					if scope == "project" {
+						project = "earlier-token"
+					}
+					_, _ = fmt.Fprintf(w, `{"projects":[{"projectId":%q,"region":"hcm-3"}]}`, project)
+					return
+				}
+				if strings.HasSuffix(r.URL.Path, "/regions") {
+					_, _ = w.Write([]byte(`{"success":true,"data":[{"uuid":"earlier-token","vnetworkDashboard":"https://hcm-3-vnetwork.console.greennode.ai"}]}`))
+					return
+				}
+				t.Error("final NAT request was sent")
+				_, _ = w.Write([]byte(`{"success":true,"data":{"uuid":"nat-1","status":"DELETING","vpc":{"uuid":"vpc-1"},"natPackage":{"uuid":"pkg-1"}}}`))
+			}))
+			defer server.Close()
+			tokens := &rotatingNATTokens{values: []string{"earlier-token \t", "later-token"}}
+			tc := transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: tokens})
+			c := New(core.NewTestConfig("hcm-3", "", endpoints.Set{VServer: server.URL + "/", VNetwork: server.URL + "/"}, tc))
+			zone := "region-1"
+			wantCalls := int32(2)
+			if scope == "region" {
+				zone = ""
+				wantCalls = 3
+			}
+			out, err := c.GetNATInstance(context.Background(), &GetNATInstanceInput{NATID: "nat-1", ZoneID: zone})
+			if out != nil || vngcloud.ErrorCode(err) != "InvalidResponse" || calls.Load() != wantCalls {
+				t.Fatalf("out=%+v err=%v calls=%d", out, err, calls.Load())
+			}
+		})
+	}
+}
+
+func TestNATReadRechecksProjectAfterRegionRefresh(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := calls.Add(1)
+		if n == 1 || n == 3 {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/projects") {
+			_, _ = w.Write([]byte(`{"projects":[{"projectId":"third-token","region":"hcm-3"}]}`))
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/regions") {
+			_, _ = w.Write([]byte(`{"success":true,"data":[{"uuid":"region-1","vnetworkDashboard":"https://hcm-3-vnetwork.console.greennode.ai"}]}`))
+			return
+		}
+		t.Error("final NAT request was sent")
+	}))
+	defer server.Close()
+	tokens := &rotatingNATTokens{values: []string{"first-token", "second-token", "third-token"}}
+	tc := transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: tokens})
+	c := New(core.NewTestConfig("hcm-3", "", endpoints.Set{VServer: server.URL + "/", VNetwork: server.URL + "/"}, tc))
+	out, err := c.GetNATInstance(context.Background(), &GetNATInstanceInput{NATID: "nat-1"})
+	if out != nil || vngcloud.ErrorCode(err) != "InvalidResponse" || calls.Load() != 4 {
+		t.Fatalf("out=%+v err=%v calls=%d", out, err, calls.Load())
+	}
+}
+
 func TestNATReadRetainsTokenCacheSentinel(t *testing.T) {
 	for _, sentinel := range []error{core.ErrTokenCache, core.ErrNoCredentials, core.ErrCredentialsFile, core.ErrInvalidConfig, core.ErrAuth, context.Canceled, context.DeadlineExceeded} {
 		source := natFailingTokenSource{err: fmt.Errorf("private-provider-detail: %w", sentinel)}

@@ -136,6 +136,8 @@ func (c *Client) natRead(ctx context.Context, op, id, zone string, suffix []stri
 	if err != nil {
 		return nil, nil, err
 	}
+	projectDiscovered := project == ""
+	zoneDiscovered := zone == ""
 	var creds []string
 	project, err = c.natProjectIDForRead(ctx, op, &creds)
 	if err != nil {
@@ -144,11 +146,17 @@ func (c *Client) natRead(ctx context.Context, op, id, zone string, suffix []stri
 	if core.CheckPathID(op, "ProjectID", project) != nil {
 		return nil, nil, fmt.Errorf("%w: %s requires a path-safe ProjectID", core.ErrInvalidInput, op)
 	}
+	if projectDiscovered && natHasCredential([]string{project}, creds) {
+		return nil, nil, natInvalidRead(op)
+	}
 	if zone == "" {
 		zone, err = c.natZoneIDForRead(ctx, base, true, &creds)
 		if err != nil {
 			return nil, nil, err
 		}
+	}
+	if (projectDiscovered && natHasCredential([]string{project}, creds)) || (zoneDiscovered && natHasCredential([]string{zone}, creds)) {
+		return nil, nil, natInvalidRead(op)
 	}
 	parts := append([]string{zone, project, "nats", id}, suffix...)
 	var raw json.RawMessage
