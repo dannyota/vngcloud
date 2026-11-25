@@ -20,7 +20,7 @@ func (natCustomProvider) Token(context.Context) (vngcloud.Token, error) {
 func (natCustomProvider) Invalidate(string) {}
 
 func TestNATWriteAuthGuards(t *testing.T) {
-	for _, opt := range []vngcloud.LoadOption{vngcloud.WithStaticToken("synthetic-token"), vngcloud.WithCredentialsProvider(natCustomProvider{}), vngcloud.WithRegion("hcm-3")} {
+	for _, opt := range []vngcloud.LoadOption{vngcloud.WithStaticToken("synthetic-token"), vngcloud.WithCredentialsProvider(natCustomProvider{}), vngcloud.WithRegion("unsupported")} {
 		calls := 0
 		c := natWriteTestClient(t, http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { calls++ }), opt)
 		_, err := c.CreateNATInstance(context.Background(), natTestInput())
