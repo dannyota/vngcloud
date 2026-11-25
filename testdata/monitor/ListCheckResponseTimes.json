@@ -1,0 +1,8 @@
+[
+  {
+    "name": "syntt.http.response_time",
+    "dimensions": {"location_id": "loc-1"},
+    "statistics": [{"key": "2000-01-01T01:00:00Z", "value": "12.5"}],
+    "ignored": "synthetic"
+  }
+]
