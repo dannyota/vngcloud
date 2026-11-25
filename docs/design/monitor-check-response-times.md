@@ -115,8 +115,11 @@ check's. The server therefore scopes the statistics to the requested
 check. Each group's further string `id` matched neither check ID, nor the
 `history_alarm`, nor a location alarm ID; it stays unmodeled.
 
-Unverified: bucket width for windows other than 24 hours, empty windows,
-and error envelopes.
+The shipped CLI then read the same check live: a 24-hour window returned
+about 288 points per location, and a one-hour window returned 1-minute
+buckets with gaps and no early bucket.
+
+Unverified: empty windows and error envelopes.
 
 [alarms]: monitor-quotas.md#check-state-and-history
 [metrics]: monitor-console-reads.md#check-per-location-diagnostics

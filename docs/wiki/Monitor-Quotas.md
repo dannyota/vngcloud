@@ -36,6 +36,24 @@ truncation are unknown, and it supplies no state at the window start.
 Empty history proves neither that no transition occurred nor that the
 alarm exists. Use `GetCheckAlarm` for current state.
 
+## Response times by location
+
+`ListCheckResponseTimes` reads an HTTP check's average response time per
+probe location. Each series has a `LocationID` and points of `Timestamp`
+and `ValueMillis`; for a 24-hour window the points are 5 minutes apart.
+Take location names from `GetCheckAlarm`.
+
+```sh
+vngcloud monitor list-check-response-times --check-id <check-id>
+```
+
+`Start` and `End` are RFC 3339 strings. End defaults to now and Start to 24
+hours before it; a window longer than 24 hours, an empty or reversed one,
+or a non-HTTP check fails before the statistics request. The first point
+of a 24-hour window can start up to 5 minutes before `Start`. Missing
+buckets are not filled, and a missing point does not mean the check was
+healthy. An unexpected response returns `InvalidResponse` with no output.
+
 ## Quota reads
 
 ```sh

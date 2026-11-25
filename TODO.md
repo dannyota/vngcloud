@@ -18,13 +18,11 @@ These are additive and ship in `1.x`.
 - [ ] Complete gated vDB engine designs and populated models beyond MySQL 8.0. [Contract](docs/design/database-services.md).
 - [ ] Specify manual one-period renewal orders in a later slice; renewal settings do not place orders. [Contract](docs/design/auto-renew.md).
 - [ ] Keep root-checkout NAT outside the approved IAM write slice; obtain separate approval for any future contract. [Auth boundary](docs/design/network-writes-nat.md#purchase-and-auth).
-- [ ] Add a read of a check's per-location test results, so a user can see why one location alarms while another stays OK. [vMonitor](docs/design/monitor.md).
+- [ ] Add a read of a check's individual run results per location once a stored-result GET is found; the console only shows results from a new test run. [Diagnostics](docs/design/monitor-console-reads.md).
 - [ ] Discover and add a channel test send, so a user can prove delivery without breaking a check. [Channels](docs/design/monitor-alerts.md#channels).
 - [ ] Add vMonitor dashboard delete for custom dashboards once the provider is shown to refuse deleting generated dashboards. [Dashboards](docs/design/monitor-console-reads.md#dashboards).
 - [ ] Quote an upgrade of an existing Email or SMS notification quota after observing the resize quote on an active quota. [Resize quote](docs/design/monitor-console-reads.md#existing-notification-quota-resize-quote).
 - [ ] Consider release binaries with checksums and provenance attestations for CI installs; pinned `go install` with the Go checksum database is the supported path today. [Unattended CI](docs/design/cli.md).
-- [ ] Verify the HAN endpoint subnet picker with an existing VPC and enabled zone before offering endpoint quote or create in `han-1`. [Endpoint API](docs/design/network-endpoints-api.md).
-- [ ] Verify the HAN bandwidth package catalog route from the console before adding bandwidth reads; do not fall back to another gateway. [Pricing discovery](docs/design/pricing-discovery-api.md).
-- [ ] Verify whether vStorage `HCM03` belongs to the same catalog and S3 signing scope as `HCM04` and `HAN02` before exposing it. [vStorage objects](docs/design/storage-objects.md).
+- [ ] Design bandwidth package reads when a consumer needs them; both regions' console configurations use `/vserver/bandwidth-api` on the regional host. [Pricing discovery](docs/design/pricing-discovery-api.md).
 - [ ] Verify service-account server scope with a scoped profile and one approved server before claiming it. [Service-account auth](docs/design/service-account-auth.md).
 - [ ] Add an auto-renew read and toggle for endpoint billing records, like the vStorage project toggle; the endpoint create request for renewal off is not reflected in billing. [Auto-renew](docs/design/auto-renew.md).

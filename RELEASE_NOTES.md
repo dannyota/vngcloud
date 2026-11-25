@@ -1,5 +1,12 @@
 # Release Notes
 
+## v1.6.0 - vMonitor check response times
+
+- Read an HTTP check's average response time per probe location with
+  `monitor list-check-response-times --check-id` (SDK
+  `ListCheckResponseTimes`), for up to 24 hours. Pair it with
+  `get-check-alarm` to see which location is slow or alarming.
+
 ## v1.5.0 - Public NAT detail and inbound rules
 
 - Read one Public NAT with `network get-nat-instance --nat-id` (SDK

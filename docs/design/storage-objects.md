@@ -59,6 +59,10 @@ privacy check reject credential-file transfers before a network call; there is
 no insecure fallback. Linux and macOS are the first CLI targets. The SDK remains
 portable because callers supply credentials in memory.
 
+vStorage HCM03 is out of scope. The management API lists only HCM04 and
+HAN02, and GreenNode documents HCM03 as a separate product whose S3 keys
+are managed through vIAM and which also offers Swift.
+
 Require `--s3-region HCM04` or `--s3-region HAN02`. The endpoint map uses
 `https://hcm04.vstorage.vngcloud.vn` and `https://han02.vstorage.vngcloud.vn`,
 respectively, matching recorded `Region.S3Host`. No case folding, region
