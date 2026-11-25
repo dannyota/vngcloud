@@ -1775,6 +1775,48 @@ func TestMonitorQuotaReadCommands(t *testing.T) {
 	}
 }
 
+func TestMonitorListCheckResponseTimes(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/vmonitor-uptime-manager/v1/uptimes/chk-1": jsonHandler(http.StatusOK, `{"id":"chk-1","subtype":"HTTP","history_alarm":"alarm-1","locations":["loc-1"]}`),
+		"/vmonitor-api/api/v1/statistics/synthetics": func(w http.ResponseWriter, r *http.Request) {
+			want := map[string]string{"name": "syntt.http.response_time", "dimensions": "syntt_id:chk-1", "statistics": "avg", "start_time": "946684800000", "end_time": "946771200000", "group_by": "location_id", "alarm": "alarm-1"}
+			if r.Method != http.MethodGet || len(r.URL.Query()) != len(want) {
+				t.Errorf("request = %s %s", r.Method, r.URL.String())
+			}
+			for key, value := range want {
+				if got := r.URL.Query().Get(key); got != value {
+					t.Errorf("query %s = %q, want %q", key, got, value)
+				}
+			}
+			_, _ = w.Write([]byte(`[{"name":"syntt.http.response_time","dimensions":{"location_id":"loc-1"},"statistics":[{"key":"2000-01-01T01:00:00Z","value":"12.5"}]}]`))
+		},
+	})
+	root, stdout, stderr := newSvcRoot(t, fixture)
+	err := execCmd(t, root, []string{"--region", "hcm-3", "--read-only", "monitor", "list-check-response-times", "--check-id", "chk-1", "--start", "2000-01-01T00:00:00Z", "--end", "2000-01-02T00:00:00Z"})
+	if err != nil {
+		t.Fatalf("%v: %s", err, stderr)
+	}
+	var out monitor.ListCheckResponseTimesOutput
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Items) != 1 || out.Items[0].LocationID != "loc-1" || len(out.Items[0].Points) != 1 || out.Items[0].Points[0].ValueMillis != 12.5 || out.Items[0].Points[0].Timestamp.Format(time.RFC3339) != "2000-01-01T01:00:00Z" || out.Start.Format(time.RFC3339) != "2000-01-01T00:00:00Z" || out.End.Format(time.RFC3339) != "2000-01-02T00:00:00Z" {
+		t.Fatalf("unexpected output: %s", stdout)
+	}
+	if fixture.requestCount() != 2 {
+		t.Fatalf("requests = %d, want 2", fixture.requestCount())
+	}
+}
+
+func TestMonitorListCheckResponseTimesRequiresCheckID(t *testing.T) {
+	fixture := newSvcFixture(nil)
+	root, _, _ := newSvcRoot(t, fixture)
+	err := execCmd(t, root, []string{"--region", "hcm-3", "monitor", "list-check-response-times"})
+	if err == nil || exitCode(err) != 2 || fixture.requestCount() != 0 {
+		t.Fatalf("err=%v requests=%d", err, fixture.requestCount())
+	}
+}
+
 func TestMonitorHistoryInputs(t *testing.T) {
 	for _, tc := range []struct {
 		name  string

@@ -117,6 +117,8 @@ var monitorOps = []Op[monitor.Client]{
 		kebab("GetCheckAlarm"), (*monitor.Client).GetCheckAlarm),
 	Read[monitor.Client, monitor.ListCheckAlarmHistoryInput, monitor.ListCheckAlarmHistoryOutput](
 		kebab("ListCheckAlarmHistory"), (*monitor.Client).ListCheckAlarmHistory),
+	Read[monitor.Client, monitor.ListCheckResponseTimesInput, monitor.ListCheckResponseTimesOutput](
+		kebab("ListCheckResponseTimes"), (*monitor.Client).ListCheckResponseTimes),
 	Read[monitor.Client, monitor.GetQuotaUsageInput, monitor.GetQuotaUsageOutput](
 		kebab("GetQuotaUsage"), (*monitor.Client).GetQuotaUsage),
 	monitorQuotaView(Read[monitor.Client, monitor.ListNotificationPackagesInput, monitor.ListNotificationPackagesOutput](

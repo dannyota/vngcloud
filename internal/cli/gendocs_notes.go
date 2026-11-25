@@ -326,6 +326,7 @@ var docOpNotes = map[string]string{
 	"iam list-users":                          iamListUsersNote + " " + iamPagingNote,
 	"monitor get-check-alarm":                 monitorGetCheckAlarmNote,
 	"monitor list-check-alarm-history":        monitorCheckHistoryNote,
+	"monitor list-check-response-times":       monitorResponseTimesNote,
 	"monitor get-quota-usage":                 monitorQuotaUsageNote,
 	"monitor list-notification-packages":      monitorNotificationPackagesNote,
 	"monitor get-synthetic-quota":             monitorSyntheticQuotaNote,
