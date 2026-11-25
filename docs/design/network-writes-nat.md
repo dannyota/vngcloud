@@ -223,8 +223,8 @@ raw order body, or auth bypass. Delete keeps `--no-wait` and `--yes`.
 
 The owner approved these choices:
 
-1. Purchase and auth: use direct collection POST, require SDK IAM-user
-   login, and enable writes only in verified regions.
+1. Purchase and auth: use direct collection POST and require SDK IAM-user
+   login, in `han-1` and `hcm-3`.
 2. Renewal: include the one billing renewal-off write and confirmation;
    preserve partial output and return NotSettled on failure, without resend
    or deletion.
@@ -233,6 +233,7 @@ The owner approved these choices:
    and VPC membership, and preserve the existing ZoneID meaning.
 5. Discovery: add ListNATZones and ListNATPackages with matching CLI reads.
 6. V3: require enabledForAll true and expose no subnet fallback.
-7. HCM: qualify both writes with one paid lifecycle in a disposable VPC.
-   Use the same protections as HAN and qualify the two ACTIVE NAT reads
-   during that run. Release HCM writes only after the checks pass.
+7. HCM: enable both writes for every account, relying on the per-account
+   checks before purchase. One paid lifecycle in a disposable VPC, with the
+   same protections as HAN and the two ACTIVE NAT reads, remains the open
+   live verification.

@@ -1,7 +1,8 @@
 # Public NAT HCM live check
 
-The single paid run that enables Public NAT create and delete in `hcm-3`
-under the [NAT purchase amendment](network-writes-nat.md). The
+The single paid run that live-verifies Public NAT create and delete in
+`hcm-3` under the [NAT purchase amendment](network-writes-nat.md); the SDK
+already enables them per account. The
 [API evidence](network-writes-api.md) holds the shared NAT envelopes.
 
 ## Preflight result
@@ -78,7 +79,7 @@ qualifies only the empty form. Record allowlisted field kinds and null
 versus absent. Signal the harness with a regular `release` file immediately
 after probing, even on failure. The probe writes a separate pass or fail
 result for each read before `release`; a missing result or a failed read
-fails the run and blocks release even when cleanup succeeds. Hold timeout
+fails the run even when cleanup succeeds. Hold timeout
 or probe failure fails the run and cleanup continues under its own
 deadline.
 
@@ -89,8 +90,8 @@ NAT and billing absence and restoration of the empty route baseline. On
 every cleanup path after the order, delete the VPC only when all three are
 confirmed; otherwise leave it and record it as a leftover in the private
 report. Finish with VPC deletion and reconciliation of debit, refund, and net cost against
-private transactions. Failed checks or unresolved leftovers keep HCM writes
-gated. Add sanitized HCM discovery, order and delete envelopes, lifecycle
+private transactions. Failed checks or unresolved leftovers leave HCM
+writes unverified and block further paid runs until resolved. Add sanitized HCM discovery, order and delete envelopes, lifecycle
 and cost results here, and record observed detail and inbound-rule shapes
 in the read design. Keep resource IDs, balances, transactions, and raw
 responses private.

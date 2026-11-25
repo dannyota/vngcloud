@@ -8,7 +8,7 @@ Shared rules live here and in `instructions/`. [CLAUDE.md](CLAUDE.md) adds Claud
 
 The module is `danny.vn/vngcloud`. Public service packages live at the root; `vngcloud.go` exposes shared names, `internal/` holds private implementation, and `cmd/vngcloud/` is the CLI entry point. Unit fixtures live in `testdata/`, live tests in `livetest/`, and user docs in `docs/wiki/`.
 
-Public NAT create, quote, delete, and zone and package reads are implemented for IAM login in Hanoi. Designs with unresolved API evidence, cost, permission, or resource prerequisites remain gated; document presence does not approve implementation or a live run.
+Public NAT create, quote, delete, and zone and package reads are implemented for IAM login in `han-1` and `hcm-3`; writes are live-verified only in `han-1`. Designs with unresolved API evidence, cost, permission, or resource prerequisites remain gated; document presence does not approve implementation or a live run.
 
 ## Map
 

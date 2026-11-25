@@ -2,11 +2,11 @@
 
 ## v1.7.0 - Public NAT create and delete in hcm-3
 
-- `network create-nat-instance` and `delete-nat-instance` now work in
+- `network create-nat-instance` and `delete-nat-instance` now allow
   `hcm-3` as well as `han-1`, with IAM-user login. Each account's own
   catalog decides: the availability zone must be enabled and listed for the
-  VPC, or the call is refused before purchase.
-  `hcm-3` purchase has not been live-verified.
+  VPC, or create is refused before purchase. Neither write has been
+  live-verified in `hcm-3`.
 
 ## v1.6.1 - NAT create no longer reports a stale NAT ID
 
