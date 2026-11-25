@@ -47,6 +47,7 @@ code starts. Decisions with lasting trade-offs also get an
 | [Server service reads](server-services.md) | Accepted for snapshot policy reads |
 | [Backup Center reads](backup-services.md) | Accepted for the first release |
 | [vNetwork NAT and VPN reads](network-services.md) | Accepted |
+| [NAT detail and inbound rules](network-nat-reads.md) | Accepted for `han-1` IAM reads; endpoint renewal held; [parity inventory](network-parity-inventory.md) only |
 | [Public NAT and VPN writes](network-writes.md) | Accepted; Public NAT is implemented; VPN writes remain evidence-gated |
 | [Private endpoint lifecycle](network-endpoints.md) | Proposed; API, billing, DNS, and ownership gates remain open |
 | [Database inventory](database-services.md) | Draft |
