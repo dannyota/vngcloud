@@ -538,12 +538,14 @@ func classify(err error) errorEnvelope {
 func fillEnvelopeFromAPIError(env *errorEnvelope, err error, apiErr *vngcloud.APIError) {
 	var refusal interface {
 		error
-		Unwrap() error
-		ServerCreateRefusalAdvice() string
+		ServerCreateRefusalMessage() string
 	}
 	if errors.As(err, &refusal) && err.Error() == refusal.Error() {
-		fillEnvelopeFromAPIError(env, refusal.Unwrap(), apiErr)
-		env.Message += "; " + refusal.ServerCreateRefusalAdvice()
+		env.Message = refusal.ServerCreateRefusalMessage()
+		env.Operation = apiErr.Operation
+		if apiErr.StatusCode > 0 {
+			env.Status = apiErr.StatusCode
+		}
 		return
 	}
 	message := apiErr.Message

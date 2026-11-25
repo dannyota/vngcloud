@@ -829,3 +829,46 @@ func TestComputeListServers400MessageUnchanged(t *testing.T) {
 		t.Fatalf("error=%v envelope=%+v", err, classify(err))
 	}
 }
+
+func TestComputeCreateServer400HintDoesNotReassembleUserData(t *testing.T) {
+	const secret = "user data; a 400"
+	path := filepath.Join(t.TempDir(), "user-data")
+	if err := os.WriteFile(path, []byte(secret), 0600); err != nil {
+		t.Fatal(err)
+	}
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/servers": func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet {
+				_, _ = w.Write([]byte(computeEmptyServerListJSON))
+				return
+			}
+			if r.Header.Get("Authorization") != "Bearer test-token" {
+				t.Error("missing synthetic bearer token")
+			}
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = fmt.Fprintf(w, `{"message":%q}`, r.Header.Get("Authorization"))
+		},
+		"/v1/price": jsonHandler(http.StatusOK, computeQuoteJSON(500000)),
+	})
+	root, stdout, stderr := newSvcRoot(t, fixture)
+	root.SetArgs(append([]string{"--region", "hcm-3", "--project-id", "proj-1"}, append(createServerArgsWithoutSSHKey(), "--max-price", "500000", "--no-wait", "--user-data-file", path)...))
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected refusal")
+	}
+	printError(stderr, err)
+	var got struct {
+		Error errorEnvelope `json:"error"`
+	}
+	if e := json.Unmarshal(stderr.Bytes(), &got); e != nil {
+		t.Fatalf("stderr is not JSON: %v", e)
+	}
+	if got.Error.Status != 400 || got.Error.Operation != "compute.CreateServer" || exitCode(err) != 1 || stdout.Len() != 0 {
+		t.Fatalf("unexpected envelope=%+v exit=%d stdout=%q", got.Error, exitCode(err), stdout.String())
+	}
+	for _, text := range []string{stderr.String(), got.Error.Message, err.Error()} {
+		if strings.Contains(text, secret) || strings.Contains(text, "test-token") {
+			t.Fatalf("secret leaked: %q", text)
+		}
+	}
+}

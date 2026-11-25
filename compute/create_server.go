@@ -444,7 +444,19 @@ func (c *Client) CreateServer(ctx context.Context, in *CreateServerInput) (out *
 	if err != nil {
 		var apiErr *core.APIError
 		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusBadRequest {
-			return nil, &serverCreateRefusalError{err: err}
+			message := apiErr.Message
+			if message == "" {
+				message = apiErr.Error()
+			}
+			if err.Error() != apiErr.Error() {
+				message = err.Error()
+			}
+			scope.mu.Lock()
+			values := append([]string(nil), scope.credentials...)
+			values = append(values, scope.secrets...)
+			scope.mu.Unlock()
+			message = transport.RedactErrorText(message+"; "+serverCreateRefusalAdvice, values...)
+			return nil, &serverCreateRefusalError{err: err, message: message}
 		}
 		return nil, wrapAmbiguousServerCreateErr(op, err)
 	}
@@ -473,7 +485,8 @@ func (c *Client) CreateServer(ctx context.Context, in *CreateServerInput) (out *
 const serverCreateRefusalAdvice = "a 400 can mean a disk type is not offered in ZoneID; list the zone's types with volume.ListVolumeTypes and ZoneID"
 
 type serverCreateRefusalError struct {
-	err error
+	err     error
+	message string
 }
 
 func (e *serverCreateRefusalError) Error() string {
@@ -482,8 +495,8 @@ func (e *serverCreateRefusalError) Error() string {
 
 func (e *serverCreateRefusalError) Unwrap() error { return e.err }
 
-func (e *serverCreateRefusalError) ServerCreateRefusalAdvice() string {
-	return serverCreateRefusalAdvice
+func (e *serverCreateRefusalError) ServerCreateRefusalMessage() string {
+	return e.message
 }
 
 // wrapAmbiguousServerCreateErr wraps err, from the create POST just sent,
