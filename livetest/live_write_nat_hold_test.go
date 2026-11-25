@@ -57,14 +57,14 @@ func runNATPostActive(ctx context.Context, hold func() error, reconcile func(con
 }
 
 type natReconcileState struct {
-	client                                      *network.Client
-	money                                       *billing.Client
-	report                                      map[string]any
-	zone, vpc, nat                              string
-	before                                      float64
-	after                                       *float64
-	cashErr                                     *error
-	cashRead, deleteAttempted, natGone, vpcGone *bool
+	client                     *network.Client
+	money                      *billing.Client
+	report                     map[string]any
+	zone, vpc, nat             string
+	before                     float64
+	after                      *float64
+	cashErr                    *error
+	cashRead, natGone, vpcGone *bool
 }
 
 func (s natReconcileState) run(ctx context.Context) error {
@@ -75,7 +75,6 @@ func (s natReconcileState) run(ctx context.Context) error {
 		*s.cashRead = *s.cashErr == nil
 		recordNATPostOrderCash(s.report, s.before, *s.after, *s.cashErr)
 	}
-	*s.deleteAttempted = true
 	if _, err := s.client.DeleteNATInstance(ctx, &network.DeleteNATInstanceInput{ZoneID: s.zone, VPCID: s.vpc, NATID: s.nat}); err != nil {
 		return errors.New("NAT delete failed; inspect leftovers before another action")
 	}
@@ -477,7 +476,7 @@ func TestNATPostActiveOrder(t *testing.T) {
 	}
 }
 
-func runNATTransportScenario(t *testing.T, writeFailure bool) {
+func runNATTransportScenario(t *testing.T, writeFailure, createFailed bool) {
 	t.Helper()
 	var deletes, natReads, routeReads, billingReads int
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -533,13 +532,18 @@ func runNATTransportScenario(t *testing.T, writeFailure bool) {
 		}
 	}))
 	defer signin.Close()
-	cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("han-1"), vngcloud.WithProjectID("pro-00000000-0000-0000-0000-000000000001"), vngcloud.WithRetry(0, 0), vngcloud.WithIAMUser(&vngcloud.IAMUserAuth{RootEmail: "root@example.test", Username: "user", Password: "synthetic", SigninBaseURL: signin.URL, TokenURL: token.URL, DashboardURI: token.URL + "/"}), vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{VNetwork: api.URL + "/", Billing: api.URL + "/", VServer: api.URL + "/"}))
+	natID := "nat-1"
+	deleteTransport := &natDeleteTransport{base: http.DefaultTransport, natID: &natID}
+	cfg, err := vngcloud.NewConfig(vngcloud.WithTransport(deleteTransport), vngcloud.WithRegion("han-1"), vngcloud.WithProjectID("pro-00000000-0000-0000-0000-000000000001"), vngcloud.WithRetry(0, 0), vngcloud.WithIAMUser(&vngcloud.IAMUserAuth{RootEmail: "root@example.test", Username: "user", Password: "synthetic", SigninBaseURL: signin.URL, TokenURL: token.URL, DashboardURI: token.URL + "/"}), vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{VNetwork: api.URL + "/", Billing: api.URL + "/", VServer: api.URL + "/"}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir := t.TempDir()
-	if err := os.Chmod(dir, 0700); err != nil {
-		t.Fatal(err)
+	dir := ""
+	if !createFailed {
+		dir = t.TempDir()
+		if err := os.Chmod(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
 	}
 	h, err := newNATHold(dir, "2s")
 	if err != nil {
@@ -552,25 +556,43 @@ func runNATTransportScenario(t *testing.T, writeFailure bool) {
 		}
 	}
 	after, cashErr, cashRead := float64(80), error(nil), true
-	attempted, natGone, vpcGone := false, false, false
+	natGone, vpcGone := false, false
 	report := map[string]any{}
-	state := natReconcileState{client: network.New(cfg), money: billing.New(cfg), report: report, zone: "66b500000000000000000001", vpc: "vpc-1", nat: "nat-1", before: 100, after: &after, cashErr: &cashErr, cashRead: &cashRead, deleteAttempted: &attempted, natGone: &natGone, vpcGone: &vpcGone}
+	createOut := &network.CreateNATInstanceOutput{NATInstance: &network.NATInstance{UUID: natID, Status: "ACTIVE"}}
+	var createErr error
+	if createFailed {
+		createErr = context.DeadlineExceeded
+	}
+	state := natReconcileState{client: network.New(cfg), money: billing.New(cfg), report: report, zone: "66b500000000000000000001", vpc: "vpc-1", nat: createOut.NATInstance.UUID, before: 100, after: &after, cashErr: &cashErr, cashRead: &cashRead, natGone: &natGone, vpcGone: &vpcGone}
 	var holdErr, reconcileErr error
-	runNATPostActive(context.Background(), func() error {
+	opCtx, cancelOp := context.WithCancel(context.Background())
+	if createFailed {
+		cancelOp()
+		if err := state.run(opCtx); err == nil || deleteTransport.sent.Load() {
+			t.Fatal("canceled pre-delete read marked a DELETE as sent")
+		}
+	}
+	defer cancelOp()
+	reconcileCtx, cancelReconcile := natReconcileContext(opCtx, time.Time{}, createErr == nil && createOut.NATInstance.Status == "ACTIVE")
+	defer cancelReconcile()
+	runNATPostActive(reconcileCtx, func() error {
+		if createFailed {
+			return nil
+		}
 		return h.wait(context.Background(), natHoldIDs{}, func() {}, func(context.Context, time.Duration) error { return nil })
 	}, func(ctx context.Context) { reconcileErr = state.run(ctx) }, func(err error) {
-		if deletes != 1 || natReads < 3 || routeReads != 1 || billingReads != 1 || !natGone || !vpcGone {
+		if deletes != 1 || !deleteTransport.sent.Load() || natReads < 3 || routeReads != 1 || billingReads != 1 || !natGone || !vpcGone {
 			t.Error("hold failure reported before reconciliation completed")
 		}
 		holdErr = err
 	})
-	if holdErr == nil || (!writeFailure && !errors.Is(holdErr, errNATHoldTimeout)) {
+	if !createFailed && (holdErr == nil || (!writeFailure && !errors.Is(holdErr, errNATHoldTimeout))) {
 		t.Fatalf("hold error: %v", holdErr)
 	}
 	if reconcileErr != nil {
 		t.Fatalf("reconcile: %v", reconcileErr)
 	}
-	if deletes != 1 || natReads < 3 || routeReads != 1 || billingReads != 1 || !natGone || !vpcGone {
+	if deletes != 1 || !deleteTransport.sent.Load() || natReads < 3 || routeReads != 1 || billingReads != 1 || !natGone || !vpcGone {
 		t.Fatalf("counts %d %d %d %d gone %v %v", deletes, natReads, routeReads, billingReads, natGone, vpcGone)
 	}
 }
@@ -579,9 +601,38 @@ func TestNATRealPostActiveTransport(t *testing.T) {
 	requireNATHoldPlatform(t)
 	for _, writeFailure := range []bool{false, true} {
 		t.Run(strconv.FormatBool(writeFailure), func(t *testing.T) {
-			runNATTransportScenario(t, writeFailure)
+			runNATTransportScenario(t, writeFailure, false)
 		})
 	}
+}
+
+type natTestTransport func(*http.Request) (*http.Response, error)
+
+func (f natTestTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestNATDeleteTransportAttempt(t *testing.T) {
+	id := "nat-1"
+	transport := &natDeleteTransport{natID: &id, base: natTestTransport(func(*http.Request) (*http.Response, error) { return nil, errors.New("ambiguous") })}
+	if transport.sent.Load() {
+		t.Fatal("attempted before request")
+	}
+	req, err := http.NewRequest(http.MethodGet, "https://example.test/nats/nat-1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = transport.RoundTrip(req)
+	if transport.sent.Load() {
+		t.Fatal("GET marked as delete")
+	}
+	req.Method = http.MethodDelete
+	_, _ = transport.RoundTrip(req)
+	if !transport.sent.Load() {
+		t.Fatal("handed-off DELETE was not recorded")
+	}
+}
+
+func TestNATFailedCreateFreshCleanup(t *testing.T) {
+	runNATTransportScenario(t, false, true)
 }
 
 func TestNATDefaultBudget(t *testing.T) {

@@ -9,10 +9,12 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"net/http"
 	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -50,7 +52,9 @@ func TestLiveWriteNAT(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Minute)
 	defer cancel()
-	cfg := liveWriteConfig(ctx, t, vngcloud.WithRegion("han-1"))
+	natID := ""
+	deleteTransport := &natDeleteTransport{base: http.DefaultTransport, natID: &natID}
+	cfg := liveWriteConfig(ctx, t, vngcloud.WithRegion("han-1"), vngcloud.WithTransport(deleteTransport))
 	if core.ClientOf(cfg).Region() != "han-1" || !core.ClientOf(cfg).UsesIAMUserLogin() {
 		t.Fatal("live NAT writes require SDK IAM-user login in han-1")
 	}
@@ -148,9 +152,8 @@ func TestLiveWriteNAT(t *testing.T) {
 	vpcID = vpcOut.VPC.UUID
 	report["vpcOwnershipConfirmed"] = true
 	report["vpcID"] = vpcID
-	natID := ""
 	expectedPackage := ""
-	natAttempted, natDeleteAttempted, natGone, vpcGone := false, false, false, false
+	natAttempted, natGone, vpcGone := false, false, false
 	if vpcID != "" {
 		t.Cleanup(func() {
 			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 25*time.Minute)
@@ -186,11 +189,10 @@ func TestLiveWriteNAT(t *testing.T) {
 					}
 				}
 				if present {
-					if natDeleteAttempted {
+					if deleteTransport.sent.Load() {
 						t.Error("NAT delete is unresolved; inspect the private NAT report")
 						return
 					}
-					natDeleteAttempted = true
 					_, deleteErr := client.DeleteNATInstance(cleanupCtx, &network.DeleteNATInstanceInput{ZoneID: zoneID, VPCID: vpcID, NATID: natID})
 					if deleteErr != nil {
 						t.Error("NAT cleanup failed; inspect the private NAT report")
@@ -279,12 +281,8 @@ func TestLiveWriteNAT(t *testing.T) {
 	cashRead := false
 	if natID != "" && out != nil && out.NATInstance != nil && out.NATInstance.Status == "ACTIVE" {
 		defer func() {
-			reconcileCtx := ctx
-			if !cleanupDeadline.IsZero() {
-				var cleanupCancel context.CancelFunc
-				reconcileCtx, cleanupCancel = context.WithDeadline(context.Background(), cleanupDeadline)
-				defer cleanupCancel()
-			}
+			reconcileCtx, cleanupCancel := natReconcileContext(ctx, cleanupDeadline, readyForHold)
+			defer cleanupCancel()
 			runNATPostActive(reconcileCtx, func() error {
 				if !readyForHold {
 					return nil
@@ -297,7 +295,7 @@ func TestLiveWriteNAT(t *testing.T) {
 				}
 				return hold.wait(holdCtx, natHoldIDs{NAT: natID, VPC: vpcID, VNetworkRegion: zoneID, Project: core.ClientOf(cfg).ProjectID()}, func() { t.Log("hold: waiting") }, natHoldSleep)
 			}, func(ctx context.Context) {
-				state := natReconcileState{client: client, money: money, report: report, zone: zoneID, vpc: vpcID, nat: natID, before: beforeCash, after: &afterCash, cashErr: &cashErr, cashRead: &cashRead, deleteAttempted: &natDeleteAttempted, natGone: &natGone, vpcGone: &vpcGone}
+				state := natReconcileState{client: client, money: money, report: report, zone: zoneID, vpc: vpcID, nat: natID, before: beforeCash, after: &afterCash, cashErr: &cashErr, cashRead: &cashRead, natGone: &natGone, vpcGone: &vpcGone}
 				if err := state.run(ctx); err != nil {
 					t.Fatal(err.Error())
 				}
@@ -368,6 +366,29 @@ func TestLiveWriteNAT(t *testing.T) {
 	}
 	t.Logf("NAT state=ACTIVE renewal=MANUAL create duration=%s monthly=%.0f total=%.0f VND", time.Since(started).Round(time.Second), out.MonthlyPrice, out.TotalPrice)
 	readyForHold = true
+}
+
+type natDeleteTransport struct {
+	base  http.RoundTripper
+	natID *string
+	sent  atomic.Bool
+}
+
+func (t *natDeleteTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Method == http.MethodDelete && *t.natID != "" && strings.HasSuffix(req.URL.Path, "/nats/"+*t.natID) {
+		t.sent.Store(true)
+	}
+	return t.base.RoundTrip(req)
+}
+
+func natReconcileContext(ctx context.Context, cleanupDeadline time.Time, ready bool) (context.Context, context.CancelFunc) {
+	if !cleanupDeadline.IsZero() {
+		return context.WithDeadline(context.Background(), cleanupDeadline)
+	}
+	if !ready {
+		return context.WithTimeout(context.Background(), 25*time.Minute)
+	}
+	return context.WithCancel(ctx)
 }
 
 func liveNATDeleteVPC(ctx context.Context, client *network.Client, id string) bool {
