@@ -1,10 +1,11 @@
 # Backup Center reads
 
 Status: Accepted for backend and policy lists and the scoped policy detail
-in `hcm-3`. Other operations stay gated by their own raw response checks.
+in `hcm-3` and `han-1`. Other operations stay gated by their own raw
+response checks.
 
 Add a `backup` SDK package and CLI group. The first release lists backup
-backends and policies in `hcm-3`. Later small releases add server and
+backends and policies. Later small releases add server and
 destination inventory, policy details, restore points, and run history.
 Each release needs the confirmed IAM contract and raw
 fixtures described in [API evidence](backup-services-api.md).
@@ -302,6 +303,12 @@ One region's evidence does not establish the other region's host. A
 populated response is needed to verify a resource model; an empty response
 only verifies the route and envelope. Missing resources do not authorize
 paid activation or backup creation.
+
+Hanoi reuses the HCM policy model on the same route. Its backend list is
+populated, but its policy list was empty and its detail returned only a
+missing-ID 404, so Hanoi policy rows and detail are unverified. Strict
+decoding turns any different Hanoi shape into `InvalidResponse` instead of
+a partial result.
 
 The first release still needs a read-only live check through the SDK's
 built-in IAM provider, using the fixed HCM endpoint and both operations.

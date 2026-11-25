@@ -364,8 +364,9 @@ including metadata and the complete first-release policy allowlist.
 
 The manager's authorized discovery must resolve these held contracts:
 
-1. Hanoi IAM routing and cookie-free bearer access. Confirm whether that
-   region needs any additional headers.
+1. A populated Hanoi policy list and detail, to confirm that they match
+   the HCM policy model. Hanoi routing and cookie-free bearer access are
+   verified without extra headers.
 2. Paging and filter behavior for held reads. The first policy query and
    size 200 are verified; backend metadata is nullable and unpaged.
 3. Populated raw field types for servers, destinations, points, volumes,

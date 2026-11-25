@@ -115,7 +115,7 @@ release:
    captures remain ignored and account values are replaced.
 2. Test exact route, query encoding, project scope, bearer authentication,
    paging, context cancellation, malformed responses, and status errors.
-   Test the fixed `hcm-3` map and reject `han-1` and unknown regions before
+   Test the fixed `hcm-3` and `han-1` map and reject unknown regions before
    credential-provider calls or HTTP requests, both with and without an
    endpoint override. Confirm that `VServerBackup` overrides apply only to
    `ProductVServerBackup`; reads never reach Backup Center, activation, or
@@ -128,8 +128,8 @@ release:
 5. Run `make check`, independent review, and green CI on the release commit.
 
 The release gate includes the supported-region and product-isolation tests.
-No HAN-01 mapping ships without separate cookie-free IAM evidence for both
-backend lookup and policy listing in that region.
+Each region's mapping needs cookie-free IAM evidence for both backend
+lookup and policy listing in that region; `hcm-3` and `han-1` have it.
 
 The first release may contain policy reads alone. Add history in its own
 release once a populated raw response or official schema verifies its model.
