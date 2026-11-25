@@ -14,7 +14,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -172,7 +171,7 @@ func TestLiveWriteNAT(t *testing.T) {
 	report["vpcOwnershipConfirmed"] = true
 	report["vpcID"] = vpcID
 	expectedPackage := ""
-	natAttempted, natGone, vpcGone := false, false, false
+	natAttempted, natGone, vpcGone, cleanupBlocked := false, false, false, false
 	if vpcID != "" {
 		t.Cleanup(func() {
 			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 25*time.Minute)
@@ -181,11 +180,20 @@ func TestLiveWriteNAT(t *testing.T) {
 				cleanupCtx, cleanupCancel = context.WithDeadline(context.Background(), cleanupDeadline)
 			}
 			defer cleanupCancel()
-			defer func() { report["natID"] = natID; report["natGone"] = natGone; report["vpcGone"] = vpcGone }()
+			defer func() {
+				report["natID"] = natID
+				report["natGone"] = natGone
+				report["vpcGone"] = vpcGone
+				if !vpcGone {
+					t.Error("NAT cleanup left resources; inspect the private NAT report")
+				}
+				if natAttempted && !deleteTransport.valid() {
+					t.Error("NAT DELETE contract was not confirmed")
+				}
+			}()
 			if natAttempted && !natGone {
 				inventory, listErr := liveNATInventory(cleanupCtx, client, zoneID)
 				if listErr != nil {
-					t.Error("NAT cleanup cannot confirm inventory; inspect the private NAT report")
 					return
 				}
 				candidates := []network.NATInstance{}
@@ -196,7 +204,6 @@ func TestLiveWriteNAT(t *testing.T) {
 				}
 				if natID == "" {
 					if len(candidates) != 1 || candidates[0].VPC.UUID != vpcID || candidates[0].NATPackage.UUID != expectedPackage || candidates[0].ProjectUUID != core.ClientOf(cfg).ProjectID() || candidates[0].ZoneUUID == "" || candidates[0].VPC.RegionID != zoneID {
-						t.Error("purchase identity is unresolved; inspect the private NAT report")
 						return
 					}
 					natID = candidates[0].UUID
@@ -209,22 +216,34 @@ func TestLiveWriteNAT(t *testing.T) {
 				}
 				if present {
 					if deleteTransport.sent.Load() {
-						t.Error("NAT delete is unresolved; inspect the private NAT report")
 						return
 					}
 					_, deleteErr := client.DeleteNATInstance(cleanupCtx, &network.DeleteNATInstanceInput{ZoneID: zoneID, VPCID: vpcID, NATID: natID})
 					if deleteErr != nil {
-						t.Error("NAT cleanup failed; inspect the private NAT report")
 						return
+					}
+					after, confirmErr := liveNATInventory(cleanupCtx, client, zoneID)
+					if confirmErr != nil {
+						return
+					}
+					for _, row := range after {
+						if row.UUID == natID {
+							return
+						}
 					}
 				}
 				natGone = true
 			}
-			if !vpcGone {
+			billingAbsent, routesRestored := false, false
+			if !vpcGone && !cleanupBlocked && natAttempted && natGone && natID != "" {
+				billingAbsent = liveNATBillingAbsent(cleanupCtx, billing.New(cfg), natID)
+				routes, routesErr := liveNATRoutes(cleanupCtx, client, vpcID)
+				routesRestored = routesErr == nil && len(routes) == 0
+				report["billingAbsent"] = billingAbsent
+				report["routesRestored"] = routesRestored
+			}
+			if !vpcGone && !cleanupBlocked && natVPCDeleteAllowed(natAttempted, natGone, billingAbsent, routesRestored) {
 				vpcGone = liveNATDeleteVPC(cleanupCtx, client, vpcID)
-				if !vpcGone {
-					t.Error("VPC cleanup failed; inspect the private NAT report")
-				}
 			}
 		})
 	}
@@ -316,7 +335,9 @@ func TestLiveWriteNAT(t *testing.T) {
 			}, func(ctx context.Context) {
 				state := natReconcileState{client: client, money: money, report: report, zone: zoneID, vpc: vpcID, nat: natID, before: beforeCash, after: &afterCash, cashErr: &cashErr, cashRead: &cashRead, natGone: &natGone, vpcGone: &vpcGone}
 				if err := state.run(ctx); err != nil {
-					t.Fatal(err.Error())
+					cleanupBlocked = true
+					report["reconciliationError"] = err.Error()
+					t.Fatal("NAT reconciliation failed; inspect the private NAT report")
 				}
 				t.Log("NAT after delete=absent billing=absent")
 				t.Logf("NAT debit=%.0f refund=%.0f net cost=%.0f VND", beforeCash-afterCash, report["refund"], report["netCost"])
@@ -385,19 +406,6 @@ func TestLiveWriteNAT(t *testing.T) {
 	}
 	t.Logf("NAT state=ACTIVE renewal=MANUAL create duration=%s monthly=%.0f total=%.0f VND", time.Since(started).Round(time.Second), out.MonthlyPrice, out.TotalPrice)
 	readyForHold = true
-}
-
-type natDeleteTransport struct {
-	base  http.RoundTripper
-	natID *string
-	sent  atomic.Bool
-}
-
-func (t *natDeleteTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if req.Method == http.MethodDelete && *t.natID != "" && strings.HasSuffix(req.URL.Path, "/nats/"+*t.natID) {
-		t.sent.Store(true)
-	}
-	return t.base.RoundTrip(req)
 }
 
 func natReconcileContext(ctx context.Context, cleanupDeadline time.Time, ready bool) (context.Context, context.CancelFunc) {

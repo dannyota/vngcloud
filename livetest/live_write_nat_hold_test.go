@@ -592,7 +592,7 @@ func runNATTransportScenario(t *testing.T, writeFailure, createFailed bool) {
 	if reconcileErr != nil {
 		t.Fatalf("reconcile: %v", reconcileErr)
 	}
-	if deletes != 1 || !deleteTransport.sent.Load() || natReads < 3 || routeReads != 1 || billingReads != 1 || !natGone || !vpcGone {
+	if deletes != 1 || !deleteTransport.valid() || natReads < 3 || routeReads != 1 || billingReads != 1 || !natGone || !vpcGone {
 		t.Fatalf("counts %d %d %d %d gone %v %v", deletes, natReads, routeReads, billingReads, natGone, vpcGone)
 	}
 }
