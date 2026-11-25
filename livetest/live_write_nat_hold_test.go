@@ -336,14 +336,27 @@ func TestNATHoldUnlinkFailure(t *testing.T) {
 }
 
 func TestNATHoldPanicAndUnlink(t *testing.T) {
- dir := t.TempDir()
- if err := os.Chmod(dir, 0700); err != nil { t.Fatal(err) }
- h, err := newNATHold(dir, "2s"); if err != nil { t.Fatal(err) }; defer h.Close()
- var result error
- runNATPostActive(func() error { return h.wait(context.Background(), natHoldIDs{}, func(){}, func(context.Context,time.Duration) error {
-  if err := os.Remove(filepath.Join(dir,"nat-ids.json")); err != nil { t.Fatal(err) }; panic("private")
- }) }, func(context.Context){}, func(err error){ result=err })
- if !errors.Is(result,errNATHoldPanic) || !errors.Is(result,errNATHoldUnlink) {t.Fatalf("missing panic or unlink error: %v",result)}
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	h, err := newNATHold(dir, "2s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close()
+	var result error
+	runNATPostActive(func() error {
+		return h.wait(context.Background(), natHoldIDs{}, func() {}, func(context.Context, time.Duration) error {
+			if err := os.Remove(filepath.Join(dir, "nat-ids.json")); err != nil {
+				t.Fatal(err)
+			}
+			panic("private")
+		})
+	}, func(context.Context) {}, func(err error) { result = err })
+	if !errors.Is(result, errNATHoldPanic) || !errors.Is(result, errNATHoldUnlink) {
+		t.Fatalf("missing panic or unlink error: %v", result)
+	}
 }
 
 func TestNATPostActiveOrder(t *testing.T) {
