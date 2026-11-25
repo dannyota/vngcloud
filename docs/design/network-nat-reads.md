@@ -194,9 +194,13 @@ error, never an empty list.
 
 Both reads use the NAT list's pinned regional base, the selected project,
 and the region-level ID the list discovers, and require `success: true`.
-They support only IAM users in `han-1`; any other region returns
-`ErrInvalidConfig` before a request, and the list keeps its current
-regions. A failure envelope, missing required key, wrong kind, duplicate
+Owner decision: they support the same regions and auth as
+`ListNATInstances` (`hcm-3` and `han-1`). Only `han-1` IAM was observed:
+the NAT test runs there because NAT create is verified only in `han-1`
+and the account allows two VPCs per region. In `hcm-3` the reads use the
+same route family on that region's pinned gateway, and the fail-closed
+checks turn any different shape into `InvalidResponse`, never partial or
+wrong output. A failure envelope, missing required key, wrong kind, duplicate
 key, identity mismatch, or reflected credential returns a fixed
 `InvalidResponse` with no output.
 
