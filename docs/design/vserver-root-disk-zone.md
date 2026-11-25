@@ -32,10 +32,11 @@ input, or check Hanoi.
 
 The SDK does not guess compatibility. When the provider refuses the
 create request itself with HTTP 400, `CreateServer` adds one fixed
-sentence to the error: the root and data disk types must be offered in
-`ZoneID`, and `volume.ListVolumeTypes` with that `ZoneID` lists them. The
-CLI prints the SDK sentence unchanged; the matching command is
-`volume list-volume-types --zone-id`.
+sentence to the error: a disk type may not be offered in `ZoneID`, and
+`volume.ListVolumeTypes` with that `ZoneID` lists the zone's catalog. The
+catalog is a diagnostic aid, not a confirmed compatibility rule. The CLI
+keeps its usual error message and appends the SDK sentence unchanged; the
+matching command is `volume list-volume-types --zone-id`.
 
 - The hint is advice. It names one common cause and does not claim that
   the disk type caused this refusal.

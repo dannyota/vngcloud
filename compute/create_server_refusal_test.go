@@ -92,9 +92,18 @@ func TestCreateServerPostRefusalHintRedactsToken(t *testing.T) {
 }
 
 func TestQuoteCreateServer400HasNoRefusalHint(t *testing.T) {
-	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(400) }))
+	calls := 0
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/price" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		calls++
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"code":"QuoteRefused","message":"quote refusal"}`))
+	}))
 	_, err := c.QuoteCreateServer(context.Background(), validCreateServerInput())
-	if err == nil || strings.Contains(err.Error(), testDiskHint) {
-		t.Fatalf("unexpected error: %v", err)
+	var api *core.APIError
+	if calls != 1 || !errors.As(err, &api) || api.StatusCode != 400 || api.Operation != "pricing.GetQuote" || api.Code != "QuoteRefused" || strings.Contains(err.Error(), testDiskHint) {
+		t.Fatalf("calls=%d api=%+v error=%v", calls, api, err)
 	}
 }

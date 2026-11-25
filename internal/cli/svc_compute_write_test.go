@@ -793,7 +793,39 @@ func TestComputeCreateServer400HintInErrorJSON(t *testing.T) {
 	if e := json.Unmarshal(stderr.Bytes(), &got); e != nil {
 		t.Fatalf("stderr=%q: %v", stderr.String(), e)
 	}
-	if got.Error.Code != "SyntheticCode" || got.Error.Status != 400 || got.Error.Operation != "compute.CreateServer" || !strings.Contains(got.Error.Message, "a 400 can mean a disk type is not offered in ZoneID; list the zone's types with volume.ListVolumeTypes and ZoneID") || stdout.Len() != 0 {
+	if got.Error.Code != "SyntheticCode" || got.Error.Status != 400 || got.Error.Operation != "compute.CreateServer" || got.Error.Message != "provider refusal; a 400 can mean a disk type is not offered in ZoneID; list the zone's types with volume.ListVolumeTypes and ZoneID" || stdout.Len() != 0 {
 		t.Fatalf("error=%+v stdout=%q", got.Error, stdout.String())
+	}
+}
+
+func TestComputeCreateServer409MessageUnchanged(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/servers": func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet {
+				_, _ = w.Write([]byte(computeEmptyServerListJSON))
+				return
+			}
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"code":"SyntheticCode","message":"provider refusal"}`))
+		},
+		"/v1/price": jsonHandler(http.StatusOK, computeQuoteJSON(500000)),
+	})
+	root, _, _ := newSvcRoot(t, fixture)
+	root.SetArgs(append([]string{"--region", "hcm-3", "--project-id", "proj-1"}, append(validCreateServerArgs, "--max-price", "500000", "--no-wait")...))
+	err := root.ExecuteContext(context.Background())
+	if err == nil || classify(err).Message != "provider refusal" {
+		t.Fatalf("error=%v envelope=%+v", err, classify(err))
+	}
+}
+
+func TestComputeListServers400MessageUnchanged(t *testing.T) {
+	fixture := newSvcFixture(map[string]func(http.ResponseWriter, *http.Request){
+		"/v2/proj-1/servers": jsonHandler(http.StatusBadRequest, `{"code":"SyntheticCode","message":"provider refusal"}`),
+	})
+	root, _, _ := newSvcRoot(t, fixture)
+	root.SetArgs([]string{"--region", "hcm-3", "--project-id", "proj-1", "compute", "list-servers"})
+	err := root.ExecuteContext(context.Background())
+	if err == nil || classify(err).Message != "provider refusal" {
+		t.Fatalf("error=%v envelope=%+v", err, classify(err))
 	}
 }

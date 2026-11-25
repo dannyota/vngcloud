@@ -536,6 +536,16 @@ func classify(err error) errorEnvelope {
 // reaches the envelope the same way whether or not the NotFound branch also
 // forces Code to "NotFound" ahead of it.
 func fillEnvelopeFromAPIError(env *errorEnvelope, err error, apiErr *vngcloud.APIError) {
+	var refusal interface {
+		error
+		Unwrap() error
+		ServerCreateRefusalAdvice() string
+	}
+	if errors.As(err, &refusal) && err.Error() == refusal.Error() {
+		fillEnvelopeFromAPIError(env, refusal.Unwrap(), apiErr)
+		env.Message += "; " + refusal.ServerCreateRefusalAdvice()
+		return
+	}
 	message := apiErr.Message
 	if message == "" {
 		message = apiErr.Error()

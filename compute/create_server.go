@@ -444,7 +444,7 @@ func (c *Client) CreateServer(ctx context.Context, in *CreateServerInput) (out *
 	if err != nil {
 		var apiErr *core.APIError
 		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusBadRequest {
-			return nil, fmt.Errorf("%w; a 400 can mean a disk type is not offered in ZoneID; list the zone's types with volume.ListVolumeTypes and ZoneID", err)
+			return nil, &serverCreateRefusalError{err: err}
 		}
 		return nil, wrapAmbiguousServerCreateErr(op, err)
 	}
@@ -468,6 +468,22 @@ func (c *Client) CreateServer(ctx context.Context, in *CreateServerInput) (out *
 		settled = &fallback
 	}
 	return &CreateServerOutput{Server: *settled, MonthlyPrice: quote.OptimumPrice}, waitErr
+}
+
+const serverCreateRefusalAdvice = "a 400 can mean a disk type is not offered in ZoneID; list the zone's types with volume.ListVolumeTypes and ZoneID"
+
+type serverCreateRefusalError struct {
+	err error
+}
+
+func (e *serverCreateRefusalError) Error() string {
+	return e.err.Error() + "; " + serverCreateRefusalAdvice
+}
+
+func (e *serverCreateRefusalError) Unwrap() error { return e.err }
+
+func (e *serverCreateRefusalError) ServerCreateRefusalAdvice() string {
+	return serverCreateRefusalAdvice
 }
 
 // wrapAmbiguousServerCreateErr wraps err, from the create POST just sent,
