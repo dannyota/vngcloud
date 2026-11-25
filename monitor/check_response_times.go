@@ -72,6 +72,9 @@ func (c *Client) ListCheckResponseTimes(ctx context.Context, in *ListCheckRespon
 		return nil, checkHistoryInputError(op)
 	}
 	start, end = time.UnixMilli(start.UnixMilli()).UTC(), time.UnixMilli(end.UnixMilli()).UTC()
+	if !responseValidYear(start) || !responseValidYear(end) {
+		return nil, checkHistoryInputError(op)
+	}
 	var credentials monitorReadCredentials
 	var raw json.RawMessage
 	_, err = c.readCheckAlarmJSON(ctx, op, c.route([]string{"uptimes", in.CheckID}), checkAlarmMaxBody, &raw, &credentials)
@@ -149,6 +152,10 @@ func responseParseTime(value string) (time.Time, error) {
 		return time.Time{}, errors.New("invalid RFC 3339 timestamp")
 	}
 	return time.Parse(time.RFC3339, strings.ToUpper(value))
+}
+
+func responseValidYear(t time.Time) bool {
+	return t.Year() >= 1 && t.Year() <= 9999
 }
 
 func responseSafe(texts []string, credentials monitorReadCredentials) bool {
@@ -287,6 +294,9 @@ func (d *responseSeriesDecoder) UnmarshalJSON(raw []byte) error {
 				return e
 			}
 			timestamp = timestamp.UTC()
+			if !responseValidYear(timestamp) {
+				return errors.New("invalid point year")
+			}
 			if timestamp.Before(d.start) {
 				early++
 				if d.end.Sub(d.start) != 24*time.Hour || timestamp.Before(d.start.Add(-5*time.Minute)) || early > 1 {

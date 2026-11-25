@@ -411,3 +411,28 @@ func TestCheckResponseTimesStatisticsRequires200(t *testing.T) {
 		t.Fatalf("out=%v err=%v", out, err)
 	}
 }
+
+func TestCheckResponseTimesRejectsOutOfRangeUTCWindow(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("unexpected request") }))
+	c.now = func() time.Time { return time.Date(1, 1, 1, 12, 0, 0, 0, time.UTC) }
+	for _, in := range []*ListCheckResponseTimesInput{
+		{CheckID: "chk-1", Start: "9999-12-31T23:00:00-02:00", End: "9999-12-31T23:30:00-02:00"},
+		{CheckID: "chk-1", Start: "0001-01-01T00:00:00+02:00", End: "0001-01-01T00:30:00+02:00"},
+		{CheckID: "chk-1"},
+	} {
+		out, err := c.ListCheckResponseTimes(context.Background(), in)
+		if out != nil || !errors.Is(err, core.ErrInvalidInput) {
+			t.Fatalf("out=%v err=%v", out, err)
+		}
+	}
+}
+
+func TestCheckResponseTimesRejectsOutOfRangeUTCPoint(t *testing.T) {
+	body := `[` + strings.Replace(responseGroup, "2000-01-01T01:00:00Z", "0001-01-01T00:01:00+00:02", 1) + `]`
+	c := responseClient(t, responseSnapshot, body, nil)
+	out, err := c.ListCheckResponseTimes(context.Background(), &ListCheckResponseTimesInput{CheckID: "chk-1", Start: "0001-01-01T00:00:00Z", End: "0001-01-02T00:00:00Z"})
+	var api *core.APIError
+	if out != nil || !errors.As(err, &api) || api.Code != "InvalidResponse" {
+		t.Fatalf("out=%v err=%v", out, err)
+	}
+}
