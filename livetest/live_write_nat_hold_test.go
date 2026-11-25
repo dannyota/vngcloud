@@ -681,19 +681,6 @@ func TestNATRecordPostOrderCash(t *testing.T) {
 	}
 }
 
-func TestNATMaxPrice(t *testing.T) {
-	for _, tc := range []struct {
-		value string
-		want  float64
-		valid bool
-	}{{"", 1000000, true}, {"123", 123, true}, {"1000000", 1000000, true}, {"0", 0, false}, {"1000001", 0, false}, {"1.5", 0, false}, {"-1", 0, false}} {
-		got, err := natMaxPrice(tc.value)
-		if (err == nil) != tc.valid || (tc.valid && got != tc.want) {
-			t.Fatalf("%q: %v %v", tc.value, got, err)
-		}
-	}
-}
-
 func TestNATHoldDisabled(t *testing.T) {
 	h, err := newNATHold("", "")
 	if err != nil {

@@ -22,22 +22,27 @@ import (
 	"danny.vn/vngcloud/billing"
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/network"
+	"danny.vn/vngcloud/portal"
 )
 
 const liveNATPrefix = "vngcloud-live-nat-"
 
 func TestLiveWriteNAT(t *testing.T) {
 	if os.Getenv("VNGCLOUD_LIVE_WRITE") != "1" || os.Getenv("VNGCLOUD_LIVE_NAT_WRITE") != "1" {
-		t.Skip("set VNGCLOUD_LIVE_WRITE=1 and VNGCLOUD_LIVE_NAT_WRITE=1 for the approved paid HAN run")
+		t.Skip("set VNGCLOUD_LIVE_WRITE=1 and VNGCLOUD_LIVE_NAT_WRITE=1 for the approved paid NAT run")
+	}
+	region, err := natRegion(os.Getenv("VNGCLOUD_LIVE_NAT_REGION"))
+	if err != nil {
+		t.Fatal("invalid NAT region")
 	}
 	hold, err := newNATHold(os.Getenv("VNGCLOUD_LIVE_NAT_HOLD_DIR"), os.Getenv("VNGCLOUD_LIVE_NAT_HOLD_MAX"))
 	if err != nil {
 		t.Fatal("invalid NAT hold configuration; parent directory must be private and stable")
 	}
 	defer hold.Close()
-	maxPrice, err := natMaxPrice(os.Getenv("VNGCLOUD_LIVE_NAT_MAX_PRICE"))
+	maxPrice, err := natPreflight(region, os.Getenv("VNGCLOUD_LIVE_NAT_MAX_PRICE"), hold.root != nil)
 	if err != nil {
-		t.Fatal("invalid NAT maximum price")
+		t.Fatal("invalid NAT maximum price or missing HCM hold directory")
 	}
 	var cleanupDeadline, holdDeadline time.Time
 	if hold.root != nil {
@@ -54,9 +59,23 @@ func TestLiveWriteNAT(t *testing.T) {
 	defer cancel()
 	natID := ""
 	deleteTransport := &natDeleteTransport{base: http.DefaultTransport, natID: &natID}
-	cfg := liveWriteConfig(ctx, t, vngcloud.WithRegion("han-1"), vngcloud.WithTransport(deleteTransport))
-	if core.ClientOf(cfg).Region() != "han-1" || !core.ClientOf(cfg).UsesIAMUserLogin() {
-		t.Fatal("live NAT writes require SDK IAM-user login in han-1")
+	cfg := liveWriteConfig(ctx, t, vngcloud.WithRegion(region), vngcloud.WithTransport(deleteTransport))
+	if core.ClientOf(cfg).Region() != region || !core.ClientOf(cfg).UsesIAMUserLogin() {
+		t.Fatal("live NAT writes require SDK IAM-user login in the selected region")
+	}
+	if region == "hcm-3" {
+		balance, balanceErr := billing.New(cfg).GetBalances(ctx, nil)
+		if balanceErr != nil || balance == nil || balance.Balances.CashAvailable == nil {
+			t.Fatal("available NAT credit could not be verified")
+		}
+		maxPrice, err = natCreditCap(maxPrice, *balance.Balances.CashAvailable)
+		if err != nil {
+			t.Fatal("available NAT credit is invalid")
+		}
+		quotas, quotaErr := portal.New(cfg).ListQuotaUsed(ctx, nil)
+		if quotaErr != nil || quotas == nil || !natQuotaAvailable(quotas.Items) {
+			t.Fatal("VPC quota has no verified free slot")
+		}
 	}
 	client := network.New(cfg)
 	zones, err := client.ListVNetworkRegions(ctx, nil)
@@ -66,13 +85,13 @@ func TestLiveWriteNAT(t *testing.T) {
 	zoneID := ""
 	matches := 0
 	for _, zone := range zones.Items {
-		if strings.TrimRight(zone.DashboardURL, "/") == "https://han-1-vnetwork.console.greennode.ai" || strings.TrimRight(zone.GatewayURL, "/") == "https://han-1-vnetwork.console.greennode.ai/vnetwork-gateway" {
+		if strings.TrimRight(zone.DashboardURL, "/") == "https://"+region+"-vnetwork.console.greennode.ai" || strings.TrimRight(zone.GatewayURL, "/") == "https://"+region+"-vnetwork.console.greennode.ai/vnetwork-gateway" {
 			zoneID = zone.UUID
 			matches++
 		}
 	}
 	if matches != 1 || zoneID == "" {
-		t.Fatal("HAN needs one region-level NAT scope")
+		t.Fatal("selected region needs one region-level NAT scope")
 	}
 	baseline, err := liveNATInventory(ctx, client, zoneID)
 	if err != nil {
@@ -129,7 +148,7 @@ func TestLiveWriteNAT(t *testing.T) {
 	for _, row := range vpcs {
 		baselineVPCIDs = append(baselineVPCIDs, row.UUID)
 	}
-	report := map[string]any{"region": "han-1", "name": name, "baselineNATIDs": baselineNATIDs, "baselineVPCIDs": baselineVPCIDs, "transactionReconciliationRequired": true}
+	report := map[string]any{"region": region, "name": name, "baselineNATIDs": baselineNATIDs, "baselineVPCIDs": baselineVPCIDs, "transactionReconciliationRequired": true}
 	if liveNATSaveReport(report) != nil {
 		t.Fatal("private NAT report could not be saved")
 	}
