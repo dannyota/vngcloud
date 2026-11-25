@@ -37,6 +37,8 @@ func TestNATHarnessHCMRefusalCleansVPC(t *testing.T) {
 	vpcDeleted, natWrites := false, 0
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case strings.HasSuffix(r.URL.Path, "/nats/v3-whitelist"):
+			_, _ = w.Write([]byte(`{"success":true,"data":{"enabledForAll":false}}`))
 		case strings.Contains(r.URL.Path, "/nats") && r.Method != http.MethodGet:
 			natWrites++
 			w.WriteHeader(http.StatusInternalServerError)

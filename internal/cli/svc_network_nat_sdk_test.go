@@ -281,6 +281,56 @@ func TestNetworkNATSDKCreateAndDelete(t *testing.T) {
 	}
 }
 
+func TestNetworkNATSDKHCMGateway(t *testing.T) {
+	withCleanEnv(t)
+	state := &natCLIState{whitelist: true}
+	handler := natCLIRoutes(t, state)
+	writes := 0
+	rt := saCLITransport(func(r *http.Request) (*http.Response, error) {
+		w := httptest.NewRecorder()
+		switch r.URL.Host {
+		case "signin.example.test":
+			if r.Method == http.MethodPost {
+				http.Redirect(w, r, "https://token.example.test/callback?code=synthetic-code", http.StatusFound)
+			} else {
+				_, _ = w.Write([]byte(`<input name="_csrf" value="synthetic-csrf">`))
+			}
+		case "token.example.test":
+			_, _ = w.Write([]byte(`{"accessToken":"synthetic-token","expiresIn":3600}`))
+		case "hcm-3-vnetwork.console.greennode.ai":
+			if !strings.HasPrefix(r.URL.Path, "/vnetwork-gateway/") {
+				t.Errorf("unexpected gateway path %s", r.URL.Path)
+			}
+			if (r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/nats")) || r.Method == http.MethodDelete {
+				writes++
+			}
+			clone := r.Clone(r.Context())
+			clone.URL.Path = strings.TrimPrefix(r.URL.Path, "/vnetwork-gateway")
+			handler.ServeHTTP(w, clone)
+		case "billing.example.test", "vserver.example.test":
+			handler.ServeHTTP(w, r)
+		default:
+			t.Errorf("unexpected host %s", r.URL.Host)
+			w.WriteHeader(http.StatusBadRequest)
+		}
+		return w.Result(), nil
+	})
+	withTestOptions(t, vngcloud.WithIAMUser(&vngcloud.IAMUserAuth{RootEmail: "root@example.test", Username: "user", Password: "synthetic", SigninBaseURL: "https://signin.example.test", TokenURL: "https://token.example.test", DashboardURI: "https://token.example.test/", HTTPClient: &http.Client{Transport: rt}}), vngcloud.WithTransport(rt), vngcloud.WithRetry(0, 0), vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{Billing: "https://billing.example.test/", VServer: "https://vserver.example.test/"}))
+	run := func(args ...string) {
+		t.Helper()
+		var stdout, stderr bytes.Buffer
+		args = append([]string{"--region", "hcm-3", "--project-id", "proj-1"}, args...)
+		if code := Main(context.Background(), args, strings.NewReader(""), &stdout, &stderr); code != 0 {
+			t.Fatalf("exit=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+		}
+	}
+	run(append(natCreateArgs("create-nat-instance"), "--yes", "--max-price", strconv.Itoa(natCLIQuotePrice))...)
+	run("network", "delete-nat-instance", "--zone-id", "zone-1", "--vpc-id", "vpc-1", "--nat-id", "nat-1", "--yes", "--no-wait")
+	if state.orders != 1 || state.deletes != 1 || writes != 2 {
+		t.Fatalf("orders=%d deletes=%d gateway writes=%d", state.orders, state.deletes, writes)
+	}
+}
+
 func TestNetworkNATSDKQuoteReadOnly(t *testing.T) {
 	state := &natCLIState{whitelist: true}
 	run := natCLI(t, natCLIRoutes(t, state))
@@ -316,7 +366,7 @@ func TestNetworkNATSDKInvalidConfig(t *testing.T) {
 				run = natIAMCLI(t, natCLIRoutes(t, state))
 			}
 			if mode == "region" {
-				args = append(args, "--region", "hcm-3")
+				args = append(args, "--region", "unsupported")
 			}
 			code, out, stderr := run(args...)
 			if code != 2 || out != "" || !strings.Contains(stderr, "InvalidConfig") {

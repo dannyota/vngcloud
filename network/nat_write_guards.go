@@ -31,8 +31,8 @@ type natPickerVPC struct {
 }
 
 func (c *Client) natWriteAuth(op string) error {
-	if c.c.Region() != "han-1" || !c.c.UsesIAMUserLogin() {
-		return fmt.Errorf("%w: %s requires SDK IAM-user login in han-1", core.ErrInvalidConfig, op)
+	if (c.c.Region() != "han-1" && c.c.Region() != "hcm-3") || !c.c.UsesIAMUserLogin() {
+		return fmt.Errorf("%w: %s requires SDK IAM-user login in hcm-3 or han-1", core.ErrInvalidConfig, op)
 	}
 	return nil
 }
