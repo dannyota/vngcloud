@@ -64,21 +64,11 @@ reads `location_id`, `metrics` (status code, success, response time), and
 observe GETs when opening a past row or changing location on a saved check.
 Do not click **Run Test**. Without a stored-result route, keep per-run held.
 
-**Held:** `ListCheckLocationMetricsInput` takes `CheckID`, optional `Start`,
-`End`, `LocationID`; Output holds the resolved window and series of
-location ID, metric, and points (time/value). `monitor
-list-check-location-metrics` is Read, no `--yes`. Parse RFC 3339 and require
-start < end at millisecond precision. Match snapshot and check IDs and
-validate alarm and location IDs before querying fixed HTTP response time,
-`avg`, and `location_id`. Two checks can share a location; reject foreign or
-unproven check/alarm scope, duplicate series, or malformed points. A filter
-not in the snapshot is NotFound; missing points do not mean healthy. Cap
-snapshot at 1 MiB, stats at 16 MiB, 64 series and 100,000 points, no
-truncation or raw response fields. Sample two checks sharing a location;
-verify scope, units, points, window/retention limits, and permissions.
-MCP describes one aggregate per group; the console expects a series. Neither
-proves per-run data. Keep held until sampling yields useful, attributable
-values; do not treat an average status code as an individual response.
+The fixed HTTP response-time average moved to
+[check response times](monitor-check-response-times.md), with check scope
+verified by a two-check sample. Per-run results, other metrics, and status
+code averages stay held; do not treat an average status code as an
+individual response.
 
 ## Dashboards
 

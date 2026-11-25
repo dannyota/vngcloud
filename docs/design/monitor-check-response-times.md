@@ -59,16 +59,19 @@ Require HTTP 200 and a bare array. Require exact spelling, presence, and
 JSON types for fields used in the projection. Reject duplicate known keys,
 missing or null arrays, missing or null required strings, malformed or
 out-of-range points, duplicate bucket timestamps within a series, and
-missing, duplicate, or foreign location IDs. Scope each location to the
-snapshot. Accept points from 5 minutes before `Start` through `End`; the
-server aligns the first bucket before `Start`. Reject other points.
-Ignore unmodeled
-fields. Sort series by location ID and points by timestamp. A valid empty
+missing, duplicate, or foreign location IDs. Each group's `name` must be
+the string `syntt.http.response_time`. Scope each location to the
+snapshot. Compare points with the sent millisecond bounds: accept points
+from `Start` through `End`. For a 24-hour window only, also accept at most
+one point per group within 5 minutes before `Start`, the observed aligned
+first bucket. Reject every other point. Ignore unmodeled fields. Sort series by location ID and points by timestamp. A valid empty
 array yields an empty slice. Output contains only returned buckets.
 
 Reuse the checks for sensitive monitor reads in `checkalarms.go`. Cap the
 snapshot at 1 MiB and the statistics body at 16 MiB before decoding. Cap
-results at 64 series and 100,000 points per call. Keep TLS, redirect,
+results at 64 series and 100,000 points per call, counted while decoding
+before any element past the cap is stored; exceeding either returns
+`ResponseLimitExceeded`. Keep TLS, redirect,
 cancellation, and normal bounded read retry behavior. Suppress routine
 captures and withhold response text. Check every reused or projected
 response string against all credentials sent across both GETs and all
@@ -104,9 +107,16 @@ an HTTP check with two locations, over 24 hours. It printed only classes:
   `response_time: "ms"` among its assertion units.
 - Group `name` equalled `syntt.http.response_time` in both groups.
 
-Unverified: scope separation between two checks sharing a location (the
-account has one check), bucket width for windows other than 24 hours,
-empty windows, and error envelopes.
+A second run added a disposable HTTP check on the same two locations,
+created on the free Synthetic quota and deleted afterwards. After about
+20 minutes its series held only points after its creation, and across 22
+shared buckets at both shared locations no value equalled the first
+check's. The server therefore scopes the statistics to the requested
+check. Each group's further string `id` matched neither check ID, nor the
+`history_alarm`, nor a location alarm ID; it stays unmodeled.
+
+Unverified: bucket width for windows other than 24 hours, empty windows,
+and error envelopes.
 
 [alarms]: monitor-quotas.md#check-state-and-history
 [metrics]: monitor-console-reads.md#check-per-location-diagnostics
