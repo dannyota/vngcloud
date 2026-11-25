@@ -167,9 +167,9 @@ HTTP 200 with `success: true`.
 
 The URL pinned the scope; the response did not confirm it, and the probe
 did not check identity. The SDK therefore checks identity at run time.
-`zoneUuid` is not shown to be the region UUID. These results qualify the
-two reads for IAM users in `han-1` only. They do not establish user rules,
-other statuses' fields, `hcm-3`, failure envelopes, or paging.
+`zoneUuid` is not shown to be the region UUID. This evidence comes from
+`han-1` IAM only. It does not establish user rules, other statuses'
+fields, `hcm-3` shapes, failure envelopes, or paging.
 
 ### Accepted surface
 
@@ -178,7 +178,8 @@ other statuses' fields, `hcm-3`, failure envelopes, or paging.
 `PackageID`, `PackageName`, `VPCID`, and `VPCName`. Required keys:
 `data.uuid` (equal to the requested ID), `data.status`, `data.vpc.uuid`
 (path safe), and `data.natPackage.uuid`; the other strings may be absent
-or null on non-ACTIVE NATs and are returned empty then. Statuses pass
+or null on non-ACTIVE NATs and are returned empty then; an ACTIVE NAT
+must carry them all. Statuses pass
 through unchanged, including `ERROR`, `DELETING`, and unknown values.
 
 `network.ListNATInboundRules` (`network list-nat-inbound-rules --nat-id`)
@@ -189,15 +190,19 @@ Required row keys: `uuid` (unique, path safe), `protocol`, `etherType`,
 `*int` for compatibility: JSON null becomes nil, an absent key or a
 non-integer is rejected, and strings are never coerced. The result holds
 exactly the rows of one response; unknown keys are ignored and never
-decoded into output. Missing or null `data`, or an error status, is an
+decoded into output. Paging keys consistent with one complete page are
+accepted; `totalPage` above 1, a total above the row count, `page` above
+1, or a non-empty `next` returns `InvalidResponse`. Missing or null `data`, or an error status, is an
 error, never an empty list.
 
 Both reads use the NAT list's pinned regional base, the selected project,
-and the region-level ID the list discovers, and require `success: true`.
+and the region-level ID the list discovers, and require `success: true`. No project key is evidenced in either
+response, so the SDK does not compare one; scope rests on the pinned
+region and project path. Discovered IDs that contain a sent credential
+stop the read before its request.
 Owner decision: they support the same regions and auth as
 `ListNATInstances` (`hcm-3` and `han-1`). Only `han-1` IAM was observed:
-the NAT test runs there because NAT create is verified only in `han-1`
-and the account allows two VPCs per region. In `hcm-3` the reads use the
+the NAT test runs there because NAT create is verified only in `han-1`. In `hcm-3` the reads use the
 same route family on that region's pinned gateway, and the fail-closed
 checks turn any different shape into `InvalidResponse`, never partial or
 wrong output. A failure envelope, missing required key, wrong kind, duplicate
