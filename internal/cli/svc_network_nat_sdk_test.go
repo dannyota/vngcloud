@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -376,6 +377,37 @@ func TestNetworkNATSDKInvalidConfig(t *testing.T) {
 			defer state.mu.Unlock()
 			if (mode != "v3" && state.requests != 0) || state.prices != 0 || state.orders != 0 || state.renewals != 0 {
 				t.Errorf("prices=%d orders=%d renewals=%d", state.prices, state.orders, state.renewals)
+			}
+		})
+	}
+}
+
+func TestNetworkNATHCMRejectsNonIAMBeforeRequests(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		opt  vngcloud.LoadOption
+	}{
+		{"static bearer", vngcloud.WithStaticToken("synthetic-token")},
+		{"custom provider", vngcloud.WithCredentialsProvider(saCLIProvider{})},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withCleanEnv(t)
+			calls := 0
+			rt := saCLITransport(func(*http.Request) (*http.Response, error) {
+				calls++
+				return nil, errors.New("unexpected request")
+			})
+			withTestOptions(t, vngcloud.WithTransport(rt), tc.opt)
+			for _, args := range [][]string{
+				append(natCreateArgs("create-nat-instance"), "--yes", "--max-price", strconv.Itoa(natCLIQuotePrice)),
+				{"network", "delete-nat-instance", "--zone-id", "zone-1", "--vpc-id", "vpc-1", "--nat-id", "nat-1", "--yes"},
+			} {
+				var stdout, stderr bytes.Buffer
+				args = append([]string{"--region", "hcm-3", "--project-id", "proj-1"}, args...)
+				code := Main(context.Background(), args, strings.NewReader(""), &stdout, &stderr)
+				if code != 2 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "InvalidConfig") || calls != 0 {
+					t.Fatalf("exit=%d stdout=%s stderr=%s requests=%d", code, stdout.String(), stderr.String(), calls)
+				}
 			}
 		})
 	}

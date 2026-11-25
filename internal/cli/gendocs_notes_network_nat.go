@@ -23,8 +23,9 @@ const natPlacementHelp = "--availability-zone-id is a distinct availability-zone
 	"from vngcloud network list-nat-zones. --package-id is the package UUID from list-nat-packages, " +
 	"not the offer's separate packageId field."
 
-const natWriteSupportHelp = "NAT writes support HCM (hcm-3) and HAN (han-1) with IAM-user login only. " +
-	"Unsupported auth, region, or NAT V3 mode returns InvalidConfig (exit 2)."
+const natWriteSupportHelp = "NAT writes support HCM (hcm-3) and HAN (han-1) with IAM-user login only; " +
+	"HAN is live-verified and HCM is not. Unsupported auth or region returns InvalidConfig (exit 2); " +
+	"create also returns it when the account's NAT V3 mode is not enabled for all users."
 
 func init() {
 	docOpNotes["network list-nat-zones"] = "Reads the unpaged Public NAT availability-zone catalog. Read-only profiles can run this command.\n" +

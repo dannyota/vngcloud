@@ -33,6 +33,37 @@ func TestNATWriteAuthGuards(t *testing.T) {
 		}
 	}
 }
+func TestNATHCMWriteRejectsNonIAMBeforeRequests(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		opt  vngcloud.LoadOption
+	}{
+		{"static bearer", vngcloud.WithStaticToken("synthetic-token")},
+		{"custom provider", vngcloud.WithCredentialsProvider(natCustomProvider{})},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			rt := natRoundTripper(func(*http.Request) (*http.Response, error) {
+				calls++
+				return nil, errors.New("unexpected request")
+			})
+			cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("hcm-3"), vngcloud.WithProjectID("project-1"), vngcloud.WithTransport(rt), tc.opt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			c := New(cfg)
+			_, err = c.CreateNATInstance(context.Background(), natTestInput())
+			if !errors.Is(err, vngcloud.ErrInvalidConfig) || calls != 0 {
+				t.Fatalf("create error %v, requests %d", err, calls)
+			}
+			_, err = c.DeleteNATInstance(context.Background(), &DeleteNATInstanceInput{ZoneID: "zone-1", VPCID: "vpc-1", NATID: "nat-1"})
+			if !errors.Is(err, vngcloud.ErrInvalidConfig) || calls != 0 {
+				t.Fatalf("delete error %v, requests %d", err, calls)
+			}
+		})
+	}
+}
+
 func TestNATHCMCreateRejectsVPCWithoutZone(t *testing.T) {
 	s := new(natScenario)
 	posts := 0
@@ -47,7 +78,7 @@ func TestNATHCMCreateRejectsVPCWithoutZone(t *testing.T) {
 		s.serve(t, w, r)
 	}), vngcloud.WithRegion("hcm-3"))
 	_, err := c.CreateNATInstance(context.Background(), natTestInput())
-	if !errors.Is(err, vngcloud.ErrInvalidInput) || posts != 0 {
+	if !errors.Is(err, vngcloud.ErrInvalidInput) || !strings.Contains(err.Error(), "VPC does not list the availability zone") || posts != 0 {
 		t.Fatalf("zone guard %v, POSTs %d", err, posts)
 	}
 }

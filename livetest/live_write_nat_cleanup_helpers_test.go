@@ -4,13 +4,11 @@ package livetest_test
 
 import (
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"strings"
 	"sync/atomic"
 
-	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/jsonresponse"
 )
 
@@ -68,8 +66,8 @@ func (b *natDeleteBody) Read(p []byte) (int, error) {
 	return n, err
 }
 
-func natHCMOrderNotSent(region string, err error, posts int32) bool {
-	return region == "hcm-3" && posts == 0 && errors.Is(err, vngcloud.ErrInvalidConfig)
+func natOrderNotSent(err error, posts int32) bool {
+	return err != nil && posts == 0
 }
 
 func natVPCDeleteAllowed(attempted, natAbsent, billingAbsent, routesRestored bool) bool {

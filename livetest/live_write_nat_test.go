@@ -260,7 +260,7 @@ func TestLiveWriteNAT(t *testing.T) {
 	started := time.Now()
 	natAttempted = true
 	out, err := client.CreateNATInstance(ctx, in)
-	if natHCMOrderNotSent(region, err, deleteTransport.posts.Load()) {
+	if natOrderNotSent(err, deleteTransport.posts.Load()) {
 		natAttempted = false
 	}
 	if out != nil && out.NATInstance != nil {

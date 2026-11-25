@@ -27,9 +27,29 @@ func TestNATHarnessNATPostObserver(t *testing.T) {
 	if tr.posts.Load() != 1 {
 		t.Fatalf("NAT POST count %d", tr.posts.Load())
 	}
-	attempted := !natHCMOrderNotSent("hcm-3", vngcloud.ErrInvalidConfig, tr.posts.Load())
+	attempted := !natOrderNotSent(vngcloud.ErrInvalidConfig, tr.posts.Load())
 	if !attempted || natVPCDeleteAllowed(attempted, false, false, false) {
 		t.Fatal("sent order must retain cleanup safeguards")
+	}
+}
+
+func TestNATHarnessCreateErrorCleanup(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		err         error
+		posts       int32
+		wantCleanup bool
+	}{
+		{"price above max", vngcloud.ErrPriceAboveMax, 0, true},
+		{"invalid input", vngcloud.ErrInvalidInput, 0, true},
+		{"post sent", vngcloud.ErrInvalidInput, 1, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			attempted := !natOrderNotSent(tc.err, tc.posts)
+			if got := natVPCDeleteAllowed(attempted, false, false, false); got != tc.wantCleanup {
+				t.Fatalf("cleanup allowed = %t, want %t", got, tc.wantCleanup)
+			}
+		})
 	}
 }
 
@@ -79,14 +99,14 @@ func TestNATHarnessHCMRefusalCleansVPC(t *testing.T) {
 	}
 	client := network.New(cfg)
 	_, err = client.CreateNATInstance(context.Background(), &network.CreateNATInstanceInput{Name: "example", ZoneID: "zone-1", AvailabilityZoneID: "HCM03-1B", PackageID: "package-1", VPCID: "vpc-1", MaxPrice: 100})
-	if !errors.Is(err, vngcloud.ErrInvalidConfig) || !natHCMOrderNotSent("hcm-3", err, observer.posts.Load()) {
+	if !errors.Is(err, vngcloud.ErrInvalidConfig) || !natOrderNotSent(err, observer.posts.Load()) {
 		t.Fatalf("create must fail without an order: %v", err)
 	}
-	if natHCMOrderNotSent("han-1", err, 0) || natHCMOrderNotSent("hcm-3", errors.New("uncertain"), 0) || natHCMOrderNotSent("hcm-3", err, 1) {
+	if natOrderNotSent(nil, 0) || !natOrderNotSent(errors.New("uncertain"), 0) || natOrderNotSent(err, 1) {
 		t.Fatal("unproven refusal accepted")
 	}
 	attempted := true
-	if natHCMOrderNotSent("hcm-3", err, observer.posts.Load()) {
+	if natOrderNotSent(err, observer.posts.Load()) {
 		attempted = false
 	}
 	if !natVPCDeleteAllowed(attempted, false, false, false) || !liveNATDeleteVPC(context.Background(), client, "vpc-1") || !vpcDeleted || natWrites != 0 {
