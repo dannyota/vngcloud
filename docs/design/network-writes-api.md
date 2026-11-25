@@ -330,7 +330,7 @@ gate; do not buy resources solely to produce a multi-page inventory.
 | Guard scans | Open: multi-page advancement, totals, membership scans |
 | Empty-VPC routes | Proven: route table added then removed |
 | Existing routes | Open: prior-route behavior and detach timing bounds |
-| HCM writes | Open: successful lifecycle; root failure proves no support |
+| HCM writes | Open: [one successful IAM lifecycle](#hcm-live-check) |
 | Unpaid orders | Not a direct-path gate; root checkout stays out of scope |
 | VPN body | Code only; live acceptance and required fields remain open |
 | VPN algorithms | Code routes found; values and lifetime units open |
@@ -382,3 +382,68 @@ with known IDs, last state, and cleanup outcome. Such leftovers block
 release. Public records contain only schemas, placeholders, durations,
 counts, statuses, and approved cost evidence. CLI mapping uses deterministic
 tests; the implementation also needs the required independent write review.
+
+### HCM live check
+
+Run the reviewed HCM-enabled build on the approved IAM-user account and
+project. Set `VNGCLOUD_PROJECT_ID` to that project's ID. Before starting,
+use `vngcloud --region hcm-3 --read-only portal list-quota-used` with the
+same account and project to confirm at least one free VPC slot. Stop if
+quota or scope is unclear. Serialize VPC-creating runs and pause unrelated
+spending. Supply `VNGCLOUD_ROOT_EMAIL`, `VNGCLOUD_USERNAME`,
+`VNGCLOUD_PASSWORD`, and optionally `VNGCLOUD_TOTP_SECRET` through the
+private IAM environment or `.env`. Prepare the read-only probe before the
+run. Use a fresh, absolute `0700` hold directory owned by the runner
+(`$nat_hold_dir`).
+
+```sh
+VNGCLOUD_LIVE_WRITE=1 VNGCLOUD_LIVE_NAT_WRITE=1 \
+VNGCLOUD_LIVE_NAT_REGION=hcm-3 VNGCLOUD_LIVE_NAT_MAX_PRICE=720000 \
+VNGCLOUD_LIVE_NAT_HOLD_DIR="$nat_hold_dir" VNGCLOUD_LIVE_NAT_HOLD_MAX=15m \
+go test -v -tags livewrite -count=1 -timeout=120m \
+  -run '^TestLiveWriteNAT$' ./livetest/
+```
+
+Add `VNGCLOUD_LIVE_NAT_REGION` as a single-region selector for this test.
+Allow `hcm-3` and `han-1`, default to `han-1`, and keep the same IAM-user
+configuration throughout the run. Before the single NAT POST, require all
+of the following.
+
+1. A unique region UUID from `/regions` matching the pinned HCM gateway
+   and an exact project scope. Take complete inventory baselines and stop
+   on leftovers. Create one uniquely named disposable VPC with a free CIDR,
+   prove its ownership in scope, and confirm an empty route baseline.
+2. Explicit V3 `data.enabledForAll: true`, an enabled `AVAILABILITY` AZ
+   listed for that VPC in the NAT picker, and one matching VND offer UUID
+   and SKU in the AZ-filtered catalog. Check for the HAN test's Standard
+   offer (`nat.s-standard`) in HCM. Keep the selected AZ and offer in the
+   private report for comparison. If the offer or placement is ambiguous
+   or unavailable, stop and resolve selection before any purchase.
+3. A valid positive quote at or below 720,000 VND and enough credit. Create
+   rechecks `MaxPrice` against its immediate quote. If the HCM quote exceeds
+   the cap or HCM needs a different offer, obtain owner approval before
+   any purchase.
+
+Pass requires a validated single direct order, debit matching its fresh
+quote, a uniquely matched `ACTIVE` NAT, one default route in the disposable
+VPC, and one matching PREPAID billing row with renewal `MANUAL` and explicit
+null `renewPeriod`. Only then wait at `hold: waiting`. Use the private
+`nat-ids.json` with the detail and rules entries of the
+[read-only probe](network-nat-reads.md#pinned-read-only-probes), pinned to
+HCM. Require `GetNATInstance` and `ListNATInboundRules` to satisfy the
+[read contract](network-nat-reads.md#accepted-surface). Both need HTTP 200
+and success. Detail must match the ACTIVE NAT, VPC, and package. Rules must
+form one complete array with valid rows and unique IDs. An empty array
+qualifies only the empty form. Record allowlisted field kinds and null
+versus absent. Signal the harness with a regular `release` file immediately
+after probing, even on failure. Hold timeout or probe failure fails the run
+and cleanup continues under its own deadline.
+
+Require one guarded NAT DELETE with the accepted HTTP 200 envelope,
+confirmed NAT and billing absence, restoration of the empty route baseline,
+VPC deletion, and reconciliation of debit, refund, and net cost against
+private transactions. Failed checks or unresolved leftovers keep HCM writes
+gated. Add sanitized HCM discovery, order and delete envelopes, lifecycle
+and cost results here, and record observed detail and inbound-rule shapes
+in the read design. Keep resource IDs, balances, transactions, and raw
+responses private.

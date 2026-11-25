@@ -1,6 +1,6 @@
 # Public NAT IAM purchase amendment
 
-Status: Accepted (2026-10-11). This amendment replaces the NAT parts of
+Status: Accepted. This amendment replaces the NAT parts of
 the [accepted write design](network-writes.md) where they differ. The
 owner approved each choice marked **Approved**. The
 [API evidence](network-writes-api.md) distinguishes live observations from
@@ -17,16 +17,22 @@ A quote needs HTTP 200, numeric `code: 0`, and `success: true`. A create
 needs HTTP 201, numeric `code: 0`, and `success: true`; the observed
 reply contains no data or ID. No second order or payment fallback exists.
 
-**Approved.** NAT writes fail closed unless
-auth uses the SDK IAM-user login provider and the selected region is HAN.
-That is the only live-verified write auth mode. Root, service-account,
-static bearer, and custom providers remain unverified, even though console
-code selects AUTO for non-root users. Reject unsupported or unknown auth
-provenance with `ErrInvalidConfig` before mutation. Do not infer auth mode
-from a successful inventory read, caller-supplied switch, or decoded token.
-If the configured provider cannot establish provenance, do not send.
-Existing inventory auth contracts stay unchanged. HCM write support still
-requires its own successful lifecycle; never fall back to another region.
+**Approved.** NAT create and delete require SDK IAM-user login. Reject
+unsupported region or unproven auth provenance with `ErrInvalidConfig`
+before mutation. Require provenance from the configured provider. Inventory
+success, caller switches, and decoded tokens cannot establish provenance.
+Root, service-account, static bearer, and custom providers remain outside
+write scope. Inventory keeps its existing auth contract.
+
+`han-1` is live-verified. Enable `hcm-3` for both writes after one
+[successful HCM run](network-writes-api.md#hcm-live-check). Use the same SDK
+and CLI surface, direct order, fresh quote and `MaxPrice`, renewal-off
+confirmation, VPC ownership guards, and send-once and cleanup rules.
+Reuse the [NAT routing](../../network/nat_routing.go): HCM pins
+`https://hcm-3-vnetwork.console.greennode.ai/vnetwork-gateway/` by default,
+with the existing explicit `Endpoints.VNetwork` override contract. Use
+one exact region-level `ZoneID` for the approved project and region. The
+live run uses the pinned base without overrides, redirects, or fallback.
 
 ## Inputs and discovery
 
@@ -88,6 +94,12 @@ before pricing or ordering. Do not inspect, retain, or output
 `whitelistedPortalUserIds`, and do not infer eligibility from membership.
 No NAT `SubnetID` input or legacy subnet fallback exists. A known false
 flag is unsupported configuration; malformed replies are `InvalidResponse`.
+
+HCM uses the same V3 checks. Discover the HCM VPC's eligible AZ from the
+intersection of enabled `AVAILABILITY` rows and that VPC's picker `zones`.
+Resolve the selected VND offer UUID and billing SKU from the package catalog
+filtered to that AZ. Treat HCM eligibility, AZ, offer, and price as live
+prerequisites and stop before ordering if any cannot be confirmed.
 
 ## Identity and payment
 
@@ -202,10 +214,10 @@ raw order body, or auth bypass. Delete keeps `--no-wait` and `--yes`.
 
 ## Owner decisions
 
-The owner approved these choices on 2026-10-11:
+The owner approved these choices:
 
-1. Purchase and auth: use direct collection POST; limit writes to verified
-   IAM-user SDK login in HAN and fail closed for other auth modes.
+1. Purchase and auth: use direct collection POST, require SDK IAM-user
+   login, and enable writes only in verified regions.
 2. Renewal: include the one billing renewal-off write and confirmation;
    preserve partial output and return NotSettled on failure, without resend
    or deletion.
@@ -214,3 +226,6 @@ The owner approved these choices on 2026-10-11:
    and VPC membership, and preserve the existing ZoneID meaning.
 5. Discovery: add ListNATZones and ListNATPackages with matching CLI reads.
 6. V3: require enabledForAll true and expose no subnet fallback.
+7. HCM: qualify both writes with one paid lifecycle in a disposable VPC.
+   Use the same protections as HAN and qualify the two ACTIVE NAT reads
+   during that run. Release HCM writes only after the checks pass.
