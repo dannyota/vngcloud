@@ -30,7 +30,7 @@ func TestLiveWriteNAT(t *testing.T) {
 	}
 	hold, err := newNATHold(os.Getenv("VNGCLOUD_LIVE_NAT_HOLD_DIR"), os.Getenv("VNGCLOUD_LIVE_NAT_HOLD_MAX"))
 	if err != nil {
-		t.Fatal("invalid NAT hold configuration")
+		t.Fatal("invalid NAT hold configuration; parent directory must be private and stable")
 	}
 	defer hold.Close()
 	maxPrice, err := natMaxPrice(os.Getenv("VNGCLOUD_LIVE_NAT_MAX_PRICE"))
@@ -270,17 +270,93 @@ func TestLiveWriteNAT(t *testing.T) {
 		report["lastState"] = out.NATInstance.Status
 		report["autoRenew"] = out.AutoRenew
 	}
-	afterCash, cashErr := storageProjectCash(ctx, money)
-	report["afterOrderCashAvailable"] = cashErr == nil
-	if cashErr == nil {
-		report["afterOrderCash"] = afterCash
-		report["debit"] = beforeCash - afterCash
+	var afterCash float64
+	readyForHold := false
+	cashRead := false
+	if natID != "" && out != nil && out.NATInstance != nil && out.NATInstance.Status == "ACTIVE" {
+		defer func() {
+			runNATPostActive(func() error {
+				if !readyForHold {
+					return nil
+				}
+				holdCtx := context.Background()
+				if deadline, ok := t.Deadline(); ok {
+					var cancel context.CancelFunc
+					holdCtx, cancel = context.WithDeadline(holdCtx, deadline.Add(-30*time.Minute))
+					defer cancel()
+				}
+				return hold.wait(holdCtx, natHoldIDs{NAT: natID, VPC: vpcID, VNetworkRegion: zoneID, Project: core.ClientOf(cfg).ProjectID()}, func() { t.Log("hold: waiting") }, natHoldSleep)
+			}, func(ctx context.Context) {
+				if !cashRead {
+					cashCtx, cashCancel := context.WithTimeout(ctx, 30*time.Second)
+					afterCash, cashErr = storageProjectCash(cashCtx, money)
+					cashCancel()
+					cashRead = cashErr == nil
+				}
+				natDeleteAttempted = true
+				if _, err = client.DeleteNATInstance(ctx, &network.DeleteNATInstanceInput{ZoneID: zoneID, VPCID: vpcID, NATID: natID}); err != nil {
+					t.Fatal("NAT delete failed; inspect leftovers before another action")
+				}
+				after, err := liveNATInventory(ctx, client, zoneID)
+				if err != nil {
+					t.Fatal("NAT absence confirmation failed")
+				}
+				for _, row := range after {
+					if row.UUID == natID {
+						t.Fatal("NAT remains after delete")
+					}
+				}
+				natGone = true
+				afterRoutes, routeErr := liveNATRoutes(ctx, client, vpcID)
+				if routeErr != nil || len(afterRoutes) != 0 {
+					t.Fatal("NAT route removal was not confirmed")
+				}
+				report["afterDeleteRoutes"] = afterRoutes
+				if !liveNATBillingAbsent(ctx, money, natID) {
+					t.Fatal("NAT billing row remains after delete")
+				}
+				report["billingAbsent"] = true
+				t.Log("NAT after delete=absent billing=absent")
+				if !liveNATDeleteVPC(ctx, client, vpcID) {
+					t.Fatal("VPC delete did not settle within 10 minutes")
+				}
+				vpcGone = true
+				if !cashRead {
+					t.Fatal("NAT debit unavailable; refund cannot be reconciled")
+				}
+				finalCash, refundErr := liveNATRefund(ctx, money, beforeCash, afterCash)
+				report["finalCash"] = finalCash
+				report["refund"] = finalCash - afterCash
+				report["netCost"] = beforeCash - finalCash
+				if refundErr != nil {
+					t.Fatal("NAT refund remains unresolved; reconcile the private report and transactions")
+				}
+				t.Logf("NAT debit=%.0f refund=%.0f net cost=%.0f VND", beforeCash-afterCash, finalCash-afterCash, beforeCash-finalCash)
+				t.Logf("NAT absent; disposable VPC removed; total duration=%s", time.Since(started).Round(time.Second))
+			}, func(holdErr error) {
+				if errors.Is(holdErr, errNATHoldUnlink) {
+					t.Error("NAT hold IDs removal failed")
+				}
+				if errors.Is(holdErr, errNATHoldTimeout) {
+					t.Error("NAT hold timed out")
+				} else if holdErr != nil {
+					t.Error("NAT hold failed")
+				}
+			})
+		}()
 	}
 	if err != nil {
 		t.Fatal("NAT create failed; cleanup will use confirmed identity only")
 	}
 	if natID == "" || out.NATInstance.Status != "ACTIVE" || out.AutoRenew == nil || *out.AutoRenew {
 		t.Fatal("NAT create did not confirm ACTIVE with renewal off")
+	}
+	afterCash, cashErr = storageProjectCash(ctx, money)
+	cashRead = cashErr == nil
+	report["afterOrderCashAvailable"] = cashErr == nil
+	if cashErr == nil {
+		report["afterOrderCash"] = afterCash
+		report["debit"] = beforeCash - afterCash
 	}
 	if cashErr != nil {
 		t.Fatal("NAT debit read failed")
@@ -324,49 +400,7 @@ func TestLiveWriteNAT(t *testing.T) {
 		t.Fatal("NAT billing row is not unique")
 	}
 	t.Logf("NAT state=ACTIVE renewal=MANUAL create duration=%s monthly=%.0f total=%.0f VND", time.Since(started).Round(time.Second), out.MonthlyPrice, out.TotalPrice)
-	holdErr := hold.wait(ctx, natHoldIDs{NAT: natID, VPC: vpcID, VNetworkRegion: zoneID, Project: core.ClientOf(cfg).ProjectID()}, func() { t.Log("hold: waiting") }, natHoldSleep)
-	if errors.Is(holdErr, errNATHoldTimeout) {
-		t.Error("NAT hold timed out")
-	} else if holdErr != nil {
-		t.Fatal("NAT hold failed; cleanup will run")
-	}
-	natDeleteAttempted = true
-	if _, err = client.DeleteNATInstance(ctx, &network.DeleteNATInstanceInput{ZoneID: zoneID, VPCID: vpcID, NATID: natID}); err != nil {
-		t.Fatal("NAT delete failed; inspect leftovers before another action")
-	}
-	after, err := liveNATInventory(ctx, client, zoneID)
-	if err != nil {
-		t.Fatal("NAT absence confirmation failed")
-	}
-	for _, row := range after {
-		if row.UUID == natID {
-			t.Fatal("NAT remains after delete")
-		}
-	}
-	natGone = true
-	afterRoutes, routeErr := liveNATRoutes(ctx, client, vpcID)
-	if routeErr != nil || len(afterRoutes) != 0 {
-		t.Fatal("NAT route removal was not confirmed")
-	}
-	report["afterDeleteRoutes"] = afterRoutes
-	if !liveNATBillingAbsent(ctx, money, natID) {
-		t.Fatal("NAT billing row remains after delete")
-	}
-	report["billingAbsent"] = true
-	t.Log("NAT after delete=absent billing=absent")
-	if !liveNATDeleteVPC(ctx, client, vpcID) {
-		t.Fatal("VPC delete did not settle within 10 minutes")
-	}
-	vpcGone = true
-	finalCash, refundErr := liveNATRefund(ctx, money, beforeCash, afterCash)
-	report["finalCash"] = finalCash
-	report["refund"] = finalCash - afterCash
-	report["netCost"] = beforeCash - finalCash
-	if refundErr != nil {
-		t.Fatal("NAT refund remains unresolved; reconcile the private report and transactions")
-	}
-	t.Logf("NAT debit=%.0f refund=%.0f net cost=%.0f VND", beforeCash-afterCash, finalCash-afterCash, beforeCash-finalCash)
-	t.Logf("NAT absent; disposable VPC removed; total duration=%s", time.Since(started).Round(time.Second))
+	readyForHold = true
 }
 
 func liveNATDeleteVPC(ctx context.Context, client *network.Client, id string) bool {

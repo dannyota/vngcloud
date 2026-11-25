@@ -9,12 +9,29 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"syscall"
 	"testing"
 	"time"
 )
 
 var errNATHoldTimeout = errors.New("NAT hold timed out")
+var errNATHoldUnlink = errors.New("NAT hold IDs removal failed")
+var errNATHoldPanic = errors.New("NAT hold failed")
+
+func runNATPostActive(hold func() error, reconcile func(context.Context), report func(error)) {
+	var holdErr error
+	func() {
+		defer func() {
+			if recover() != nil {
+				holdErr = errNATHoldPanic
+			}
+		}()
+		holdErr = hold()
+	}()
+	defer func() { report(holdErr) }()
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
+	defer cancel()
+	reconcile(ctx)
+}
 
 type natHoldIDs struct {
 	NAT            string `json:"nat"`
@@ -54,6 +71,7 @@ func newNATHold(dir, value string) (*natHold, error) {
 	if !filepath.IsAbs(dir) {
 		return nil, errors.New("invalid NAT hold directory")
 	}
+	dir = filepath.Clean(dir)
 	before, err := os.Lstat(dir)
 	if err != nil || !before.IsDir() || before.Mode().Perm() != 0700 || before.Mode()&(os.ModeSymlink|os.ModeSetuid|os.ModeSetgid|os.ModeSticky) != 0 {
 		return nil, errors.New("invalid NAT hold directory")
@@ -67,8 +85,24 @@ func newNATHold(dir, value string) (*natHold, error) {
 		_ = root.Close()
 		return nil, errors.New("invalid NAT hold directory")
 	}
-	stat, ok := after.Sys().(*syscall.Stat_t)
-	if !ok || stat.Uid != uint32(os.Getuid()) || !os.SameFile(before, after) || after.Mode().Perm() != 0700 {
+	if !natHoldOwned(after) || !os.SameFile(before, after) || after.Mode().Perm() != 0700 {
+		_ = root.Close()
+		return nil, errors.New("invalid NAT hold directory")
+	}
+	for _, name := range []string{"nat-ids.json", "release"} {
+		if _, statErr := root.Lstat(name); !os.IsNotExist(statErr) {
+			_ = root.Close()
+			return nil, errors.New("invalid NAT hold directory")
+		}
+	}
+	probe, probeErr := root.OpenFile(".nat-hold-preflight", os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if probeErr != nil {
+		_ = root.Close()
+		return nil, errors.New("invalid NAT hold directory")
+	}
+	closeErr := probe.Close()
+	removeErr := root.Remove(".nat-hold-preflight")
+	if closeErr != nil || removeErr != nil {
 		_ = root.Close()
 		return nil, errors.New("invalid NAT hold directory")
 	}
@@ -94,8 +128,11 @@ func (h *natHold) wait(ctx context.Context, ids natHoldIDs, log func(), sleep fu
 		return err
 	}
 	defer func() {
-		if removeErr := h.root.Remove("nat-ids.json"); removeErr != nil && err == nil {
-			err = removeErr
+		if recover() != nil {
+			err = errors.Join(err, errNATHoldPanic)
+		}
+		if removeErr := h.root.Remove("nat-ids.json"); removeErr != nil {
+			err = errors.Join(err, errNATHoldUnlink)
 		}
 	}()
 	if err = f.Chmod(0600); err != nil {
@@ -119,12 +156,15 @@ func (h *natHold) wait(ctx context.Context, ids natHoldIDs, log func(), sleep fu
 		if bounded.Err() != nil {
 			return errNATHoldTimeout
 		}
-		_, err = h.root.Stat("release")
-		if err == nil {
+		info, statErr := h.root.Lstat("release")
+		if statErr == nil {
+			if !info.Mode().IsRegular() {
+				return errors.New("invalid NAT hold release")
+			}
 			return nil
 		}
-		if !os.IsNotExist(err) {
-			return err
+		if !os.IsNotExist(statErr) {
+			return errors.New("invalid NAT hold release")
 		}
 		if elapsed >= h.max {
 			return errNATHoldTimeout
@@ -215,6 +255,116 @@ func TestNATHold(t *testing.T) {
 	cancel()
 	if err := h.wait(ctx, ids, func() {}, func(ctx context.Context, _ time.Duration) error { return ctx.Err() }); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancellation: %v", err)
+	}
+}
+
+func TestNATHoldFreshDirectory(t *testing.T) {
+	for _, name := range []string{"release", "nat-ids.json"} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.Chmod(dir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, name), nil, 0600); err != nil {
+				t.Fatal(err)
+			}
+			h, err := newNATHold(dir, "")
+			if err == nil {
+				h.Close()
+				t.Fatal("accepted stale directory")
+			}
+		})
+	}
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(dir, link); err != nil {
+		t.Fatal(err)
+	}
+	h, err := newNATHold(link+string(os.PathSeparator), "")
+	if err == nil {
+		h.Close()
+		t.Fatal("accepted trailing slash symlink")
+	}
+}
+
+func TestNATHoldRejectsNonRegularRelease(t *testing.T) {
+	for _, symlink := range []bool{false, true} {
+		dir := t.TempDir()
+		if err := os.Chmod(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		h, err := newNATHold(dir, "2s")
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = h.wait(context.Background(), natHoldIDs{}, func() {}, func(context.Context, time.Duration) error {
+			path := filepath.Join(dir, "release")
+			if symlink {
+				return os.Symlink("nat-ids.json", path)
+			}
+			return os.Mkdir(path, 0700)
+		})
+		h.Close()
+		if err == nil {
+			t.Fatal("accepted nonregular release")
+		}
+	}
+}
+
+func TestNATHoldUnlinkFailure(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	h, err := newNATHold(dir, "2s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close()
+	err = h.wait(context.Background(), natHoldIDs{}, func() {}, func(context.Context, time.Duration) error {
+		if err := os.Remove(filepath.Join(dir, "nat-ids.json")); err != nil {
+			t.Fatal(err)
+		}
+		return context.Canceled
+	})
+	if !errors.Is(err, context.Canceled) || !errors.Is(err, errNATHoldUnlink) {
+		t.Fatalf("missing unlink error: %v", err)
+	}
+}
+
+func TestNATHoldPanicAndUnlink(t *testing.T) {
+ dir := t.TempDir()
+ if err := os.Chmod(dir, 0700); err != nil { t.Fatal(err) }
+ h, err := newNATHold(dir, "2s"); if err != nil { t.Fatal(err) }; defer h.Close()
+ var result error
+ runNATPostActive(func() error { return h.wait(context.Background(), natHoldIDs{}, func(){}, func(context.Context,time.Duration) error {
+  if err := os.Remove(filepath.Join(dir,"nat-ids.json")); err != nil { t.Fatal(err) }; panic("private")
+ }) }, func(context.Context){}, func(err error){ result=err })
+ if !errors.Is(result,errNATHoldPanic) || !errors.Is(result,errNATHoldUnlink) {t.Fatalf("missing panic or unlink error: %v",result)}
+}
+
+func TestNATPostActiveOrder(t *testing.T) {
+	for _, panicHold := range []bool{false, true} {
+		var steps []string
+		var err error
+		runNATPostActive(func() error {
+			steps = append(steps, "hold")
+			if panicHold {
+				panic("private")
+			}
+			return errNATHoldTimeout
+		}, func(ctx context.Context) {
+			if ctx.Err() != nil {
+				t.Fatal("delete context canceled")
+			}
+			steps = append(steps, "delete", "reconcile")
+		}, func(e error) { err = e; steps = append(steps, "report") })
+		if err == nil || len(steps) != 4 || steps[0] != "hold" || steps[1] != "delete" || steps[2] != "reconcile" || steps[3] != "report" {
+			t.Fatalf("order %v error %v", steps, err)
+		}
 	}
 }
 
