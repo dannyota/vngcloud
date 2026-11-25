@@ -25,7 +25,7 @@ Root, service-account, static bearer, and custom providers remain outside
 write scope. Inventory keeps its existing auth contract.
 
 `han-1` is live-verified. Enable `hcm-3` for both writes after one
-[successful HCM run](network-writes-api.md#hcm-live-check). Use the same SDK
+[successful HCM run](network-nat-hcm-checks.md). Use the same SDK
 and CLI surface, direct order, fresh quote and `MaxPrice`, renewal-off
 confirmation, VPC ownership guards, and send-once and cleanup rules.
 Reuse the [NAT routing](../../network/nat_routing.go): HCM pins
