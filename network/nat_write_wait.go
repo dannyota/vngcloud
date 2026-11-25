@@ -3,11 +3,13 @@ package network
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"time"
 
 	"danny.vn/vngcloud/internal/billingresources"
+	"danny.vn/vngcloud/internal/core"
 )
 
 func (c *Client) natWaitSleep(ctx context.Context, deadline time.Time, interval time.Duration) error {
@@ -26,6 +28,11 @@ func (c *Client) waitNATCreate(ctx context.Context, op string, s *natPurchaseSpe
 		}
 		rows, err := c.natCreateInventory(waitCtx, op, s.scope, deadline)
 		if err != nil && rows == nil {
+			var api *core.APIError
+			if errors.As(err, &api) && api.Code == "InvalidResponse" {
+				out.NATInstance = nil
+				out.OrderID = ""
+			}
 			return natUnsettled(op, err)
 		}
 		var candidate *NATInstance
@@ -34,12 +41,16 @@ func (c *Client) waitNATCreate(ctx context.Context, op string, s *natPurchaseSpe
 				continue
 			}
 			if candidate != nil || row.VPC.UUID != s.info.VPCUUID || row.VPC.RegionID != s.vpc.RegionID || row.NATPackage.UUID != s.info.PackageUUID {
+				out.NATInstance = nil
+				out.OrderID = ""
 				return natUnsettled(op)
 			}
 			candidate = &row
 		}
 		if candidate != nil {
 			if out.NATInstance != nil && out.NATInstance.UUID != candidate.UUID {
+				out.NATInstance = nil
+				out.OrderID = ""
 				return natUnsettled(op)
 			}
 			out.NATInstance = candidate

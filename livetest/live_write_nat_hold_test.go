@@ -56,64 +56,6 @@ func runNATPostActive(ctx context.Context, hold func() error, reconcile func(con
 	reconcile(ctx)
 }
 
-type natReconcileState struct {
-	client                     *network.Client
-	money                      *billing.Client
-	report                     map[string]any
-	zone, vpc, nat             string
-	before                     float64
-	after                      *float64
-	cashErr                    *error
-	cashRead, natGone, vpcGone *bool
-}
-
-func (s natReconcileState) run(ctx context.Context) error {
-	if !*s.cashRead {
-		cashCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		*s.after, *s.cashErr = storageProjectCash(cashCtx, s.money)
-		cancel()
-		*s.cashRead = *s.cashErr == nil
-		recordNATPostOrderCash(s.report, s.before, *s.after, *s.cashErr)
-	}
-	if _, err := s.client.DeleteNATInstance(ctx, &network.DeleteNATInstanceInput{ZoneID: s.zone, VPCID: s.vpc, NATID: s.nat}); err != nil {
-		return errors.New("NAT delete failed; inspect leftovers before another action")
-	}
-	after, err := liveNATInventory(ctx, s.client, s.zone)
-	if err != nil {
-		return errors.New("NAT absence confirmation failed")
-	}
-	for _, row := range after {
-		if row.UUID == s.nat {
-			return errors.New("NAT remains after delete")
-		}
-	}
-	*s.natGone = true
-	routes, err := liveNATRoutes(ctx, s.client, s.vpc)
-	if err != nil || len(routes) != 0 {
-		return errors.New("NAT route removal was not confirmed")
-	}
-	s.report["afterDeleteRoutes"] = routes
-	if !liveNATBillingAbsent(ctx, s.money, s.nat) {
-		return errors.New("NAT billing row remains after delete")
-	}
-	s.report["billingAbsent"] = true
-	if !liveNATDeleteVPC(ctx, s.client, s.vpc) {
-		return errors.New("VPC delete did not settle within 10 minutes")
-	}
-	*s.vpcGone = true
-	if !*s.cashRead {
-		return errors.New("NAT debit unavailable; refund cannot be reconciled")
-	}
-	finalCash, refundErr := liveNATRefund(ctx, s.money, s.before, *s.after)
-	s.report["finalCash"] = finalCash
-	s.report["refund"] = finalCash - *s.after
-	s.report["netCost"] = s.before - finalCash
-	if refundErr != nil {
-		return errors.New("NAT refund remains unresolved; reconcile the private report and transactions")
-	}
-	return nil
-}
-
 type natHoldIDs struct {
 	NAT            string `json:"nat"`
 	VPC            string `json:"vpc"`
@@ -563,7 +505,7 @@ func runNATTransportScenario(t *testing.T, writeFailure, createFailed bool) {
 	if createFailed {
 		createErr = context.DeadlineExceeded
 	}
-	state := natReconcileState{client: network.New(cfg), money: billing.New(cfg), report: report, zone: "66b500000000000000000001", vpc: "vpc-1", nat: createOut.NATInstance.UUID, before: 100, after: &after, cashErr: &cashErr, cashRead: &cashRead, natGone: &natGone, vpcGone: &vpcGone}
+	state := natReconcileState{client: network.New(cfg), money: billing.New(cfg), report: report, zone: "66b500000000000000000001", vpc: "vpc-1", nat: createOut.NATInstance.UUID, name: "example", project: "pro-00000000-0000-0000-0000-000000000001", pkg: "package-1", before: 100, after: &after, cashErr: &cashErr, cashRead: &cashRead, natGone: &natGone, vpcGone: &vpcGone}
 	var holdErr, reconcileErr error
 	opCtx, cancelOp := context.WithCancel(context.Background())
 	if createFailed {

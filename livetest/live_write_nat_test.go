@@ -197,45 +197,30 @@ func TestLiveWriteNAT(t *testing.T) {
 					t.Error("NAT DELETE contract was not confirmed")
 				}
 			}()
-			if natAttempted && !natGone {
+			if natAttempted && !natGone && !cleanupBlocked {
+				report["cleanupIdentityConfirmed"] = false
 				inventory, listErr := liveNATInventory(cleanupCtx, client, zoneID)
 				if listErr != nil {
 					return
 				}
-				candidates := []network.NATInstance{}
-				for _, row := range inventory {
-					if row.NATName == name {
-						candidates = append(candidates, row)
-					}
+				liveNATRecordCleanupCandidates(report, inventory, name)
+				verifiedID, verified := liveNATDeleteIdentity(inventory, baseline, name, core.ClientOf(cfg).ProjectID(), zoneID, vpcID, expectedPackage, natID)
+				if !verified || deleteTransport.sent.Load() {
+					return
 				}
-				if natID == "" {
-					if len(candidates) != 1 || candidates[0].VPC.UUID != vpcID || candidates[0].NATPackage.UUID != expectedPackage || candidates[0].ProjectUUID != core.ClientOf(cfg).ProjectID() || candidates[0].ZoneUUID == "" || candidates[0].VPC.RegionID != zoneID {
-						return
-					}
-					natID = candidates[0].UUID
+				natID = verifiedID
+				report["cleanupIdentityConfirmed"] = true
+				_, deleteErr := client.DeleteNATInstance(cleanupCtx, &network.DeleteNATInstanceInput{ZoneID: zoneID, VPCID: vpcID, NATID: natID})
+				if deleteErr != nil {
+					return
 				}
-				present := false
-				for _, row := range inventory {
+				after, confirmErr := liveNATInventory(cleanupCtx, client, zoneID)
+				if confirmErr != nil {
+					return
+				}
+				for _, row := range after {
 					if row.UUID == natID {
-						present = true
-					}
-				}
-				if present {
-					if deleteTransport.sent.Load() {
 						return
-					}
-					_, deleteErr := client.DeleteNATInstance(cleanupCtx, &network.DeleteNATInstanceInput{ZoneID: zoneID, VPCID: vpcID, NATID: natID})
-					if deleteErr != nil {
-						return
-					}
-					after, confirmErr := liveNATInventory(cleanupCtx, client, zoneID)
-					if confirmErr != nil {
-						return
-					}
-					for _, row := range after {
-						if row.UUID == natID {
-							return
-						}
 					}
 				}
 				natGone = true
@@ -325,7 +310,7 @@ func TestLiveWriteNAT(t *testing.T) {
 				}
 				return hold.wait(holdCtx, natHoldIDs{NAT: natID, VPC: vpcID, VNetworkRegion: zoneID, Project: core.ClientOf(cfg).ProjectID()}, func() { t.Log("hold: waiting") }, natHoldSleep)
 			}, func(ctx context.Context) {
-				state := natReconcileState{client: client, money: money, report: report, zone: zoneID, vpc: vpcID, nat: natID, before: beforeCash, after: &afterCash, cashErr: &cashErr, cashRead: &cashRead, natGone: &natGone, vpcGone: &vpcGone}
+				state := natReconcileState{client: client, money: money, report: report, zone: zoneID, vpc: vpcID, nat: natID, name: name, project: core.ClientOf(cfg).ProjectID(), pkg: expectedPackage, baseline: baseline, before: beforeCash, after: &afterCash, cashErr: &cashErr, cashRead: &cashRead, natGone: &natGone, vpcGone: &vpcGone}
 				if err := state.run(ctx); err != nil {
 					cleanupBlocked = true
 					report["reconciliationError"] = err.Error()
