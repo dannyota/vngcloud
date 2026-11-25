@@ -31,8 +31,9 @@ Public sources only; no write was sent.
 IAM bearer reads of `v1/repository` and `v1/user` return the same empty
 list shapes on the console host and on `https://han-1.api.vngcloud.vn/vcr-api/`
 with either configured region, and `https://hcm-3.api.vngcloud.vn/vcr-api/`
-returns 404. vCR is one service, not a per-region endpoint, so the SDK keeps
-one vCR endpoint.
+returns 404. No per-region vCR gateway is evidenced, so the SDK uses one
+configured endpoint. Whether the two hosts share one inventory is
+unverified; empty lists show routing only.
 
 Neither VNG Cloud's Go SDK nor its Terraform provider covers vCR. The
 reference documents `https://vcr.api.vngcloud.vn` (HCM) with the same

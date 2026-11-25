@@ -56,7 +56,7 @@ objects, matching the official SDK, the second source for Shape reads.
   [root disk zone](vserver-root-disk-zone.md).
 - `volume.ListVolumeTypeZones` decodes only the live item fields: `ID`,
   `Name`, `Description`, and `Zone`.
-- Registry models are typed; no populated row has been verified.
+- Registry models are typed from live rows; see [vCR writes](vcr-writes.md).
 - Volume, load balancer, certificate, global load balancer, registry
   repository, and registry user Gets and child lists stay Shape until a
   populated response is verified for each operation.
@@ -319,7 +319,7 @@ Short description: "Container registry repositories".
 | `list-users` | `--name`, `--page`, `--size` | Global | Empty |
 
 `--access-level` defaults to `ALL`; other values are unknown. Both models
-are typed; no populated row has been verified.
+are typed from live rows.
 
 ## Service names and pages
 

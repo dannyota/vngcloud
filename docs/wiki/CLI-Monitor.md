@@ -251,8 +251,6 @@ vngcloud monitor ensure-synthetic-quota --max-days-left 7 --max-price 0 --output
 
 Kind: Read.
 
-Unverified live: no populated response has been captured, so this output shape is inferred from the console's code.
-
 A missing alarm exits 1, not 4: the API answers an unknown ID with a 500, not a 404, so this command never reports the NotFound error class.
 
 | Flag | Type | Required |
@@ -396,8 +394,6 @@ vngcloud monitor get-synthetic-quota-usage --query Usage
 ## list-alarms
 
 Kind: Read.
-
-Unverified live: no populated response has been captured, so this output shape is inferred from the console's code.
 
 | Flag | Type | Required |
 |-|-|-|

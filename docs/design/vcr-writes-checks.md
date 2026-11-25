@@ -52,7 +52,9 @@ writes raw captures only under `examples/basic/output/`.
 
 A balance does not prove that a paid create is refused rather than billed.
 Step 4 runs only after the owner approves a cost ceiling for one
-repository; the next-day bill is the final cost check.
+repository and step 2 returns a price at or below it. If step 2 finds no
+price or a higher one, stop before step 4. The next-day bill only
+reconciles the run; it cannot enforce the ceiling.
 
 Baseline, read-only:
 

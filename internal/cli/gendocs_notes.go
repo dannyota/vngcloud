@@ -152,9 +152,7 @@ const sdkShapeUnverifiedNote = "Unverified live: no populated response has been 
 const (
 	volumeShapeUnverifiedNote             = sdkShapeUnverifiedNote
 	loadBalancerShapeUnverifiedNote       = sdkShapeUnverifiedNote
-	certificateShapeUnverifiedNote        = sdkShapeUnverifiedNote
 	globalLoadBalancerShapeUnverifiedNote = sdkShapeUnverifiedNote
-	monitorAlarmShapeUnverifiedNote       = "Unverified live: no populated response has been captured, so this output shape is inferred from the console's code."
 )
 
 // monitorGetAlarmUnknownIDNote documents get-alarm's own exit code for a
@@ -414,8 +412,7 @@ var docOpNotes = map[string]string{
 	"monitor quote-create-log-project":        monitorQuoteCreateLogProjectIgnoredFieldsNote + " " + vatInclusivePriceNote,
 	"monitor create-log-project":              monitorCreateLogProjectNote,
 	"monitor delete-log-project":              monitorDeleteLogProjectNote,
-	"monitor list-alarms":                     monitorAlarmShapeUnverifiedNote,
-	"monitor get-alarm":                       monitorAlarmShapeUnverifiedNote + "\n\n" + monitorGetAlarmUnknownIDNote,
+	"monitor get-alarm":                       monitorGetAlarmUnknownIDNote,
 	"monitor create-log-alarm":                monitorCreateLogAlarmNote,
 	"monitor update-log-alarm":                monitorUpdateLogAlarmNote,
 	"monitor delete-log-alarm":                monitorDeleteLogAlarmNote,
@@ -441,11 +438,7 @@ var docOpNotes = map[string]string{
 	"volume detach-volume":                    volumeDetachVolumeNote,
 	"volume quote-resize-volume":              volumeQuoteResizeVolumeNote + " " + vatInclusivePriceNote,
 	"volume resize-volume":                    volumeResizeVolumeNote + " " + vatInclusivePriceNote,
-	"loadbalancer get-load-balancer":          loadBalancerShapeUnverifiedNote,
-	"loadbalancer get-certificate":            certificateShapeUnverifiedNote,
-	"loadbalancer list-listeners":             loadBalancerShapeUnverifiedNote,
 	"loadbalancer get-listener":               loadBalancerShapeUnverifiedNote,
-	"loadbalancer list-pools":                 loadBalancerShapeUnverifiedNote,
 	"loadbalancer get-pool":                   loadBalancerShapeUnverifiedNote,
 	"loadbalancer get-pool-health-monitor":    loadBalancerShapeUnverifiedNote,
 	"loadbalancer list-pool-members":          loadBalancerShapeUnverifiedNote,

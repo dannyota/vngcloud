@@ -306,9 +306,9 @@ lingers for two lists, and passes the 400 through while it stays listed; and CLI
 
 ## Live check
 
-This needs an `ACTIVE` log project. The Basic class allows 3 orders or
-recoveries a month; check the remaining count before a run. The live check
-and tag wait until one is available.
+This needs an `ACTIVE` log project. If none exists, ordering or recovering
+one uses the Basic class's 3 orders or recoveries a month; check the
+remaining count before that order.
 
 With the owner's approval, on the test account, with an existing `ACTIVE` log
 project named by `VNGCLOUD_LIVE_MONITOR_LOG_PROJECT_ID` (the test never orders
