@@ -62,7 +62,8 @@ retry policy.
 
 ## Detail and inbound rules
 
-`GetNATInstance` reads one NAT by `NATID` and returns `NATDetail`: ID, name,
+`GetNATInstance` reads one NAT by `NATID` and returns `NATDetail` in
+`out.NAT`: ID, name,
 status, gateway and public IPs, creation time, and the package and VPC IDs
 and names. `ListNATInboundRules` returns the NAT's inbound rules as
 `Items []NATInboundRule`: ID, protocol, ether type, direction, port range,
