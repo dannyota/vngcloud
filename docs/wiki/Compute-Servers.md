@@ -169,8 +169,9 @@ checks the shape of any of these IDs that is set, so a bad ID fails there as
 it will at the create. `Name` has no shape rule and is simply not sent.
 `CreateServer` quotes the same priced-only body before it orders, so the
 quote you read and the guard it checks use the same priced configuration.
-The create requires its network fields and exactly one login choice. The
-order is a `POST` and is never retried after a failure that may have
+The create requires its network fields and exactly one login choice. A create
+POST refused with HTTP 400 includes advice to list the zone's disk types.
+The order is a `POST` and is never retried after a failure that may have
 already reached the server: after any error that is not a 4xx
 `*vngcloud.APIError` or `vngcloud.ErrInvalidInput`, the server may exist,
 and the caller lists servers and matches `Name` exactly before ordering

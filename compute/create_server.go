@@ -442,6 +442,10 @@ func (c *Client) CreateServer(ctx context.Context, in *CreateServerInput) (out *
 	}
 	status, err := c.doServerJSONStatus(ctx, req, &resp)
 	if err != nil {
+		var apiErr *core.APIError
+		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusBadRequest {
+			return nil, fmt.Errorf("%w; a 400 can mean a disk type is not offered in ZoneID; list the zone's types with volume.ListVolumeTypes and ZoneID", err)
+		}
 		return nil, wrapAmbiguousServerCreateErr(op, err)
 	}
 	if resp.Data.UUID == "" {

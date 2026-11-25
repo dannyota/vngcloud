@@ -28,6 +28,27 @@ quote do not establish whether the server create accepts a type. The
 catalog probe did not replay an order, identify the historically refused
 input, or check Hanoi.
 
+## Refusal hint
+
+The SDK does not guess compatibility. When the provider refuses the
+create request itself with HTTP 400, `CreateServer` adds one fixed
+sentence to the error: the root and data disk types must be offered in
+`ZoneID`, and `volume.ListVolumeTypes` with that `ZoneID` lists them. The
+CLI prints the SDK sentence unchanged; the matching command is
+`volume list-volume-types --zone-id`.
+
+- The hint is advice. It names one common cause and does not claim that
+  the disk type caused this refusal.
+- It is added only to a 400 `*APIError` from the create POST. Other
+  statuses, quote errors, local input errors, and unclear outcomes keep
+  their current text.
+- It sends no request and reads no catalog. The error keeps its status,
+  code, sentinel, and credential redaction. `errors.Is` and `errors.As`
+  behave as before. A message withheld because user data was set stays
+  withheld; the hint is appended to the fixed text.
+- `QuoteCreateServer` is unchanged. A quote can still succeed for a pair
+  the create later refuses.
+
 ## What would justify a guard
 
 Find a provider rule or a non-ordering validation step that distinguishes

@@ -1,5 +1,12 @@
 # Release Notes
 
+## v1.2.1 - Create-server refusal hint
+
+- When GreenNode refuses `compute create-server` (SDK `CreateServer`) with
+  HTTP 400, the error now adds a hint: a disk type may not be offered in
+  the zone, and `volume list-volume-types --zone-id` lists the zone's
+  types. Nothing else about the request or the error changes.
+
 ## v1.2.0 - Backup Center policy detail
 
 - Read a Backup Center policy in `hcm-3` with `backup.GetPolicy` or
