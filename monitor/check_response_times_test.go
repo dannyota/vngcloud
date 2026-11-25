@@ -367,3 +367,47 @@ func TestCheckResponseTimesBlocksSnapshotCredential(t *testing.T) {
 	}
 	assertMonitorCredentialsAbsent(t, out, err, "alarm-1")
 }
+
+func TestCheckResponseTimesLowercaseInput(t *testing.T) {
+	c := responseClient(t, responseSnapshot, `[]`, func(r *http.Request) {
+		if r.URL.Query().Get("start_time") != "946684800000" || r.URL.Query().Get("end_time") != "946771200000" {
+			t.Errorf("query=%v", r.URL.Query())
+		}
+	})
+	out, err := c.ListCheckResponseTimes(context.Background(), &ListCheckResponseTimesInput{CheckID: "chk-1", Start: "2000-01-01t00:00:00z", End: "2000-01-02t00:00:00z"})
+	if err != nil || out == nil || out.End.Sub(out.Start) != 24*time.Hour {
+		t.Fatalf("out=%v err=%v", out, err)
+	}
+}
+
+func TestCheckResponseTimesLowercaseBucket(t *testing.T) {
+	body := `[` + strings.Replace(responseGroup, "2000-01-01T01:00:00Z", "2000-01-01t01:00:00z", 1) + `]`
+	out, err := responseClient(t, responseSnapshot, body, nil).ListCheckResponseTimes(context.Background(), &ListCheckResponseTimesInput{CheckID: "chk-1"})
+	if err != nil || out == nil || len(out.Items) != 1 || len(out.Items[0].Points) != 1 || !out.Items[0].Points[0].Timestamp.Equal(time.Date(2000, 1, 1, 1, 0, 0, 0, time.UTC)) {
+		t.Fatalf("out=%v err=%v", out, err)
+	}
+}
+
+func TestCheckResponseTimesNullLocations(t *testing.T) {
+	snapshot := strings.Replace(responseSnapshot, `["loc-1","loc-2"]`, `null`, 1)
+	out, err := responseClient(t, snapshot, `[]`, nil).ListCheckResponseTimes(context.Background(), &ListCheckResponseTimesInput{CheckID: "chk-1"})
+	var api *core.APIError
+	if out != nil || !errors.As(err, &api) || api.Code != "InvalidResponse" {
+		t.Fatalf("out=%v err=%v", out, err)
+	}
+}
+
+func TestCheckResponseTimesStatisticsRequires200(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/vmonitor-uptime-manager/v1/uptimes/chk-1" {
+			_, _ = w.Write([]byte(responseSnapshot))
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	out, err := c.ListCheckResponseTimes(context.Background(), &ListCheckResponseTimesInput{CheckID: "chk-1"})
+	if out != nil || err == nil {
+		t.Fatalf("out=%v err=%v", out, err)
+	}
+}

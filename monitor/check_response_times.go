@@ -64,7 +64,7 @@ func (c *Client) ListCheckResponseTimes(ctx context.Context, in *ListCheckRespon
 			}
 		}
 	}
-	start, end, err := c.checkHistoryRange(op, &ListCheckAlarmHistoryInput{Start: in.Start, End: in.End})
+	start, end, err := c.checkHistoryRange(op, &ListCheckAlarmHistoryInput{Start: strings.ToUpper(in.Start), End: strings.ToUpper(in.End)})
 	if err != nil {
 		return nil, err
 	}
@@ -142,13 +142,13 @@ func (c *Client) ListCheckResponseTimes(ctx context.Context, in *ListCheckRespon
 	return &ListCheckResponseTimesOutput{Items: decoded.items, Start: start, End: end}, nil
 }
 
-var responseRFC3339 = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$`)
+var responseRFC3339 = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt][0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?([Zz]|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$`)
 
 func responseParseTime(value string) (time.Time, error) {
 	if !responseRFC3339.MatchString(value) {
 		return time.Time{}, errors.New("invalid RFC 3339 timestamp")
 	}
-	return time.Parse(time.RFC3339, value)
+	return time.Parse(time.RFC3339, strings.ToUpper(value))
 }
 
 func responseSafe(texts []string, credentials monitorReadCredentials) bool {
