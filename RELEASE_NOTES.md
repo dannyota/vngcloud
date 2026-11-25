@@ -1,5 +1,14 @@
 # Release Notes
 
+## v1.4.0 - Backup Center and snapshot reads in Hanoi
+
+- `backup` reads (`list-backends`, `list-policies`, `get-policy`) and
+  volume snapshot reads (`list-snapshot-backends`, `list-snapshot-policies`)
+  now work in `han-1` as well as `hcm-3`. In `han-1`, the snapshot backend
+  is named `HAN-01`.
+- These list reads now refuse a response that repeats the sent credential,
+  as `get-policy` already did.
+
 ## v1.3.0 - vMonitor dashboard reads
 
 - List and read vMonitor dashboards with `monitor list-dashboards` and
