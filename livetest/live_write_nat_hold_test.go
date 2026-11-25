@@ -112,7 +112,7 @@ func newNATHold(dir, value string) (*natHold, error) {
 		_ = root.Close()
 		return nil, errors.New("invalid NAT hold directory")
 	}
-	for _, name := range []string{"nat-ids.json", "release"} {
+	for _, name := range []string{"nat-ids.json", "release", natDetailResult, natRulesResult} {
 		if _, statErr := root.Lstat(name); !os.IsNotExist(statErr) {
 			_ = root.Close()
 			return nil, errors.New("invalid NAT hold directory")
@@ -183,6 +183,11 @@ func (h *natHold) wait(ctx context.Context, ids natHoldIDs, log func(), sleep fu
 		if statErr == nil {
 			if !info.Mode().IsRegular() {
 				return errors.New("invalid NAT hold release")
+			}
+			for _, name := range []string{natDetailResult, natRulesResult} {
+				if resultErr := natHoldResult(h.root, name); resultErr != nil {
+					return resultErr
+				}
 			}
 			return nil
 		}
@@ -275,6 +280,11 @@ func TestNATHold(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "nat-ids.json")); !os.IsNotExist(err) {
 		t.Fatal("ids not removed")
 	}
+	for _, name := range []string{natDetailResult, natRulesResult} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("pass"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := os.WriteFile(filepath.Join(dir, "release"), nil, 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +303,7 @@ func TestNATHold(t *testing.T) {
 
 func TestNATHoldFreshDirectory(t *testing.T) {
 	requireNATHoldPlatform(t)
-	for _, name := range []string{"release", "nat-ids.json"} {
+	for _, name := range []string{"release", "nat-ids.json", natDetailResult, natRulesResult} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
 			if err := os.Chmod(dir, 0700); err != nil {

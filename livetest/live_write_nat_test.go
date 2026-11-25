@@ -529,13 +529,14 @@ func liveNATBillingAbsent(ctx context.Context, money *billing.Client, id string)
 		if err != nil {
 			return false
 		}
-		present := false
-		for _, row := range out.Items {
-			if row.Product == "vserver" && row.ArtifactType == "nat" && row.ArtifactID == id {
-				present = true
-			}
+		if out == nil {
+			return false
 		}
-		if !present {
+		absent, valid := natBillingRowsAbsent(out.Items, id)
+		if !valid {
+			return false
+		}
+		if absent {
 			return true
 		}
 		timer := time.NewTimer(2 * time.Second)
@@ -593,7 +594,7 @@ func liveNATRoutes(ctx context.Context, client *network.Client, vpc string) ([]n
 			return nil, errors.New("changing route inventory")
 		}
 		for _, row := range out.Items {
-			if row.UUID == "" || seen[row.UUID] {
+			if !natRouteIdentityValid(row) || seen[row.UUID] {
 				return nil, errors.New("invalid route identity")
 			}
 			seen[row.UUID] = true
