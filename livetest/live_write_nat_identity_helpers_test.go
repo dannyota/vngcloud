@@ -3,6 +3,8 @@
 package livetest_test
 
 import (
+	"context"
+
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/network"
 )
@@ -17,7 +19,37 @@ func liveNATRecordCleanupCandidates(report map[string]any, rows []network.NATIns
 	report["cleanupCandidateIDs"] = ids
 }
 
+func liveNATCleanupDelete(ctx context.Context, client *network.Client, report map[string]any, baseline []network.NATInstance, name, project, region, vpc, pkg, claimed string, alreadySent bool) bool {
+	report["cleanupIdentityConfirmed"] = false
+	inventory, err := liveNATInventory(ctx, client, region)
+	if err != nil {
+		return false
+	}
+	liveNATRecordCleanupCandidates(report, inventory, name)
+	id, verified := liveNATDeleteIdentity(inventory, baseline, name, project, region, vpc, pkg, claimed)
+	if !verified || alreadySent {
+		return false
+	}
+	report["cleanupIdentityConfirmed"] = true
+	if _, err := client.DeleteNATInstance(ctx, &network.DeleteNATInstanceInput{ZoneID: region, VPCID: vpc, NATID: id}); err != nil {
+		return false
+	}
+	after, err := liveNATInventory(ctx, client, region)
+	if err != nil {
+		return false
+	}
+	for _, row := range after {
+		if row.UUID == id {
+			return false
+		}
+	}
+	return true
+}
+
 func liveNATDeleteIdentity(rows, baseline []network.NATInstance, name, project, region, vpc, pkg, claimed string) (string, bool) {
+	if claimed == "" || core.CheckPathID("NAT cleanup", "claimed NAT ID", claimed) != nil {
+		return "", false
+	}
 	baselineIDs := make(map[string]bool, len(baseline))
 	for _, row := range baseline {
 		baselineIDs[row.UUID] = true

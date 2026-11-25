@@ -36,7 +36,7 @@ func TestNATHarnessIncompleteRowsThroughSDK(t *testing.T) {
 	if err != nil || len(routes.Items) != 1 || routes.Items[0].NetworkID != "" {
 		t.Fatal("SDK did not return the incomplete route")
 	}
-	if _, err := liveNATRoutes(ctx, network.New(cfg), "vpc-1"); err == nil {
+	if _, err := liveNATRoutes(ctx, cfg, "vpc-1"); err == nil {
 		t.Fatal("incomplete route allowed VPC deletion")
 	}
 	resources, err := billing.New(cfg).ListResources(ctx, nil)

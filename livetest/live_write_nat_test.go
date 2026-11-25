@@ -38,7 +38,7 @@ func TestLiveWriteNAT(t *testing.T) {
 	if natProjectPreflight(region, project) != nil {
 		t.Fatal("HCM requires an explicit path-safe VNGCLOUD_PROJECT_ID")
 	}
-	hold, err := newNATHold(os.Getenv("VNGCLOUD_LIVE_NAT_HOLD_DIR"), os.Getenv("VNGCLOUD_LIVE_NAT_HOLD_MAX"))
+	hold, err := newNATHoldRegion(os.Getenv("VNGCLOUD_LIVE_NAT_HOLD_DIR"), os.Getenv("VNGCLOUD_LIVE_NAT_HOLD_MAX"), region)
 	if err != nil {
 		t.Fatal("invalid NAT hold configuration; parent directory must be private and stable")
 	}
@@ -198,37 +198,12 @@ func TestLiveWriteNAT(t *testing.T) {
 				}
 			}()
 			if natAttempted && !natGone && !cleanupBlocked {
-				report["cleanupIdentityConfirmed"] = false
-				inventory, listErr := liveNATInventory(cleanupCtx, client, zoneID)
-				if listErr != nil {
-					return
-				}
-				liveNATRecordCleanupCandidates(report, inventory, name)
-				verifiedID, verified := liveNATDeleteIdentity(inventory, baseline, name, core.ClientOf(cfg).ProjectID(), zoneID, vpcID, expectedPackage, natID)
-				if !verified || deleteTransport.sent.Load() {
-					return
-				}
-				natID = verifiedID
-				report["cleanupIdentityConfirmed"] = true
-				_, deleteErr := client.DeleteNATInstance(cleanupCtx, &network.DeleteNATInstanceInput{ZoneID: zoneID, VPCID: vpcID, NATID: natID})
-				if deleteErr != nil {
-					return
-				}
-				after, confirmErr := liveNATInventory(cleanupCtx, client, zoneID)
-				if confirmErr != nil {
-					return
-				}
-				for _, row := range after {
-					if row.UUID == natID {
-						return
-					}
-				}
-				natGone = true
+				natGone = liveNATCleanupDelete(cleanupCtx, client, report, baseline, name, core.ClientOf(cfg).ProjectID(), zoneID, vpcID, expectedPackage, natID, deleteTransport.sent.Load())
 			}
 			billingAbsent, routesRestored := false, false
 			if !vpcGone && !cleanupBlocked && natAttempted && natGone && natID != "" {
 				billingAbsent = liveNATBillingAbsent(cleanupCtx, billing.New(cfg), natID)
-				routes, routesErr := liveNATRoutes(cleanupCtx, client, vpcID)
+				routes, routesErr := liveNATRoutes(cleanupCtx, cfg, vpcID)
 				routesRestored = routesErr == nil && len(routes) == 0
 				report["billingAbsent"] = billingAbsent
 				report["routesRestored"] = routesRestored
@@ -266,7 +241,7 @@ func TestLiveWriteNAT(t *testing.T) {
 	if cashErr != nil {
 		t.Fatal("NAT baseline cash read failed")
 	}
-	baselineRoutes, routeErr := liveNATRoutes(ctx, client, vpcID)
+	baselineRoutes, routeErr := liveNATRoutes(ctx, cfg, vpcID)
 	if routeErr != nil || len(baselineRoutes) != 0 {
 		t.Fatal("disposable VPC must have a complete empty route-table baseline")
 	}
@@ -310,7 +285,7 @@ func TestLiveWriteNAT(t *testing.T) {
 				}
 				return hold.wait(holdCtx, natHoldIDs{NAT: natID, VPC: vpcID, VNetworkRegion: zoneID, Project: core.ClientOf(cfg).ProjectID()}, func() { t.Log("hold: waiting") }, natHoldSleep)
 			}, func(ctx context.Context) {
-				state := natReconcileState{client: client, money: money, report: report, zone: zoneID, vpc: vpcID, nat: natID, name: name, project: core.ClientOf(cfg).ProjectID(), pkg: expectedPackage, baseline: baseline, before: beforeCash, after: &afterCash, cashErr: &cashErr, cashRead: &cashRead, natGone: &natGone, vpcGone: &vpcGone}
+				state := natReconcileState{cfg: cfg, client: client, money: money, report: report, zone: zoneID, vpc: vpcID, nat: natID, name: name, project: core.ClientOf(cfg).ProjectID(), pkg: expectedPackage, baseline: baseline, before: beforeCash, after: &afterCash, cashErr: &cashErr, cashRead: &cashRead, natGone: &natGone, vpcGone: &vpcGone}
 				if err := state.run(ctx); err != nil {
 					cleanupBlocked = true
 					report["reconciliationError"] = err.Error()
@@ -349,7 +324,7 @@ func TestLiveWriteNAT(t *testing.T) {
 	if math.Abs((beforeCash-afterCash)-out.TotalPrice) > 1 {
 		t.Fatal("NAT cash debit differs from the fresh create quote; reconcile unrelated transactions privately")
 	}
-	activeRoutes, routeErr := liveNATRoutes(ctx, client, vpcID)
+	activeRoutes, routeErr := liveNATRoutes(ctx, cfg, vpcID)
 	if routeErr != nil {
 		t.Fatal("ACTIVE NAT route read failed")
 	}
@@ -576,12 +551,12 @@ func liveNATSaveReport(report map[string]any) error {
 	}
 	return nil
 }
-func liveNATRoutes(ctx context.Context, client *network.Client, vpc string) ([]network.RouteTable, error) {
+func liveNATRoutes(ctx context.Context, cfg vngcloud.Config, vpc string) ([]network.RouteTable, error) {
 	items := []network.RouteTable{}
 	seen := map[string]bool{}
 	count, total, pages := 0, -1, -1
 	for page := 1; page <= 50; page++ {
-		out, err := client.ListRouteTables(ctx, &network.ListRouteTablesInput{Page: page, Size: 1000})
+		out, err := liveNATRoutePage(ctx, cfg, page)
 		if err != nil {
 			return nil, err
 		}

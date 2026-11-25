@@ -64,8 +64,9 @@ type natHoldIDs struct {
 }
 
 type natHold struct {
-	root *os.Root
-	max  time.Duration
+	root         *os.Root
+	max          time.Duration
+	requireProbe bool
 }
 
 func natMaxPrice(value string) (float64, error) {
@@ -80,6 +81,10 @@ func natMaxPrice(value string) (float64, error) {
 }
 
 func newNATHold(dir, value string) (*natHold, error) {
+	return newNATHoldRegion(dir, value, "hcm-3")
+}
+
+func newNATHoldRegion(dir, value, region string) (*natHold, error) {
 	max := 15 * time.Minute
 	if value != "" {
 		var err error
@@ -112,7 +117,11 @@ func newNATHold(dir, value string) (*natHold, error) {
 		_ = root.Close()
 		return nil, errors.New("invalid NAT hold directory")
 	}
-	for _, name := range []string{"nat-ids.json", "release", natDetailResult, natRulesResult} {
+	reserved := []string{"nat-ids.json", "release"}
+	if region == "hcm-3" {
+		reserved = append(reserved, natDetailResult, natRulesResult)
+	}
+	for _, name := range reserved {
 		if _, statErr := root.Lstat(name); !os.IsNotExist(statErr) {
 			_ = root.Close()
 			return nil, errors.New("invalid NAT hold directory")
@@ -129,7 +138,7 @@ func newNATHold(dir, value string) (*natHold, error) {
 		_ = root.Close()
 		return nil, errors.New("invalid NAT hold directory")
 	}
-	return &natHold{root: root, max: max}, nil
+	return &natHold{root: root, max: max, requireProbe: region == "hcm-3"}, nil
 }
 
 func (h *natHold) Close() {
@@ -184,9 +193,11 @@ func (h *natHold) wait(ctx context.Context, ids natHoldIDs, log func(), sleep fu
 			if !info.Mode().IsRegular() {
 				return errors.New("invalid NAT hold release")
 			}
-			for _, name := range []string{natDetailResult, natRulesResult} {
-				if resultErr := natHoldResult(h.root, name); resultErr != nil {
-					return resultErr
+			if h.requireProbe {
+				for _, name := range []string{natDetailResult, natRulesResult} {
+					if resultErr := natHoldResult(h.root, name); resultErr != nil {
+						return resultErr
+					}
 				}
 			}
 			return nil
@@ -515,7 +526,7 @@ func runNATTransportScenario(t *testing.T, writeFailure, createFailed bool) {
 	if createFailed {
 		createErr = context.DeadlineExceeded
 	}
-	state := natReconcileState{client: network.New(cfg), money: billing.New(cfg), report: report, zone: "66b500000000000000000001", vpc: "vpc-1", nat: createOut.NATInstance.UUID, name: "example", project: "pro-00000000-0000-0000-0000-000000000001", pkg: "package-1", before: 100, after: &after, cashErr: &cashErr, cashRead: &cashRead, natGone: &natGone, vpcGone: &vpcGone}
+	state := natReconcileState{cfg: cfg, client: network.New(cfg), money: billing.New(cfg), report: report, zone: "66b500000000000000000001", vpc: "vpc-1", nat: createOut.NATInstance.UUID, name: "example", project: "pro-00000000-0000-0000-0000-000000000001", pkg: "package-1", before: 100, after: &after, cashErr: &cashErr, cashRead: &cashRead, natGone: &natGone, vpcGone: &vpcGone}
 	var holdErr, reconcileErr error
 	opCtx, cancelOp := context.WithCancel(context.Background())
 	if createFailed {

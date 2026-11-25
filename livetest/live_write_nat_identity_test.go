@@ -35,7 +35,7 @@ func TestNATHarnessDeleteIdentity(t *testing.T) {
 		{"wrong package", []network.NATInstance{wrongPackage}, nil, "nat-new", false},
 		{"subtract baseline", []network.NATInstance{row, other}, []network.NATInstance{other}, "nat-new", true},
 		{"partial output mismatch", []network.NATInstance{row}, nil, "nat-other", false},
-		{"fresh discovery", []network.NATInstance{row}, nil, "", true},
+		{"fresh discovery", []network.NATInstance{row}, nil, "", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, ok := liveNATDeleteIdentity(tc.rows, tc.baseline, "generated", "project-1", "region-1", "vpc-1", "package-1", tc.claimed)

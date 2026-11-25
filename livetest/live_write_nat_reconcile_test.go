@@ -7,11 +7,13 @@ import (
 	"errors"
 	"time"
 
+	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/billing"
 	"danny.vn/vngcloud/network"
 )
 
 type natReconcileState struct {
+	cfg                        vngcloud.Config
 	client                     *network.Client
 	money                      *billing.Client
 	report                     map[string]any
@@ -55,7 +57,7 @@ func (s natReconcileState) run(ctx context.Context) error {
 		}
 	}
 	*s.natGone = true
-	routes, err := liveNATRoutes(ctx, s.client, s.vpc)
+	routes, err := liveNATRoutes(ctx, s.cfg, s.vpc)
 	if err != nil || len(routes) != 0 {
 		return errors.New("NAT route removal was not confirmed")
 	}
