@@ -86,7 +86,7 @@ func natSafeError(op string, err error) error {
 	if err == nil {
 		return nil
 	}
-	for _, sentinel := range []error{context.Canceled, context.DeadlineExceeded, core.ErrInvalidConfig, core.ErrInvalidInput, core.ErrMissingProjectID, core.ErrProjectNotFound, core.ErrProjectAmbiguous} {
+	for _, sentinel := range []error{context.Canceled, context.DeadlineExceeded, core.ErrTokenCache, core.ErrNoCredentials, core.ErrCredentialsFile, core.ErrInvalidConfig, core.ErrInvalidInput, core.ErrMissingProjectID, core.ErrProjectNotFound, core.ErrProjectAmbiguous} {
 		if errors.Is(err, sentinel) {
 			return fmt.Errorf("%s: %w", op, sentinel)
 		}

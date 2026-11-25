@@ -163,7 +163,8 @@ func (c *Client) natRead(ctx context.Context, op, id, zone string, suffix []stri
 func natHasCredential(values []string, credentials []string) bool {
 	for _, v := range values {
 		for _, c := range credentials {
-			if c != "" && strings.Contains(v, c) {
+			wire := strings.TrimRight(c, " \t")
+			if (c != "" && strings.Contains(v, c)) || (wire != "" && strings.Contains(v, wire)) {
 				return true
 			}
 		}

@@ -20,6 +20,61 @@ import (
 	"danny.vn/vngcloud/internal/transport"
 )
 
+type natFailingTokenSource struct{ err error }
+
+func (s natFailingTokenSource) Token(context.Context) (transport.Token, error) {
+	return transport.Token{}, s.err
+}
+func (natFailingTokenSource) Invalidate(string) {}
+
+func TestNATReadRetainsTokenCacheSentinel(t *testing.T) {
+	for _, sentinel := range []error{core.ErrTokenCache, core.ErrNoCredentials, core.ErrCredentialsFile, core.ErrInvalidConfig, core.ErrAuth, context.Canceled, context.DeadlineExceeded} {
+		source := natFailingTokenSource{err: fmt.Errorf("private-provider-detail: %w", sentinel)}
+		tc := transport.New(transport.Config{TokenSource: source})
+		c := New(core.NewTestConfig("hcm-3", "project-1", endpoints.Set{VNetwork: "https://example.invalid/"}, tc))
+		_, err := c.GetNATInstance(context.Background(), &GetNATInstanceInput{NATID: "nat-1", ZoneID: "region-1"})
+		if !errors.Is(err, sentinel) || strings.Contains(fmt.Sprintf("%+v", err), "private-provider-detail") {
+			t.Errorf("sentinel=%v error=%v", sentinel, err)
+		}
+	}
+}
+
+func TestNATReadRejectsTrimmedBearerReflection(t *testing.T) {
+	for _, rules := range []bool{false, true} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+			if token != "trimmed-token" {
+				t.Errorf("unexpected authorization %q", r.Header.Get("Authorization"))
+			}
+			if rules {
+				_, _ = fmt.Fprintf(w, `{"success":true,"data":[{"uuid":"rule-1","protocol":"tcp","etherType":"IPv4","direction":"ingress","isSystem":true,"portRangeMin":null,"portRangeMax":80,"description":%q}]}`, token)
+			} else {
+				_, _ = fmt.Fprintf(w, `{"success":true,"data":{"uuid":"nat-1","status":"DELETING","natName":%q,"vpc":{"uuid":"vpc-1"},"natPackage":{"uuid":"pkg-1"}}}`, token)
+			}
+		}))
+		tc := transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: &rotatingNATTokens{values: []string{"trimmed-token \t"}}})
+		c := New(core.NewTestConfig("hcm-3", "project-1", endpoints.Set{VNetwork: server.URL + "/"}, tc))
+		var err error
+		if rules {
+			var out *ListNATInboundRulesOutput
+			out, err = c.ListNATInboundRules(context.Background(), &ListNATInboundRulesInput{NATID: "nat-1", ZoneID: "region-1"})
+			if out != nil {
+				t.Error("unexpected output")
+			}
+		} else {
+			var out *GetNATInstanceOutput
+			out, err = c.GetNATInstance(context.Background(), &GetNATInstanceInput{NATID: "nat-1", ZoneID: "region-1"})
+			if out != nil {
+				t.Error("unexpected output")
+			}
+		}
+		server.Close()
+		if vngcloud.ErrorCode(err) != "InvalidResponse" {
+			t.Fatalf("rules=%v error=%v", rules, err)
+		}
+	}
+}
+
 func TestNATReadRejectsIncompleteActiveAndPagination(t *testing.T) {
 	for _, tc := range []struct {
 		name, body string
