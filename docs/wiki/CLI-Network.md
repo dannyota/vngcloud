@@ -127,7 +127,7 @@ The purchase starts with auto-renew enabled. After the NAT is ACTIVE, this comma
 
 --zone-id is the required region-level vNetwork ID. vngcloud network list-v-network-regions lists it: use the uuid of the selected region's row.
 --availability-zone-id is a distinct availability-zone UUID, for example HAN01-1B, from vngcloud network list-nat-zones. --package-id is the package UUID from list-nat-packages, not the offer's separate packageId field.
-NAT writes support HCM (hcm-3) and HAN (han-1) with IAM-user login only. Unsupported auth, region, or NAT V3 mode returns InvalidConfig (exit 2).
+NAT writes support HAN (han-1) only and IAM-user login only. Unsupported auth, region, or NAT V3 mode returns InvalidConfig (exit 2).
 Requires --yes and explicit --max-price consent (or non-null JSON MaxPrice) before any request. Read-only profiles refuse this command. Buys one month prepaid in VND, using a fresh quote. Unpriced or PriceAboveMax stops before purchase. The cap is not a server price lock. Waits up to 15 minutes after the order attempt, including renewal confirmation; a shorter context deadline wins. There is no --no-wait, period, renewal toggle, or raw request body.
 NotSettled or WriteFailed prints safe partial output on stdout, ignoring --query. Run network list-nat-instances in the same scope and billing list-resources, matching the known NAT ID. If no NAT appears, inspect payment history without ordering again. If renewal is true or unknown, renewal may remain enabled; use the billing console for a deliberate disable and confirm by a billing read. Do not repeat create while purchase or renewal is unresolved. Deletion is a separate deliberate action. See [Network NAT](Network-NAT.md).
 
@@ -304,7 +304,7 @@ Kind: Write, destructive.
 
 Requires --yes: egress can stop for every VM in the named VPC, and prior routes are not restored by the CLI.
 --zone-id is the required region-level vNetwork ID. vngcloud network list-v-network-regions lists it: use the uuid of the selected region's row.
-NAT writes support HCM (hcm-3) and HAN (han-1) with IAM-user login only. Unsupported auth, region, or NAT V3 mode returns InvalidConfig (exit 2).
+NAT writes support HAN (han-1) only and IAM-user login only. Unsupported auth, region, or NAT V3 mode returns InvalidConfig (exit 2).
 Requires explicit --vpc-id and --nat-id and refuses read-only profiles before any request. Confirms the NAT belongs to the named VPC, then sends one delete. Waits for absence, polling every 5 seconds for up to 10 minutes; a shorter context deadline wins. --no-wait confirms acceptance only, not absence, refund, or route restoration. NotFound exits 4. After NotSettled, inspect network list-nat-instances in the same scope before taking another action.
 
 | Flag | Type | Required |

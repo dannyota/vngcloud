@@ -152,58 +152,6 @@ func (s *natScenario) serve(t *testing.T, w http.ResponseWriter, r *http.Request
 	}
 	_, _ = w.Write([]byte(body))
 }
-func TestNATWriteHCMGateway(t *testing.T) {
-	s := new(natScenario)
-	var gatewayWrites int
-	rt := natRoundTripper(func(r *http.Request) (*http.Response, error) {
-		w := httptest.NewRecorder()
-		switch r.URL.Host {
-		case "signin.example.test":
-			if r.Method == http.MethodPost {
-				http.Redirect(w, r, "https://token.example.test/callback?code=synthetic-code", http.StatusFound)
-			} else {
-				_, _ = w.Write([]byte(`<input name="_csrf" value="synthetic-csrf">`))
-			}
-		case "token.example.test":
-			_, _ = w.Write([]byte(`{"accessToken":"synthetic-token","expiresIn":3600}`))
-		case "hcm-3-vnetwork.console.greennode.ai":
-			if !strings.HasPrefix(r.URL.Path, "/vnetwork-gateway/") {
-				t.Errorf("unexpected gateway path %s", r.URL.Path)
-			}
-			if (r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/nats")) || r.Method == http.MethodDelete {
-				gatewayWrites++
-			}
-			s.serve(t, w, r)
-		case "billing.example.test", "vserver.example.test":
-			s.serve(t, w, r)
-		default:
-			t.Errorf("unexpected host %s", r.URL.Host)
-			w.WriteHeader(http.StatusBadRequest)
-		}
-		return w.Result(), nil
-	})
-	cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("hcm-3"), vngcloud.WithProjectID("pro-00000000-0000-0000-0000-000000000001"), vngcloud.WithIAMUser(&vngcloud.IAMUserAuth{RootEmail: "root@example.test", Username: "user", Password: "synthetic", SigninBaseURL: "https://signin.example.test", TokenURL: "https://token.example.test", DashboardURI: "https://token.example.test/", HTTPClient: &http.Client{Transport: rt}}), vngcloud.WithTransport(rt), vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{Billing: "https://billing.example.test/", VServer: "https://vserver.example.test/"}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	c := New(cfg)
-	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	c.now = func() time.Time { return now }
-	c.sleep = func(ctx context.Context, d time.Duration) error { now = now.Add(d); return ctx.Err() }
-	if _, err := c.QuoteCreateNATInstance(context.Background(), natTestInput()); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := c.CreateNATInstance(context.Background(), natTestInput()); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := c.DeleteNATInstance(context.Background(), &DeleteNATInstanceInput{ZoneID: "66b500000000000000000001", VPCID: "vpc-1", NATID: "nat-1"}); err != nil {
-		t.Fatal(err)
-	}
-	if s.orders != 1 || s.deletes != 1 || gatewayWrites != 2 {
-		t.Fatalf("orders %d deletes %d gateway writes %d", s.orders, s.deletes, gatewayWrites)
-	}
-}
-
 func TestNATCreateAndDelete(t *testing.T) {
 	s := new(natScenario)
 	c := natWriteTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { s.serve(t, w, r) }))

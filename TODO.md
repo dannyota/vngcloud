@@ -17,6 +17,7 @@ These are additive and ship in `1.x`.
 - [ ] Qualify NAT user inbound rules, `hcm-3` NAT detail shapes, and network parity reads with populated evidence. [NAT reads](docs/design/network-nat-reads.md) and [parity inventory](docs/design/network-parity-inventory.md).
 - [ ] Complete gated vDB engine designs and populated models beyond MySQL 8.0. [Contract](docs/design/database-services.md).
 - [ ] Specify manual one-period renewal orders in a later slice; renewal settings do not place orders. [Contract](docs/design/auto-renew.md).
+- [ ] Enable Public NAT create and delete in `hcm-3` after GreenNode enables an AZ that HCM VPCs list (they list only the disabled HCM03-1A), then pass the paid HCM run. [HCM live check](docs/design/network-nat-hcm-checks.md).
 - [ ] Keep root-checkout NAT outside the approved IAM write slice; obtain separate approval for any future contract. [Auth boundary](docs/design/network-writes-nat.md#purchase-and-auth).
 - [ ] Add a read of a check's individual run results per location; no stored-result GET has been found, and the console shows them from a new test run. [Diagnostics](docs/design/monitor-console-reads.md).
 - [ ] Discover and add a channel test send, so a user can prove delivery without breaking a check. [Channels](docs/design/monitor-alerts.md#channels).

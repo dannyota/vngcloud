@@ -4,6 +4,19 @@ The single paid run that enables Public NAT create and delete in `hcm-3`
 under the [NAT purchase amendment](network-writes-nat.md). The
 [API evidence](network-writes-api.md) holds the shared NAT envelopes.
 
+## Preflight result
+
+Two preflights on the approved account stopped before any order. The
+catalog enables HCM03-1B and HCM03-1C, each offering Standard at 712,400
+VND, while HCM03-1A is the default AZ and disabled. The NAT VPC picker
+lists only HCM03-1A for both an existing VPC and the run's disposable VPC,
+so the SDK guard refuses 1B and 1C with "VPC does not list the
+availability zone". The disposable VPC was removed and nothing was bought.
+HCM NAT writes stay refused in the SDK until GreenNode enables an AZ that
+VPCs list, and this run then passes.
+
+## Run
+
 Run the reviewed HCM-enabled build on the approved IAM-user account and
 project. Set `VNGCLOUD_PROJECT_ID` to that project's ID. Serialize
 VPC-creating runs and pause unrelated spending. After taking the run's

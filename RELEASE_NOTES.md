@@ -1,5 +1,12 @@
 # Release Notes
 
+## v1.6.1 - NAT create no longer reports a stale NAT ID
+
+- When `network create-nat-instance` (SDK `CreateNATInstance`) cannot settle
+  because a later inventory read shows an ambiguous match, the partial
+  output no longer carries the NAT ID from an earlier read. Do not delete
+  by that ID; inspect `list-nat-instances` instead.
+
 ## v1.6.0 - vMonitor check response times
 
 - Read an HTTP check's average response time per probe location with

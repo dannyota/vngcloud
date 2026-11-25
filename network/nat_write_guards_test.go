@@ -20,15 +20,15 @@ func (natCustomProvider) Token(context.Context) (vngcloud.Token, error) {
 func (natCustomProvider) Invalidate(string) {}
 
 func TestNATWriteAuthGuards(t *testing.T) {
-	for _, opt := range []vngcloud.LoadOption{vngcloud.WithStaticToken("synthetic-token"), vngcloud.WithCredentialsProvider(natCustomProvider{}), vngcloud.WithRegion("unsupported")} {
+	for _, opt := range []vngcloud.LoadOption{vngcloud.WithStaticToken("synthetic-token"), vngcloud.WithCredentialsProvider(natCustomProvider{}), vngcloud.WithRegion("hcm-3"), vngcloud.WithRegion("unsupported")} {
 		calls := 0
 		c := natWriteTestClient(t, http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { calls++ }), opt)
 		_, err := c.CreateNATInstance(context.Background(), natTestInput())
-		if !errors.Is(err, vngcloud.ErrInvalidConfig) || calls != 0 {
+		if !errors.Is(err, vngcloud.ErrInvalidConfig) || !strings.Contains(err.Error(), "requires SDK IAM-user login in han-1") || calls != 0 {
 			t.Fatalf("create guard %v, calls %d", err, calls)
 		}
 		_, err = c.DeleteNATInstance(context.Background(), &DeleteNATInstanceInput{ZoneID: "66b500000000000000000001", VPCID: "vpc-1", NATID: "nat-1"})
-		if !errors.Is(err, vngcloud.ErrInvalidConfig) || calls != 0 {
+		if !errors.Is(err, vngcloud.ErrInvalidConfig) || !strings.Contains(err.Error(), "requires SDK IAM-user login in han-1") || calls != 0 {
 			t.Fatalf("delete guard %v, calls %d", err, calls)
 		}
 	}

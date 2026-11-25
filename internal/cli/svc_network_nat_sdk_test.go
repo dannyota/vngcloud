@@ -316,7 +316,7 @@ func TestNetworkNATSDKInvalidConfig(t *testing.T) {
 				run = natIAMCLI(t, natCLIRoutes(t, state))
 			}
 			if mode == "region" {
-				args = append(args, "--region", "unsupported")
+				args = append(args, "--region", "hcm-3")
 			}
 			code, out, stderr := run(args...)
 			if code != 2 || out != "" || !strings.Contains(stderr, "InvalidConfig") {

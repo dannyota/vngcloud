@@ -4,11 +4,13 @@ package livetest_test
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
 	"sync/atomic"
 
+	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/jsonresponse"
 )
 
@@ -16,11 +18,15 @@ type natDeleteTransport struct {
 	base     http.RoundTripper
 	natID    *string
 	sent     atomic.Bool
+	posts    atomic.Int32
 	count    atomic.Int32
 	accepted atomic.Bool
 }
 
 func (t *natDeleteTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/nats") {
+		t.posts.Add(1)
+	}
 	if req.Method != http.MethodDelete || *t.natID == "" || !strings.HasSuffix(req.URL.Path, "/nats/"+*t.natID) {
 		return t.base.RoundTrip(req)
 	}
@@ -60,6 +66,10 @@ func (b *natDeleteBody) Read(p []byte) (int, error) {
 		}
 	}
 	return n, err
+}
+
+func natHCMOrderNotSent(region string, err error, posts int32) bool {
+	return region == "hcm-3" && posts == 0 && errors.Is(err, vngcloud.ErrInvalidConfig)
 }
 
 func natVPCDeleteAllowed(attempted, natAbsent, billingAbsent, routesRestored bool) bool {
