@@ -40,14 +40,24 @@ func (c *Client) natZoneID(ctx context.Context, base string) (string, error) {
 }
 
 func (c *Client) natZoneIDWithPrivacy(ctx context.Context, base string, sensitive bool) (string, error) {
+	return c.natZoneIDForRead(ctx, base, sensitive, nil)
+}
+
+func (c *Client) natZoneIDForRead(ctx context.Context, base string, sensitive bool, sent *[]string) (string, error) {
 	withhold := ""
 	if sensitive {
 		withhold = "NAT response withheld"
 	}
 	var raw json.RawMessage
 	var credentials []string
-	status, err := c.c.DoJSONStatus(ctx, transport.Request{MaxBody: natMaxBody, SentCredentials: &credentials, Sensitive: sensitive, NoRedirect: sensitive, WithholdMessage: withhold, Operation: "network.ListVNetworkRegions", Method: http.MethodGet, URL: routes.URL(fixedVNetEndpoint{base: base}, routes.Route{Product: routes.ProductVNet, Version: "vnetwork/v1", Parts: []string{"regions"}}), OK: []int{http.StatusOK}}, &raw)
+	status, err := c.c.DoJSONStatus(ctx, transport.Request{MaxBody: natMaxBody, SentCredentials: &credentials, Sensitive: sensitive, NoRedirect: sensitive, NoCookies: sent != nil, BodyLimitOverridesStatus: sent != nil, KeepObservedStatus: sent != nil, WithholdMessage: withhold, Operation: "network.ListVNetworkRegions", Method: http.MethodGet, URL: routes.URL(fixedVNetEndpoint{base: base}, routes.Route{Product: routes.ProductVNet, Version: "vnetwork/v1", Parts: []string{"regions"}}), OK: []int{http.StatusOK}}, &raw)
+	if sent != nil {
+		*sent = append(*sent, credentials...)
+	}
 	if err != nil {
+		if sent != nil {
+			return "", natReadError("network.ListVNetworkRegions", status, err)
+		}
 		if errors.Is(err, transport.ErrBodyTooLarge) {
 			return "", invalidNATResponse("oversized regions envelope")
 		}

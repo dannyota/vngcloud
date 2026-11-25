@@ -122,6 +122,9 @@ type Request struct {
 	// NoRedirect refuses redirects without changing retries.
 	NoRedirect bool
 
+	// NoCookies disables the HTTP client's cookie jar for the request.
+	NoCookies bool
+
 	// MaxBody caps the decompressed response; nonpositive values use 8 MiB.
 	// The transport reads at most MaxBody+1 bytes, so it can tell a body
 	// that exactly fills the cap from one that overflows it: reading that
@@ -244,6 +247,9 @@ func (c *Client) DoJSON(ctx context.Context, req Request, out any) error {
 // on error, so a caller can build an error envelope that names the actual
 // status a 2xx response carried.
 func (c *Client) DoJSONStatus(ctx context.Context, req Request, out any) (int, error) {
+	if req.NoCookies {
+		return c.doJSONStatus(ctx, req, out, c.rawClient())
+	}
 	return c.doJSONStatus(ctx, req, out, c.httpClient)
 }
 

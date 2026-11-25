@@ -278,6 +278,10 @@ func natNumericCode(raw json.RawMessage, expected int) bool {
 
 // Project discovery omits portal identity and suppresses its raw capture.
 func (c *Client) natProjectID(ctx context.Context, op string) (string, error) {
+	return c.natProjectIDForRead(ctx, op, nil)
+}
+
+func (c *Client) natProjectIDForRead(ctx context.Context, op string, sent *[]string) (string, error) {
 	id, err := c.c.ProjectIDContext(ctx)
 	if err != nil {
 		return "", err
@@ -287,8 +291,14 @@ func (c *Client) natProjectID(ctx context.Context, op string) (string, error) {
 	}
 	var raw json.RawMessage
 	var credentials []string
-	status, err := c.c.DoJSONStatus(ctx, transport.Request{MaxBody: natMaxBody, SentCredentials: &credentials, Operation: op, Method: http.MethodGet, URL: c.c.RouteURL(routes.Route{Product: routes.ProductVServer, Version: "v1", Parts: []string{"projects"}}), OK: []int{200}, Sensitive: true, NoRedirect: true, WithholdMessage: "NAT project discovery withheld"}, &raw)
+	status, err := c.c.DoJSONStatus(ctx, transport.Request{MaxBody: natMaxBody, SentCredentials: &credentials, Operation: op, Method: http.MethodGet, URL: c.c.RouteURL(routes.Route{Product: routes.ProductVServer, Version: "v1", Parts: []string{"projects"}}), OK: []int{200}, Sensitive: true, NoRedirect: true, NoCookies: sent != nil, BodyLimitOverridesStatus: sent != nil, KeepObservedStatus: sent != nil, WithholdMessage: "NAT project discovery withheld"}, &raw)
+	if sent != nil {
+		*sent = append(*sent, credentials...)
+	}
 	if err != nil {
+		if sent != nil {
+			return "", natReadError(op, status, err)
+		}
 		if errors.Is(err, transport.ErrBodyTooLarge) {
 			return "", natInvalid(op)
 		}

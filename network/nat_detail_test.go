@@ -5,8 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -17,11 +20,245 @@ import (
 	"danny.vn/vngcloud/internal/transport"
 )
 
+func TestNATReadRejectsIncompleteActiveAndPagination(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		rules      bool
+	}{
+		{"active-missing-public-ip", `{"success":true,"data":{"uuid":"nat-1","status":"ACTIVE","natName":"example","natGatewayIp":"192.0.2.1","createdAt":"example","vpc":{"uuid":"vpc-1","name":"vpc"},"natPackage":{"uuid":"pkg-1","name":"package"}}}`, false},
+		{"rules-more-pages", `{"success":true,"data":[],"totalPage":2}`, true},
+		{"rules-total-exceeds-rows", `{"success":true,"data":[],"total":2}`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := natTestClient(t, "hcm-3", "project-1", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(tc.body)) }))
+			var err error
+			if tc.rules {
+				_, err = c.ListNATInboundRules(context.Background(), &ListNATInboundRulesInput{NATID: "nat-1", ZoneID: "zone-1"})
+			} else {
+				_, err = c.GetNATInstance(context.Background(), &GetNATInstanceInput{NATID: "nat-1", ZoneID: "zone-1"})
+			}
+			if vngcloud.ErrorCode(err) != "InvalidResponse" {
+				t.Fatalf("err=%v", err)
+			}
+		})
+	}
+}
+
+func TestNATInboundPagingMetadata(t *testing.T) {
+	for _, tc := range []struct {
+		name, fields string
+		valid        bool
+	}{
+		{"single", `"totalPage":1,"page":1,"total":0,"totalItems":0,"totalItem":0,"next":"","nextPage":""`, true},
+		{"zero", `"totalPage":0,"page":0`, true},
+		{"page", `"page":2`, false}, {"pages", `"totalPage":2`, false},
+		{"total", `"total":1`, false}, {"items", `"totalItems":1`, false}, {"item", `"totalItem":1`, false},
+		{"next", `"next":"cursor"`, false}, {"next-page", `"nextPage":"cursor"`, false},
+		{"null", `"totalPage":null`, false}, {"string", `"total":"0"`, false}, {"number-next", `"next":0`, false}, {"negative", `"page":-1`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := `{"success":true,"data":[],` + tc.fields + `}`
+			c := natTestClient(t, "hcm-3", "project-1", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }))
+			out, err := c.ListNATInboundRules(context.Background(), &ListNATInboundRulesInput{NATID: "nat-1", ZoneID: "region-1"})
+			if tc.valid {
+				if err != nil || out == nil {
+					t.Fatalf("out=%+v err=%v", out, err)
+				}
+			} else if out != nil || vngcloud.ErrorCode(err) != "InvalidResponse" {
+				t.Fatalf("out=%+v err=%v", out, err)
+			}
+		})
+	}
+}
+
+func TestNATReadDiscoveryCredentialAndCookies(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := calls.Add(1)
+		if r.Header.Get("Cookie") != "" {
+			t.Error("cookie sent")
+		}
+		if n == 1 || n == 3 {
+			w.WriteHeader(401)
+			return
+		}
+		if n == 2 {
+			_, _ = w.Write([]byte(`{"success":true,"data":[{"uuid":"region-1","vnetworkDashboard":"https://hcm-3-vnetwork.console.greennode.ai"}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"success":true,"data":{"uuid":"nat-1","status":"DELETING","natName":"synthetic-token-1","vpc":{"uuid":"vpc-1"},"natPackage":{"uuid":"pkg-1"}}}`))
+	}))
+	defer server.Close()
+	jar, _ := cookiejar.New(nil)
+	u, _ := url.Parse(server.URL)
+	jar.SetCookies(u, []*http.Cookie{{Name: "session", Value: "cookie-secret", Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode}})
+	client := server.Client()
+	client.Jar = jar
+	tc := transport.New(transport.Config{HTTPClient: client, TokenSource: &rotatingNATTokens{}})
+	c := New(core.NewTestConfig("hcm-3", "project-1", endpoints.Set{VServer: server.URL + "/", VNetwork: server.URL + "/"}, tc))
+	out, err := c.GetNATInstance(context.Background(), &GetNATInstanceInput{NATID: "nat-1"})
+	if calls.Load() != 4 || out != nil || vngcloud.ErrorCode(err) != "InvalidResponse" {
+		t.Fatalf("calls=%d out=%+v error=%v", calls.Load(), out, err)
+	}
+}
+
+func TestNATReadServerCodeCannotSelectErrorCode(t *testing.T) {
+	c := natTestClient(t, "hcm-3", "project-1", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(403)
+		_, _ = w.Write([]byte(`{"code":"InvalidResponse","message":"private"}`))
+	}))
+	_, err := c.GetNATInstance(context.Background(), &GetNATInstanceInput{NATID: "nat-1", ZoneID: "region-1"})
+	if err == nil || vngcloud.ErrorCode(err) == "InvalidResponse" {
+		t.Fatalf("err=%v code=%s", err, vngcloud.ErrorCode(err))
+	}
+}
+
+func TestNATReadDiscoveryErrorSafety(t *testing.T) {
+	for _, status := range []int{200, 403} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			c := natTestClient(t, "hcm-3", "project-1", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(status)
+				if status == 200 {
+					_, _ = w.Write([]byte(`{"success":true,"data":[{"uuid":"../private","vnetworkDashboard":"https://hcm-3-vnetwork.console.greennode.ai"}]}`))
+				} else {
+					_, _ = w.Write([]byte(`{"code":"secret-code","message":"secret-message"}`))
+				}
+			}))
+			_, err := c.GetNATInstance(context.Background(), &GetNATInstanceInput{NATID: "nat-1"})
+			if err == nil || strings.Contains(err.Error(), "private") || strings.Contains(err.Error(), "secret") {
+				t.Fatalf("err=%v", err)
+			}
+		})
+	}
+}
+
+func TestNATReadSameOriginRedirectAndCapture(t *testing.T) {
+	for _, discover := range []bool{false, true} {
+		calls, captures := 0, 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			calls++
+			if r.URL.Path == "/redirected" {
+				_, _ = w.Write([]byte(`{"secret":"canary"}`))
+				return
+			}
+			http.Redirect(w, r, "/redirected", http.StatusFound)
+		}))
+		cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("hcm-3"), vngcloud.WithProjectID("project-1"), vngcloud.WithStaticToken("test-token"), vngcloud.WithRetry(0, 0), vngcloud.WithResponseCapture(func(vngcloud.ResponseCapture) { captures++ }), vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{VNetwork: server.URL + "/"}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		zone := "zone-1"
+		if discover {
+			zone = ""
+		}
+		_, err = New(cfg).GetNATInstance(context.Background(), &GetNATInstanceInput{NATID: "nat-1", ZoneID: zone})
+		server.Close()
+		if err == nil || calls != 1 || captures != 0 {
+			t.Fatalf("discover=%v calls=%d captures=%d error=%v", discover, calls, captures, err)
+		}
+	}
+}
+
+func TestNATReadOversizeErrorStatus(t *testing.T) {
+	for _, discover := range []bool{false, true} {
+		c := natTestClient(t, "hcm-3", "project-1", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(403)
+			_, _ = w.Write([]byte(strings.Repeat("x", natMaxBody+1)))
+		}))
+		zone := "zone-1"
+		if discover {
+			zone = ""
+		}
+		_, err := c.GetNATInstance(context.Background(), &GetNATInstanceInput{NATID: "nat-1", ZoneID: zone})
+		if !errors.Is(err, transport.ErrBodyTooLarge) {
+			t.Fatalf("discover=%v error=%v", discover, err)
+		}
+	}
+}
+
+type natReadFailBody struct{ err error }
+
+func (b natReadFailBody) Read([]byte) (int, error) { return 0, b.err }
+func (natReadFailBody) Close() error               { return nil }
+
+func TestNATReadCanceledBody(t *testing.T) {
+	for _, cause := range []error{context.Canceled, context.DeadlineExceeded} {
+		for _, discover := range []bool{false, true} {
+			tc := transport.New(transport.Config{HTTPClient: &http.Client{Transport: natRoundTripper(func(*http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: 200, Header: make(http.Header), Body: natReadFailBody{err: fmt.Errorf("secret: %w", cause)}}, nil
+			})}, TokenSource: &rotatingNATTokens{}})
+			c := New(core.NewTestConfig("hcm-3", "project-1", endpoints.Set{VNetwork: "https://example.invalid/"}, tc))
+			zone := "zone-1"
+			if discover {
+				zone = ""
+			}
+			_, err := c.GetNATInstance(context.Background(), &GetNATInstanceInput{NATID: "nat-1", ZoneID: zone})
+			if !errors.Is(err, cause) || strings.Contains(err.Error(), "secret") {
+				t.Fatalf("discover=%v cause=%v err=%v", discover, cause, err)
+			}
+		}
+	}
+}
+
+func TestNATReadProjectDiscoveryCredential(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := calls.Add(1)
+		if n == 1 {
+			w.WriteHeader(401)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/projects") {
+			_, _ = w.Write([]byte(`{"projects":[{"projectId":"project-1","region":"hcm-3"}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"success":true,"data":{"uuid":"nat-1","status":"DELETING","natName":"synthetic-token-1","vpc":{"uuid":"vpc-1"},"natPackage":{"uuid":"pkg-1"}}}`))
+	}))
+	defer server.Close()
+	tc := transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: &rotatingNATTokens{}})
+	c := New(core.NewTestConfig("hcm-3", "", endpoints.Set{VServer: server.URL + "/", VNetwork: server.URL + "/"}, tc))
+	out, err := c.GetNATInstance(context.Background(), &GetNATInstanceInput{NATID: "nat-1", ZoneID: "region-1"})
+	if calls.Load() != 3 || out != nil || vngcloud.ErrorCode(err) != "InvalidResponse" {
+		t.Fatalf("calls=%d out=%+v err=%v", calls.Load(), out, err)
+	}
+}
+
+func TestNATReadProjectDiscoveryRejectsUnsafeIDWithoutCaching(t *testing.T) {
+	projectCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/projects") {
+			projectCalls++
+			if projectCalls == 1 {
+				_, _ = w.Write([]byte(`{"projects":[{"projectId":"../private","region":"hcm-3"}]}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"projects":[{"projectId":"project-1","region":"hcm-3"}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"success":true,"data":{"uuid":"nat-1","status":"DELETING","vpc":{"uuid":"vpc-1"},"natPackage":{"uuid":"pkg-1"}}}`))
+	}))
+	defer server.Close()
+	cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("hcm-3"), vngcloud.WithStaticToken("test-token"), vngcloud.WithRetry(0, 0), vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{VNetwork: server.URL + "/", VServer: server.URL + "/"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := New(cfg)
+	in := &GetNATInstanceInput{NATID: "nat-1", ZoneID: "region-1"}
+	_, err = c.GetNATInstance(context.Background(), in)
+	if err == nil || strings.Contains(err.Error(), "private") {
+		t.Fatalf("err=%v", err)
+	}
+	out, err := c.GetNATInstance(context.Background(), in)
+	if err != nil || out == nil || projectCalls != 2 {
+		t.Fatalf("out=%+v err=%v projectCalls=%d", out, err, projectCalls)
+	}
+}
+
 func TestNATDetailReads(t *testing.T) {
 	c := natTestClient(t, "hcm-3", "project-1", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/vnetwork-gateway/vnetwork/v1/zone-1/project-1/nats/nat-1":
-			_, _ = w.Write([]byte(`{"success":true,"data":{"uuid":"nat-1","status":"ACTIVE","vpc":{"uuid":"vpc-1"},"natPackage":{"uuid":"pkg-1"}}}`))
+			_, _ = w.Write([]byte(`{"success":true,"data":{"uuid":"nat-1","status":"DELETING","vpc":{"uuid":"vpc-1"},"natPackage":{"uuid":"pkg-1"}}}`))
 		case "/vnetwork-gateway/vnetwork/v1/zone-1/project-1/nats/nat-1/sec-groups/rules":
 			_, _ = w.Write([]byte(`{"success":true,"data":[{"uuid":"rule-1","protocol":"tcp","etherType":"IPv4","direction":"ingress","isSystem":true,"portRangeMin":null,"portRangeMax":80}]}`))
 		default:
@@ -71,7 +308,7 @@ func TestNATReadFixtures(t *testing.T) {
 }
 
 func TestNATReadInvalidBodies(t *testing.T) {
-	detail := `{"success":true,"data":{"uuid":"nat-1","status":"ACTIVE","vpc":{"uuid":"vpc-1"},"natPackage":{"uuid":"pkg-1"}}}`
+	detail := `{"success":true,"data":{"uuid":"nat-1","status":"ACTIVE","natName":"name","natGatewayIp":"192.0.2.1","publicIp":"198.51.100.1","createdAt":"example","vpc":{"uuid":"vpc-1","name":"vpc"},"natPackage":{"uuid":"pkg-1","name":"package"}}}`
 	rules := `{"success":true,"data":[{"uuid":"rule-1","protocol":"tcp","etherType":"IPv4","direction":"ingress","isSystem":true,"portRangeMin":null,"portRangeMax":80}]}`
 	for _, tc := range []struct {
 		body  string
@@ -160,7 +397,7 @@ func TestNATReadCredentialAfterRefresh(t *testing.T) {
 			if rules {
 				_, _ = fmt.Fprintf(w, `{"success":true,"data":[{"uuid":"rule-1","protocol":"tcp","etherType":"IPv4","direction":"ingress","isSystem":true,"portRangeMin":null,"portRangeMax":80,"description":%q}]}`, token)
 			} else {
-				_, _ = fmt.Fprintf(w, `{"success":true,"data":{"uuid":"nat-1","natName":%q,"status":"ACTIVE","vpc":{"uuid":"vpc-1"},"natPackage":{"uuid":"pkg-1"}}}`, token)
+				_, _ = fmt.Fprintf(w, `{"success":true,"data":{"uuid":"nat-1","natName":%q,"status":"DELETING","vpc":{"uuid":"vpc-1"},"natPackage":{"uuid":"pkg-1"}}}`, token)
 			}
 		}))
 		tc := transport.New(transport.Config{HTTPClient: server.Client(), TokenSource: &rotatingNATTokens{}})
@@ -218,7 +455,7 @@ func TestNATReadRegionDiscovery(t *testing.T) {
 					case "/vnetwork-gateway/vnetwork/v1/regions":
 						_, _ = fmt.Fprintf(w, `{"success":true,"data":[{"uuid":"region-1","vnetworkDashboard":%q}]}`, natRegionalOrigin(region))
 					case "/vnetwork-gateway/vnetwork/v1/region-1/project-1/nats/nat-1":
-						_, _ = w.Write([]byte(`{"success":true,"data":{"uuid":"nat-1","status":"ACTIVE","vpc":{"uuid":"vpc-1"},"natPackage":{"uuid":"pkg-1"}}}`))
+						_, _ = w.Write([]byte(`{"success":true,"data":{"uuid":"nat-1","status":"DELETING","vpc":{"uuid":"vpc-1"},"natPackage":{"uuid":"pkg-1"}}}`))
 					case "/vnetwork-gateway/vnetwork/v1/region-1/project-1/nats/nat-1/sec-groups/rules":
 						_, _ = w.Write([]byte(`{"success":true,"data":[]}`))
 					default:
