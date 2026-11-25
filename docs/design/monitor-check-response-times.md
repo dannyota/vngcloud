@@ -1,6 +1,6 @@
 # vMonitor check response times
 
-Proposed. The manager probe below fixed the point formats.
+Accepted. The manager probes below fixed the point formats and check scope.
 
 Read server-averaged HTTP response time by probe location. Callers can join
 by `LocationID` with [check alarm state and history][alarms]. This is the
