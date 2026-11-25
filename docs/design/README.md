@@ -18,6 +18,7 @@ code starts. Decisions with lasting trade-offs also get an
 | [vMonitor Alerts](monitor-alerts.md) | Accepted |
 | [vMonitor Log Alarms](monitor-log-alarms.md) | Accepted |
 | [vMonitor dashboards and quota quotes](monitor-console-reads.md) | Accepted for dashboard reads; resize quote, location metrics, dashboard delete, and channel test send held |
+| [vMonitor check response times](monitor-check-response-times.md) | Proposed; formats verified on one HTTP check |
 | [vMonitor state and quotas](monitor-quotas.md) | Accepted coverage; [catalog/status/recovery/renewal](monitor-quota-coverage.md); proposed [class packages/create/delete/ensure](monitor-synthetic-lifecycle.md); per-operation evidence limits |
 | [vDNS](dns.md) | Accepted |
 | [vStorage](storage.md) | Accepted |
