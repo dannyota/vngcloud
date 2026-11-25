@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
-	"strings"
 
 	"danny.vn/vngcloud"
 	"danny.vn/vngcloud/internal/core"
@@ -54,11 +53,17 @@ func (c *Client) ListBackends(ctx context.Context, _ *ListBackendsInput) (*ListB
 		return nil, err
 	}
 	var resp collection[Backend]
-	if err := c.get(ctx, op, "backends", nil, &resp); err != nil {
+	var credentials []string
+	if err := c.get(ctx, op, "backends", nil, &resp, &credentials); err != nil {
 		return nil, err
 	}
 	if !resp.valid(false) {
 		return nil, invalidBody(op)
+	}
+	for _, row := range resp.Items {
+		if core.ContainsCredential(credentials, row.ID, row.Name) {
+			return nil, reflectedCredential(op)
+		}
 	}
 	return &ListBackendsOutput{Items: resp.Items, Page: resp.Page, PageSize: resp.PageSize, TotalPage: *resp.TotalPages, TotalItem: *resp.TotalItems}, nil
 }
@@ -85,11 +90,17 @@ func (c *Client) ListPolicies(ctx context.Context, in *ListPoliciesInput) (*List
 	}
 	q := url.Values{"page": {strconv.Itoa(page)}, "size": {strconv.Itoa(size)}}
 	var resp collection[Policy]
-	if err := c.get(ctx, op, "backup-policies", q, &resp); err != nil {
+	var credentials []string
+	if err := c.get(ctx, op, "backup-policies", q, &resp, &credentials); err != nil {
 		return nil, err
 	}
 	if !resp.valid(true) {
 		return nil, invalidBody(op)
+	}
+	for _, row := range resp.Items {
+		if core.ContainsCredential(credentials, policyValues(row)...) {
+			return nil, reflectedCredential(op)
+		}
 	}
 	return core.NewPagedList(resp.Items, *resp.Page, *resp.PageSize, *resp.TotalPages, *resp.TotalItems), nil
 }
@@ -155,17 +166,10 @@ func (c *Client) GetPolicy(ctx context.Context, in *GetPolicyInput) (*GetPolicyO
 	if json.Unmarshal(fields["id"], &gotID) != nil || gotID == "" || gotID != id || json.Unmarshal(fields["config"], &config) != nil || config == nil || json.Unmarshal(raw, &policy) != nil {
 		return nil, invalidBody(op)
 	}
-	values := []string{policy.ID, policy.BackendID, policy.ProjectID, policy.Product, policy.Name, policy.CreatedAt, policy.UpdatedAt, policy.Config.TimeZone}
-	if policy.Config.DailyConfig != nil && policy.Config.DailyConfig.BackupType != nil {
-		values = append(values, *policy.Config.DailyConfig.BackupType)
+	if core.ContainsCredential(credentials, policyValues(policy)...) {
+		return nil, reflectedCredential(op)
 	}
-	for _, credential := range credentials {
-		for _, value := range values {
-			if credential != "" && strings.Contains(value, credential) {
-				return nil, &core.APIError{Operation: op, StatusCode: 200, Code: "InvalidResponse", Message: "Backup Center response withheld"}
-			}
-		}
-	}
+
 	return &GetPolicyOutput{Policy: policy}, nil
 }
 
@@ -176,12 +180,12 @@ func (c *Client) checkRegion(op string) error {
 	return nil
 }
 
-func (c *Client) get(ctx context.Context, op, path string, q url.Values, out any) error {
-	return c.getParts(ctx, op, []string{path}, q, out)
+func (c *Client) get(ctx context.Context, op, path string, q url.Values, out any, credentials *[]string) error {
+	return c.getParts(ctx, op, []string{path}, q, out, credentials)
 }
 
-func (c *Client) getParts(ctx context.Context, op string, parts []string, q url.Values, out any) error {
-	status, err := c.c.DoJSONStatus(ctx, transport.Request{Operation: op, Method: "GET", URL: c.c.RouteURL(routes.Route{Product: routes.ProductBackupCenter, Version: "v1", Parts: parts, Query: q}), OK: []int{200}, Sensitive: true, WithholdMessage: "Backup Center response withheld"}, out)
+func (c *Client) getParts(ctx context.Context, op string, parts []string, q url.Values, out any, credentials *[]string) error {
+	status, err := c.c.DoJSONStatus(ctx, transport.Request{Operation: op, Method: "GET", URL: c.c.RouteURL(routes.Route{Product: routes.ProductBackupCenter, Version: "v1", Parts: parts, Query: q}), OK: []int{200}, Sensitive: true, WithholdMessage: "Backup Center response withheld", SentCredentials: credentials}, out)
 	var api *core.APIError
 	if errors.As(err, &api) {
 		if api.StatusCode == 0 && status > 0 {
@@ -195,4 +199,16 @@ func (c *Client) getParts(ctx context.Context, op string, parts []string, q url.
 
 func invalidBody(op string) error {
 	return &core.APIError{Operation: op, StatusCode: 200, Message: "unrecognized Backup Center response; body withheld"}
+}
+
+func policyValues(policy Policy) []string {
+	values := []string{policy.ID, policy.BackendID, policy.ProjectID, policy.Product, policy.Name, policy.CreatedAt, policy.UpdatedAt, policy.Config.TimeZone}
+	if policy.Config.DailyConfig != nil && policy.Config.DailyConfig.BackupType != nil {
+		values = append(values, *policy.Config.DailyConfig.BackupType)
+	}
+	return values
+}
+
+func reflectedCredential(op string) error {
+	return &core.APIError{Operation: op, StatusCode: 200, Code: "InvalidResponse", Message: "Backup Center response withheld"}
 }

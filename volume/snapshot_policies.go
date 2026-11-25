@@ -54,11 +54,19 @@ func (c *Client) ListSnapshotPolicies(ctx context.Context, in *ListSnapshotPolic
 	}
 	q := url.Values{"backendId": {in.BackendID}, "projectId": {projectID}, "page": {strconv.Itoa(page)}, "size": {strconv.Itoa(size)}}
 	var resp snapshotPoliciesResponse
-	if err := c.c.DoJSON(ctx, transport.Request{Operation: op, Method: "GET", URL: c.snapshotBackupURL("snapshot-policies", q), OK: []int{200}}, &resp); err != nil {
+	var credentials []string
+	if err := c.c.DoJSON(ctx, transport.Request{Operation: op, Method: "GET", URL: c.snapshotBackupURL("snapshot-policies", q), OK: []int{200}, SentCredentials: &credentials}, &resp); err != nil {
 		return nil, err
 	}
 	if resp.Items == nil || resp.Page == nil || resp.PageSize == nil || resp.TotalPages == nil || resp.TotalItems == nil {
 		return nil, snapshotShapeError(op)
+	}
+	for _, row := range resp.Items {
+		values := []string{row.ID, row.Name, row.PolicyType, row.CreatedAt, row.UpdatedAt, row.Config.TimeZone}
+		values = append(values, row.Config.StatusSendEmail...)
+		if core.ContainsCredential(credentials, values...) {
+			return nil, snapshotCredentialError(op)
+		}
 	}
 	return core.NewPagedList(resp.Items, *resp.Page, *resp.PageSize, *resp.TotalPages, *resp.TotalItems), nil
 }
@@ -136,4 +144,8 @@ type SnapshotPolicyHourlyConfig struct {
 // See docs/design/server-services-api.md.
 type SnapshotPolicyDailyConfig struct {
 	Retention *int `json:"retention,omitempty"`
+}
+
+func snapshotCredentialError(op string) error {
+	return &core.APIError{Operation: op, StatusCode: 200, Code: "InvalidResponse", Message: "snapshot response withheld"}
 }

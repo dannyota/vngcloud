@@ -36,7 +36,14 @@ func client(t *testing.T, handler http.HandlerFunc, opts ...vngcloud.LoadOption)
 	t.Helper()
 	s := httptest.NewServer(handler)
 	t.Cleanup(s.Close)
-	base := []vngcloud.LoadOption{vngcloud.WithRegion("hcm-3"), vngcloud.WithStaticToken("synthetic-token"), vngcloud.WithProjectID("ignored-project"), vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{BackupCenter: s.URL + "/vbackup-gateway/"}), vngcloud.WithRetry(0, 0)}
+	guarded := &http.Client{Transport: backupTransport(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Scheme != "http" || r.URL.Host != s.Listener.Addr().String() {
+			t.Errorf("unexpected test destination: %s", r.URL.Host)
+			return nil, errors.New("refusing non-test destination")
+		}
+		return s.Client().Transport.RoundTrip(r)
+	})}
+	base := []vngcloud.LoadOption{vngcloud.WithRegion("hcm-3"), vngcloud.WithStaticToken("synthetic-token"), vngcloud.WithProjectID("ignored-project"), vngcloud.WithEndpointOverrides(vngcloud.EndpointOverrides{BackupCenter: s.URL + "/vbackup-gateway/"}), vngcloud.WithHTTPClient(guarded), vngcloud.WithRetry(0, 0)}
 	cfg, err := vngcloud.NewConfig(append(base, opts...)...)
 	if err != nil {
 		t.Fatal(err)
@@ -336,6 +343,43 @@ func TestUnmappedWithoutOverride(t *testing.T) {
 type backupTransport func(*http.Request) (*http.Response, error)
 
 func (f backupTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestHANPolicyDestinations(t *testing.T) {
+	for _, tc := range []struct {
+		name, path, query, fixture string
+		call                       func(*backup.Client) error
+	}{
+		{"list", "/vbackup-gateway/v1/backup-policies", "page=1&size=200", "policies", func(c *backup.Client) error {
+			_, err := c.ListPolicies(context.Background(), nil)
+			return err
+		}},
+		{"get", "/vbackup-gateway/v1/backup-policies/synthetic", "", "get-policy", func(c *backup.Client) error {
+			_, err := c.GetPolicy(context.Background(), &backup.GetPolicyInput{PolicyID: "synthetic"})
+			return err
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &provider{}
+			requests := 0
+			cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("han-1"), vngcloud.WithCredentialsProvider(p), vngcloud.WithHTTPClient(&http.Client{Transport: backupTransport(func(r *http.Request) (*http.Response, error) {
+				requests++
+				if r.Method != http.MethodGet || r.URL.Scheme != "https" || r.URL.Host != "han-1.api.vngcloud.vn" || r.URL.Path != tc.path || r.URL.RawQuery != tc.query {
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL)
+				}
+				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(fixture(t, tc.fixture)))}, nil
+			})}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := tc.call(backup.New(cfg)); err != nil {
+				t.Fatal(err)
+			}
+			if requests != 1 || p.calls != 1 {
+				t.Fatalf("requests=%d credentials=%d", requests, p.calls)
+			}
+		})
+	}
+}
 
 func TestRegionalDefaultDestination(t *testing.T) {
 	for _, region := range []string{"hcm-3", "han-1"} {

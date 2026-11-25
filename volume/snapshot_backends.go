@@ -33,11 +33,17 @@ func (c *Client) ListSnapshotBackends(ctx context.Context, in *ListSnapshotBacke
 		return nil, err
 	}
 	var resp snapshotBackendsResponse
-	if err := c.c.DoJSON(ctx, transport.Request{Operation: op, Method: "GET", URL: c.snapshotBackupURL("backends", url.Values{"backend": {in.Name}}), OK: []int{200}}, &resp); err != nil {
+	var credentials []string
+	if err := c.c.DoJSON(ctx, transport.Request{Operation: op, Method: "GET", URL: c.snapshotBackupURL("backends", url.Values{"backend": {in.Name}}), OK: []int{200}, SentCredentials: &credentials}, &resp); err != nil {
 		return nil, err
 	}
 	if resp.Items == nil {
 		return nil, snapshotShapeError(op)
+	}
+	for _, row := range resp.Items {
+		if core.ContainsCredential(credentials, row.ID, row.Name) {
+			return nil, snapshotCredentialError(op)
+		}
 	}
 	return &ListSnapshotBackendsOutput{Items: resp.Items}, nil
 }

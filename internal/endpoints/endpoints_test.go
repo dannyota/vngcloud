@@ -198,4 +198,7 @@ func TestBackupCenter(t *testing.T) {
 	if got := ResolveIAMUser("hcm-3", Overrides{BackupCenter: "https://backup.example/gateway"}).BackupCenter; got != "https://backup.example/gateway/" {
 		t.Fatal(got)
 	}
+	if got := ResolveIAMUser("sgn-1", Overrides{BackupCenter: "https://backup.example/gateway"}).BackupCenter; got != "" {
+		t.Fatalf("unmapped region accepted override: %q", got)
+	}
 }

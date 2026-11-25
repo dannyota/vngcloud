@@ -37,7 +37,14 @@ func snapshotClient(t *testing.T, region string, override bool, project string, 
 	if override {
 		endpoints.VServerBackup = server.URL + "/vserver/vbackup-gateway/"
 	}
-	cfg, err := vngcloud.NewConfig(vngcloud.WithRegion(region), vngcloud.WithProjectID(project), vngcloud.WithCredentialsProvider(p), vngcloud.WithEndpointOverrides(endpoints), vngcloud.WithRetry(0, 0))
+	guarded := &http.Client{Transport: snapshotTransport(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Scheme != "http" || r.URL.Host != server.Listener.Addr().String() {
+			t.Errorf("unexpected test destination: %s", r.URL.Host)
+			return nil, errors.New("refusing non-test destination")
+		}
+		return server.Client().Transport.RoundTrip(r)
+	})}
+	cfg, err := vngcloud.NewConfig(vngcloud.WithRegion(region), vngcloud.WithProjectID(project), vngcloud.WithCredentialsProvider(p), vngcloud.WithEndpointOverrides(endpoints), vngcloud.WithHTTPClient(guarded), vngcloud.WithRetry(0, 0))
 	if err != nil {
 		t.Fatal(err)
 	}

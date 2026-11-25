@@ -306,9 +306,9 @@ paid activation or backup creation.
 
 Hanoi reuses the HCM policy model on the same route. Its backend list is
 populated, but its policy list was empty and its detail returned only a
-missing-ID 404, so Hanoi policy rows and detail are unverified. Strict
-decoding turns any different Hanoi shape into `InvalidResponse` instead of
-a partial result.
+missing-ID 404, so Hanoi policy rows and detail are unverified. Decoding
+checks the envelope, field types, and the detail's ID; a renamed or
+missing list-row field decodes as its zero value.
 
 The first release still needs a read-only live check through the SDK's
 built-in IAM provider, using the fixed HCM endpoint and both operations.
