@@ -18,7 +18,7 @@ These are additive and ship in `1.x`.
 - [ ] Complete gated vDB engine designs and populated models beyond MySQL 8.0. [Contract](docs/design/database-services.md).
 - [ ] Specify manual one-period renewal orders in a later slice; renewal settings do not place orders. [Contract](docs/design/auto-renew.md).
 - [ ] Keep root-checkout NAT outside the approved IAM write slice; obtain separate approval for any future contract. [Auth boundary](docs/design/network-writes-nat.md#purchase-and-auth).
-- [ ] Add a read of a check's individual run results per location; no stored-result GET has been found, and the console only shows results from a new test run. [Diagnostics](docs/design/monitor-console-reads.md).
+- [ ] Add a read of a check's individual run results per location; no stored-result GET has been found, and the console shows them from a new test run. [Diagnostics](docs/design/monitor-console-reads.md).
 - [ ] Discover and add a channel test send, so a user can prove delivery without breaking a check. [Channels](docs/design/monitor-alerts.md#channels).
 - [ ] Add vMonitor dashboard delete for custom dashboards once the provider is shown to refuse deleting generated dashboards. [Dashboards](docs/design/monitor-console-reads.md#dashboards).
 - [ ] Quote an upgrade of an existing Email or SMS notification quota after observing the resize quote on an active quota. [Resize quote](docs/design/monitor-console-reads.md#existing-notification-quota-resize-quote).

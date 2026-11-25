@@ -21,7 +21,8 @@ options. It adds no dependencies or changes to existing operations.
 | `Start` | `string` | Optional RFC 3339, defaults to resolved End minus 24 hours |
 
 Validate before requests. Require a positive range of at most 24 hours
-at millisecond precision. This local limit matches the observed window.
+at millisecond precision, with both UTC bounds in years 0001-9999. Go's
+parser rejects leap seconds (`:60`), so they are invalid input. This local limit matches the observed window.
 Return the resolved request bounds as `Start, End time.Time` in UTC.
 
 Output also carries `Items []CheckResponseTimeSeries`. Each series has
