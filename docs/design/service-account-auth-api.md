@@ -252,8 +252,9 @@ baseline. These results establish behavior only for this test scope.
 
 Only the manager runs these under [live verification][live-checks]. Standing
 approval covers the free, cleanable test resources above, updates, and
-cleanup. It covers no paid server or broader policy. The account has no
-servers; server scope and enumeration remain blocked. The manager supplies
+cleanup. It covers no paid server or broader policy. Server scope and
+enumeration need an approved server and a scoped profile; until then they
+remain unverified. The manager supplies
 the project and region and uses an IAM-user config for provisioning/cleanup.
 
 Use a private ignored helper, runtime credentials, and a 120-second context

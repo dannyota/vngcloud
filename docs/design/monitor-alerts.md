@@ -40,7 +40,7 @@ does not clash with a check's `notifications` field.
 
 There is no get-by-ID call. The types are `Email`, `Slack`, `SMS`,
 `Teams`, `Telegram`, and `Webhook`; the console no longer offers Teams.
-The test account has no channels, so the list item shape is unseen.
+No populated channel list has been captured; the item shape is unseen.
 
 The create body is `name`, `type` (a type name), `address` (the email,
 Slack webhook URL, Telegram chat ID, phone number, or webhook URL),

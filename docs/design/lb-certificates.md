@@ -77,8 +77,7 @@ paths; that the writes exist there is a [live check](#live-checks).
 
 No price list, calculator item, or quote resource type names a vLB
 certificate, and an import needs no load balancer. The design treats
-import as free, so ADR 0002 rule 8 (quote) does not apply. The test
-account has no credit, so a paid import would fail rather than bill. The
+import as free, so ADR 0002 rule 8 (quote) does not apply. The
 next day's bill must show no vLB line; see [Live checks](#live-checks).
 
 ## Non-goals
@@ -184,8 +183,7 @@ discards the whole message or code. `--debug` already logs no body.
 returns `ErrCertificateInUse`, sending nothing, when `InUse` is true. The
 server's refusal is the final guard: an API error whose message contains
 `in use` or `is used` (case-insensitive) also wraps `ErrCertificateInUse`,
-whatever its status. That message is assumed; no source shows it, and the
-test account has no load balancer to provoke it.
+whatever its status. That message is assumed; no source or capture shows it.
 
 Delete is synchronous: the Output is `{}` after the 204. A retried delete
 that finds the certificate gone returns `NotFound`; how a missing

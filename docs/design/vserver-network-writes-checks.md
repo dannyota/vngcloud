@@ -87,8 +87,8 @@ change a whole VPC (main route table routes, ACL association, Private DNS)
 run only on a VPC the same run created; the test keeps that VPC's ID and
 never sends such a write to another ID.
 
-The account's VPC quota leaves one free VPC, so a run creates at most one
-VPC, and no two live tests that create a VPC (N2, N3, N4, or vDNS) run at
+Before a run, check VPC headroom in the approved region with
+`portal list-quota-used`. A run creates at most one VPC, and no two live tests that create a VPC (N2, N3, N4, or vDNS) run at
 the same time.
 
 ### N1 server groups

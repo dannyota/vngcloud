@@ -375,8 +375,8 @@ changes an existing method or command.
     creates, and check membership only through its refusals and a random
     user ID; (b) (a) plus a real add and remove of a spare IAM user the owner
     creates in the console, named by `VNGCLOUD_LIVE_IAM_USER_ID`; (c) no live
-    attach. Recommend (a): the only IAM user on the test account is the
-    caller, which the guard protects, and creating users is out of scope.
+    attach. Recommend (a): the caller is protected by the guard, and creating
+    users is out of scope.
 12. **Releases.** Recommend I1 to I4 in order, as above.
 
 ## Open questions

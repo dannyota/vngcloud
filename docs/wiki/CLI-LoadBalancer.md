@@ -207,7 +207,7 @@ vngcloud loadbalancer delete-pool --load-balancer-id <load-balancer-id> --pool-i
 
 Kind: Read.
 
-Unverified live: the test account has no certificate, so this output shape comes from GreenNode's official SDK, not a live capture.
+Unverified live: no populated response has been captured, so this output shape comes from GreenNode's official SDK.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -221,7 +221,7 @@ vngcloud loadbalancer get-certificate --certificate-id <certificate-id> --query 
 
 Kind: Read.
 
-Unverified live: the test account has no load balancer, so this output shape comes from GreenNode's official SDK, not a live capture.
+Unverified live: no populated response has been captured, so this output shape comes from GreenNode's official SDK.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -236,7 +236,7 @@ vngcloud loadbalancer get-listener --load-balancer-id <load-balancer-id> --liste
 
 Kind: Read.
 
-Unverified live: the test account has no load balancer, so this output shape comes from GreenNode's official SDK, not a live capture.
+Unverified live: no populated response has been captured, so this output shape comes from GreenNode's official SDK.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -250,7 +250,7 @@ vngcloud loadbalancer get-load-balancer --load-balancer-id <load-balancer-id> --
 
 Kind: Read.
 
-Unverified live: the test account has no load balancer, so this output shape comes from GreenNode's official SDK, not a live capture.
+Unverified live: no populated response has been captured, so this output shape comes from GreenNode's official SDK.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -266,7 +266,7 @@ vngcloud loadbalancer get-policy --load-balancer-id <load-balancer-id> --listene
 
 Kind: Read.
 
-Unverified live: the test account has no load balancer, so this output shape comes from GreenNode's official SDK, not a live capture.
+Unverified live: no populated response has been captured, so this output shape comes from GreenNode's official SDK.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -281,7 +281,7 @@ vngcloud loadbalancer get-pool --load-balancer-id <load-balancer-id> --pool-id <
 
 Kind: Read.
 
-Unverified live: the test account has no load balancer, so this output shape comes from GreenNode's official SDK, not a live capture.
+Unverified live: no populated response has been captured, so this output shape comes from GreenNode's official SDK.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -331,7 +331,7 @@ vngcloud loadbalancer list-certificates
 
 Kind: Read.
 
-Unverified live: the test account has no load balancer, so this output shape comes from GreenNode's official SDK, not a live capture.
+Unverified live: no populated response has been captured, so this output shape comes from GreenNode's official SDK.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -371,7 +371,7 @@ vngcloud loadbalancer list-packages
 
 Kind: Read.
 
-Unverified live: the test account has no load balancer, so this output shape comes from GreenNode's official SDK, not a live capture.
+Unverified live: no populated response has been captured, so this output shape comes from GreenNode's official SDK.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -386,7 +386,7 @@ vngcloud loadbalancer list-policies --load-balancer-id <load-balancer-id> --list
 
 Kind: Read.
 
-Unverified live: the test account has no load balancer, so this output shape comes from GreenNode's official SDK, not a live capture.
+Unverified live: no populated response has been captured, so this output shape comes from GreenNode's official SDK.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -401,7 +401,7 @@ vngcloud loadbalancer list-pool-members --load-balancer-id <load-balancer-id> --
 
 Kind: Read.
 
-Unverified live: the test account has no load balancer, so this output shape comes from GreenNode's official SDK, not a live capture.
+Unverified live: no populated response has been captured, so this output shape comes from GreenNode's official SDK.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -415,7 +415,7 @@ vngcloud loadbalancer list-pools --load-balancer-id <load-balancer-id>
 
 Kind: Read.
 
-Unverified live: the test account has no load balancer, so this output shape comes from GreenNode's official SDK, not a live capture.
+Unverified live: no populated response has been captured, so this output shape comes from GreenNode's official SDK.
 
 | Flag | Type | Required |
 |-|-|-|

@@ -238,8 +238,8 @@ caller or operation deadline; late success cannot settle a write.
 
 `CreateVolumeInput.EncryptionTypeID` creates an encrypted volume. It is
 optional; empty sends no encryption key. Take the ID from
-`ListEncryptionTypes`, which returns `aes-xts-plain64_128` and
-`aes-xts-plain64_256` on the test account. The SDK sends the ID as
+`ListEncryptionTypes`, which returned `aes-xts-plain64_128` and
+`aes-xts-plain64_256` in a recorded read. The SDK sends the ID as
 `encryptionType` on the create and on the quote, and refuses an ID outside
 `^[A-Za-z0-9_-]+$` with `vngcloud.ErrInvalidInput` before any request. It
 does not check the ID against the list: the server refuses an unknown type.

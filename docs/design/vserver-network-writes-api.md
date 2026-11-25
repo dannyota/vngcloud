@@ -202,8 +202,8 @@ exception: its live response matches the read model, so it decodes into
   are unique (live: a duplicate create returns 400). VNG Cloud's own SDK
   says a group with servers is refused (`server group is in use`); not
   verified live.
-- Live quota on the test account: 2 VPCs, 5 subnets, 5 server groups, 100
-  routes, and 10 routes per route table.
+- Quota observed on one account, not a product limit: 2 VPCs per region, 5
+  subnets, 5 server groups, 100 routes, and 10 routes per route table.
 
 ## Waits
 

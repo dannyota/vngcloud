@@ -303,8 +303,8 @@ run needs the owner's approval naming the account, region, and project.
 
 ## Live checks before code
 
-The test IAM user has vStorage access, and the test account has a project
-in `HCM04`. Writes need the owner's approval.
+Live checks need an IAM user with vStorage access and an existing project
+in the target region. Writes need the owner's approval.
 
 Answered: `ListProjects` returns the project once `region` is sent, so an
 empty list means none; the headers the server needs; the empty bucket list;

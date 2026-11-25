@@ -33,7 +33,10 @@ runs the live create and delete on disposable resources before landing. The
 9. On `NotSettled` or `WriteFailed`, the CLI prints the validated partial
    output (cluster ID and last status) on stdout with exit 1 and the error on
    stderr, matching the existing CLI rule for other writes.
-10. The sections below describe the stricter long-term design; where they
+10. The SDK accepts create and delete in `hcm-3` and `han-1`, the regions
+   with a verified VKS endpoint. The create and delete lifecycle is verified
+   live only in `hcm-3`; a `han-1` run needs its own approval.
+11. The sections below describe the stricter long-term design; where they
    conflict with these decisions, these decisions win.
 
 ## Recommendation

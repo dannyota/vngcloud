@@ -307,9 +307,8 @@ lingers for two lists, and passes the 400 through while it stays listed; and CLI
 ## Live check
 
 This needs an `ACTIVE` log project. The Basic class allows 3 orders or
-recoveries a month, and the test account has used them, so none can be
-ordered until the limit resets. The release can be built and reviewed now;
-its live check and tag wait for the reset.
+recoveries a month; check the remaining count before a run. The live check
+and tag wait until one is available.
 
 With the owner's approval, on the test account, with an existing `ACTIVE` log
 project named by `VNGCLOUD_LIVE_MONITOR_LOG_PROJECT_ID` (the test never orders

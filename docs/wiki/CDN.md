@@ -399,7 +399,7 @@ out, err := client.UpdateWebAccelerator(ctx, &cdn.UpdateWebAcceleratorInput{
   kept.
 - The CDN must be `ACTIVE`. The update answer lacks some actions and repeats an
   origin, so the Output always comes from a read of the CDN.
-- A package may refuse an action: the test account's package refuses
+- A package may refuse an action; one observed package refused
   `developmentMode`.
 
 ## CLI

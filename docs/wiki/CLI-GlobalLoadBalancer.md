@@ -107,7 +107,7 @@ vngcloud globalloadbalancer delete-pool --load-balancer-id <glb-id> --pool-id <p
 
 Kind: Read.
 
-Unverified live: the test account has no global load balancer, so this output shape comes from GreenNode's official SDK, not a live capture.
+Unverified live: no populated response has been captured, so this output shape comes from GreenNode's official SDK.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -122,7 +122,7 @@ vngcloud globalloadbalancer get-listener --load-balancer-id <load-balancer-id> -
 
 Kind: Read.
 
-Unverified live: the test account has no global load balancer, so this output shape comes from GreenNode's official SDK, not a live capture.
+Unverified live: no populated response has been captured, so this output shape comes from GreenNode's official SDK.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -136,7 +136,7 @@ vngcloud globalloadbalancer get-load-balancer --load-balancer-id <load-balancer-
 
 Kind: Read.
 
-Unverified live: the test account has no global load balancer, so this output shape comes from GreenNode's official SDK, not a live capture.
+Unverified live: no populated response has been captured, so this output shape comes from GreenNode's official SDK.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -152,7 +152,7 @@ vngcloud globalloadbalancer get-pool-member --load-balancer-id <load-balancer-id
 
 Kind: Read.
 
-Unverified live: the test account has no global load balancer, so this output shape comes from GreenNode's official SDK, not a live capture.
+Unverified live: no populated response has been captured, so this output shape comes from GreenNode's official SDK.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -190,7 +190,7 @@ vngcloud globalloadbalancer list-packages
 
 Kind: Read.
 
-Unverified live: the test account has no global load balancer, so this output shape comes from GreenNode's official SDK, not a live capture.
+Unverified live: no populated response has been captured, so this output shape comes from GreenNode's official SDK.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -205,7 +205,7 @@ vngcloud globalloadbalancer list-pool-members --load-balancer-id <load-balancer-
 
 Kind: Read.
 
-Unverified live: the test account has no global load balancer, so this output shape comes from GreenNode's official SDK, not a live capture.
+Unverified live: no populated response has been captured, so this output shape comes from GreenNode's official SDK.
 
 | Flag | Type | Required |
 |-|-|-|
@@ -229,7 +229,7 @@ vngcloud globalloadbalancer list-regions
 
 Kind: Read.
 
-Unverified live: the test account has no global load balancer, so this output shape comes from GreenNode's official SDK, not a live capture. The formats and allowed values of --from, --to, and --type are unknown; the CLI passes them through unchecked.
+Unverified live: no populated response has been captured, so this output shape comes from GreenNode's official SDK. The formats and allowed values of --from, --to, and --type are unknown; the CLI passes them through unchecked.
 
 | Flag | Type | Required |
 |-|-|-|

@@ -28,6 +28,12 @@ Public sources only; no write was sent.
   repository's CLI: it succeeds on the IAM vCR endpoint
   (`vcr.<console domain>/vcr-api/`) and returns no rows.
 
+IAM bearer reads of `v1/repository` and `v1/user` return the same empty
+list shapes on the console host and on `https://han-1.api.vngcloud.vn/vcr-api/`
+with either configured region, and `https://hcm-3.api.vngcloud.vn/vcr-api/`
+returns 404. vCR is one service, not a per-region endpoint, so the SDK keeps
+one vCR endpoint.
+
 Neither VNG Cloud's Go SDK nor its Terraform provider covers vCR. The
 reference documents `https://vcr.api.vngcloud.vn` (HCM) with the same
 `v1/...` paths; that the writes exist on the IAM endpoint is part of the
@@ -386,7 +392,7 @@ writes, the prefix note, the retry advice, and the `docker login` steps.
 The cost probe gates both. If it shows repositories are free, R1 and R2
 ship in order as usual. If it shows them paid, each release is still built
 and unit-tested and may merge, but its live checks and its tag wait until
-the owner adds credit, and R1 also gains the quote ADR 0002 rule 8
+the owner approves the cost, and R1 also gains the quote ADR 0002 rule 8
 requires. Nothing is tagged on an unverified write.
 
 ## Owner decisions
@@ -397,10 +403,10 @@ requires. Nothing is tagged on an unverified write.
    review the design. Recommend approve now: the design needs the probe's
    captures anyway, and building and unit-testing costs nothing.
 2. Cost probe. Options: one private repository create with
-   `quotaLimit` 1 and delete, relying on the no-credit refusal and the
-   next-day bill; a `pricing.GetQuote` guess only. Recommend the create:
-   no quote resource type for vCR is known, and the test account's
-   prepaid balance of zero turns a paid create into a refusal.
+   `quotaLimit` 1 and delete, under an approved cost ceiling and checked on
+   the next-day bill; a `pricing.GetQuote` guess only. Recommend the
+   create: no quote resource type for vCR is known. A zero balance does
+   not prove that a paid create is refused.
 3. Typed models. Options: type `Repository` and `User` now (breaking);
    add typed write Outputs and keep the maps for reads; keep maps.
    Recommend type both: one model per resource, and `list-users` can ship.

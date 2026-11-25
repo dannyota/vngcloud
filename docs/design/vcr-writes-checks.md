@@ -50,9 +50,9 @@ naming the account, the vCR endpoint, and the resources. It logs only
 statuses, field names and types, booleans, counts, and timings, and
 writes raw captures only under `examples/basic/output/`.
 
-The test account is prepaid with no credit. The survey's assumption is
-that a paid create then fails rather than bills; the vDNS probes found
-this, and this probe relies on it for vCR.
+A balance does not prove that a paid create is refused rather than billed.
+Step 4 runs only after the owner approves a cost ceiling for one
+repository; the next-day bill is the final cost check.
 
 Baseline, read-only:
 
@@ -103,18 +103,18 @@ Outcomes:
 
 | Result | Meaning | Next |
 |-|-|-|
-| Step 4 refused | Paid | Build and unit-test R1 and R2 from the reference and these results; their live checks and tags wait for credit; design the quote |
-| Step 4 accepted, step 8 shows a line | Paid, billed despite no credit | Stop and tell the owner at once: the no-credit assumption failed. Same gate as above |
+| Step 4 refused | Paid | Build and unit-test R1 and R2 from the reference and these results; their live checks and tags wait for an approved cost; design the quote |
+| Step 4 accepted, step 8 shows a line | Paid and billed | Stop and tell the owner at once. Same gate as above |
 | Step 4 accepted, step 8 clean | Free | R1 and R2 ship in order |
 
-If step 4 is refused, steps 5 to 7 are unknown until credit exists, and
+If step 4 is refused, steps 5 to 7 are unknown until a paid run is approved, and
 the typed models come from the reference alone: every field is kept, and
-the first live check after credit compares them against a capture.
+the first approved live check compares them against a capture.
 
 ## Live checks
 
 Each release's checks pass on the test account before its code merges,
-and only once the cost probe says free or the owner has added credit.
+and only once the cost probe says free or the owner has approved the cost.
 Each write run needs the owner's approval naming the account and
 resources. Names are `vcrlive-<8 hex>`: repoName's own server rule (6 to
 20 characters) is too short for the usual `vngcloud-live-` prefix.

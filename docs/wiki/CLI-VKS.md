@@ -2,9 +2,10 @@
 
 # CLI: VKS
 
-Reads Kubernetes cluster inventory, versions, and quota. Only `hcm-3`
-and `han-1` are supported. `--project-id` does not select a VKS workspace.
-All three commands work under `--read-only`. Output contains account data.
+Reads Kubernetes cluster inventory, versions, and quota, and creates and deletes private clusters.
+Works in `hcm-3` and `han-1`; create and delete are verified live only in `hcm-3`.
+`--project-id` does not select a VKS workspace. Reads work under `--read-only`.
+Output contains account data.
 See [VKS](VKS.md) for the SDK models and scope.
 
 Every list prints `{"Items": [...]}`, so a `--query` starts with `Items`.
@@ -13,7 +14,7 @@ Every list prints `{"Items": [...]}`, so a `--query` starts with `Items`.
 
 Kind: Write.
 
-Requires --yes. There is no quote API. Worker servers and disks, the private cluster's managed load balancer, and four service endpoints incur charges. The order is prepaid for one month from credits; a one-node private cluster debited about 2,137,000 VND at create in a recorded run, and deleting it refunded the unused value. Keep that much credit available. Auto-renew is off. ACTIVE means provisioned, not workload ready. Cluster names must have 5 to 20 characters; node group names must have 5 to 15. Names use lowercase letters, digits, and hyphens, starting and ending with a letter or digit. The disk type, flavor, and subnet must be in the same zone. Use network get-subnet for ZoneID and volume get-default-volume-type --zone-id <that zone> for the disk type.
+Requires --yes. There is no quote API. Worker servers and disks, the private cluster's managed load balancer, and four service endpoints incur charges. The order is prepaid for one month from credits; a one-node private cluster debited about 2,137,000 VND at create in one recorded run, and deleting it refunded the unused value. That figure is an example, not an estimate; cost depends on the node group, flavor, and disks. Auto-renew is off. ACTIVE means provisioned, not workload ready. Cluster names must have 5 to 20 characters; node group names must have 5 to 15. Names use lowercase letters, digits, and hyphens, starting and ending with a letter or digit. The disk type, flavor, and subnet must be in the same zone. Use network get-subnet for ZoneID and volume get-default-volume-type --zone-id <that zone> for the disk type.
 
 | Flag | Type | Required |
 |-|-|-|

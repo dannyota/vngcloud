@@ -206,14 +206,15 @@ Only the manager runs these under a separate read-only brief following
 ## Live run
 
 L4 scope/cap is not run authorization. Each approval names account, region
-(`hcm-3`, or `han-1` while the HCM VPC quota is full), enabled zone, mode,
+(`hcm-3` or `han-1`, with VPC headroom checked before the run), enabled
+zone, mode,
 resources, and cleanup under the cap. Require quote evidence and cleanup
 before purchase. Set `VNGCLOUD_LIVE_WRITE=1`, `VNGCLOUD_LIVE_FLOATING_IP=1`,
 and `VNGCLOUD_LIVE_MAX_VND=500000` in a manager-owned test with a 60 min
 timeout. Each run needs new approval; never reuse consent or raise the cap.
 
-Buy one `s2-general-1x2` server with a 20 GB 3000 IOPS SSD root (NVME only
-where a region has no SSD, as `han-1`) by its verified zone-specific
+Buy one `s2-general-1x2` server with a 20 GB 3000 IOPS SSD root (NVME when the
+chosen zone's catalog has no SSD) by its verified zone-specific
 `RootDiskTypeID`, and one IP through `AttachFloatingIP`. No data disk,
 resize, second IP, or auto-attach. Keep 500,000 VND as the gross quote
 cap. Requote before purchase; refuse above the cap; never take a default

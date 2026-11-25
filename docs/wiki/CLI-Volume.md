@@ -207,7 +207,7 @@ vngcloud volume list-snapshot-policies --backend-id <backend-id>
 
 Kind: Read.
 
-Unverified live: the test account has no volume, so this output shape comes from GreenNode's official SDK, not a live capture.
+Unverified live: no populated response has been captured, so this output shape comes from GreenNode's official SDK.
 
 | Flag | Type | Required |
 |-|-|-|

@@ -442,5 +442,5 @@ The SDK does not make these calls; see [Non-goals](storage.md#non-goals).
 - Limits: 10 S3 keys per root account, 1000 buckets per project. The
   console API refuses the 11th key with code 114; whether the limit also
   counts accounts API keys is unknown.
-- The test account has one Gold 30 GB project in `HCM04`, bought monthly
-  with auto-renew off, so bucket writes can run live.
+- Bucket write checks need an existing project in the target region; check
+  with `storage list-projects` before a run.

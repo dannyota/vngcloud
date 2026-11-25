@@ -111,7 +111,7 @@ and `totalPage`. `page` and `pageSize` echo the request. With the generated
 filter at size 1, pages 1 and 2 each returned one row with `system` true,
 and both reported the same `totalItem` and an equal `totalPage`, so totals
 count the filtered set. The custom filter returned no rows and zero totals
-on both pages; this account has no custom dashboard. Generated rows have
+on both pages. Generated rows have
 string `id`, `name`, `createdAt`, `updatedAt`, `timeRange`, `timeRangeType`;
 boolean `system`, `favorite`, `refreshActive`, and sometimes `darkMode`;
 integer `createdUser` and `refreshInterval`. `GET /dashboards/{id}` for a

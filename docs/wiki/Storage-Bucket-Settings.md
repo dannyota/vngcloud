@@ -99,10 +99,10 @@ Encryption applies to uploads only (checked live on 2026-10-10 in `HCM04`):
 objects written before enabling stay unencrypted, and objects written while
 enabled stay encrypted after disabling. Conditional `PutObject`
 (`If-None-Match: *`), multipart uploads, and `DeleteObjects` work on an
-encrypted bucket. S3 `CopyObject` of an encrypted object answers 501
-`NotImplemented`, and a copy of an unencrypted object is not encrypted, so
-copy, move, and rename do not work for encrypted data; download and upload
-again instead.
+encrypted bucket. In `HCM04`, S3 `CopyObject` of an encrypted object
+answers 501 `NotImplemented`, and a copy of an unencrypted object is not
+encrypted, so copy, move, and rename do not work for encrypted data there;
+download and upload again instead. `HAN02` copy behavior is unverified.
 
 ## CORS
 

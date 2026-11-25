@@ -201,7 +201,9 @@ quote without asserting a fixed amount. The
 
 Declined ([decision 17](vserver-paid-writes.md#owner-decisions)): no
 paid write is sent before the account has credit. The steps stay here for
-a later owner decision. On the zero-balance test account in `hcm-3`:
+a later owner decision. A zero balance is this probe's precondition, not
+proof that the order is refused. On the zero-balance test account in
+`hcm-3`:
 
 1. Read `GetBalances`; stop unless every balance is 0 or null.
 2. `CreateVolume` named `vngcloud-live-<8 hex>`, 1 GB SSD, zone

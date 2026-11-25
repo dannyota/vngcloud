@@ -97,8 +97,7 @@ Every VPC in a zone needs Private DNS on. A VPC's `dnsStatus`, which
 
 ### Cost
 
-Nothing was billed for the live checks, on an account with no credit, where
-a paid action would fail. vDNS appears on no pricing page. The design treats
+Nothing was billed for the live checks. vDNS appears on no pricing page. The design treats
 zones and records as free within the quota, so ADR 0002 rule 8 (quote) does
 not apply. One open check remains: a vDNS line on the next day's bill.
 

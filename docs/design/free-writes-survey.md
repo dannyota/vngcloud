@@ -7,7 +7,7 @@ account can create and clean up, and proposes which to design next. It is
 not a design: each pick still gets its own design, with its own live checks,
 before code starts.
 
-The test account has no credit, so only free writes can be verified live.
+A write is verified live only after its cost is known and approved.
 Shipped writes are budgets and thresholds, vDNS private zones and records,
 vMonitor checks, channels, and log projects, security groups and rules, and
 SSH keys.
@@ -33,15 +33,12 @@ Public pages and repositories only. No authenticated call was made.
 ## How cost was judged
 
 No GreenNode page gives a price list for vServer; the vServer pricing page
-points to the console calculator. So "free" rests on three kinds of
-evidence, named per row below:
+points to the console calculator. So "free" rests on two kinds of
+evidence, named per row below. An account balance is not evidence: a zero
+balance does not prove that a paid create is refused rather than billed.
 
 - **No product.** No pricing page, quote resource type, or package names
   the resource, and its create body has no package, period, or size.
-- **Refusal on a paid create.** The test account is prepaid with no credit,
-  so a paid create fails instead of billing, as the vDNS live checks found.
-  This makes a single create a safe probe; it is an assumption for any
-  service not yet probed.
 - **Next-day bill.** The final check for every pick: no line for the
   service on the next day's bill.
 
@@ -137,8 +134,7 @@ Add route table create and delete and a routes replace to `network`. It
 builds on pick 2: the live test makes its own VPC. `PUT .../routes` sends
 the whole route list, so the SDK reads the table and offers add and remove
 on top, as vDNS zone update does. The route `target` is an IP address in
-the docs; whether it must belong to a server interface is a live check,
-since the test account has none. Delete returns 202 and is asynchronous.
+the docs; whether it must belong to a server interface is a live check. Delete returns 202 and is asynchronous.
 
 ### 5. Network ACLs
 
@@ -160,8 +156,8 @@ Delete needs the subnets detached first.
    security review. The alternative, a design per pick, repeats the
    gateway and wait sections five times.
 2. **Cost probes.** Recommendation: approve one create and delete per pick
-   on the test account in `hcm-3`, relying on the no-credit refusal and the
-   next-day bill. For private virtual IPs (#7) and vCR (#8), run a
+   on the test account in `hcm-3`, after cost evidence and an approved
+   ceiling, with the next-day bill as the final check. For private virtual IPs (#7) and vCR (#8), run a
    `pricing.GetQuote`, which is read-only, before any create, and keep them
    out of any design until a quote or a probe shows zero cost.
 3. **IAM writes, flagged for explicit approval.** Service accounts (#9) and

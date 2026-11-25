@@ -77,8 +77,8 @@ Facts from the probes:
   the other 11 action `id`s.
 - Package limits are counted on the request body and refused with a
   message that names the limit, such as `...not allow to create more than
-  0 cname, please upgrade your package`. The test account's package
-  allows 0 alternative names and 1 origin, and refuses the
+  0 cname, please upgrade your package`. One observed package
+  allowed 0 alternative names and 1 origin, and refused the
   `developmentMode` action on update with code 500 and `Current user
   package is not allow to use feature developmentMode, please upgrade
   your package`.

@@ -347,7 +347,7 @@ named `Volume`. The smallest server above costs about 11,600 VND a day, or
 
 ## Catalog (live)
 
-- `hcm-3` zone `HCM03-1C`, the test account's only enabled zone, has five
+- `hcm-3` zone `HCM03-1C`, enabled for the recorded account, had five
   flavor zones: General Purpose, General Purpose Code S, Standard Code S,
   High Mem Code S, and High CPU Code S. The smallest flavors are
   `s2-general-1x2` and `s-general-1x2`.

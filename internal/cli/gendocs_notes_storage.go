@@ -187,8 +187,8 @@ const storagePutBucketEncryptionNote = storageProjectIDNote + storageRegionNote 
 	"default encryption. Needs `--enabled=true` or `--enabled=false`; omitted or null JSON `Enabled` exits " +
 	"2 before any request. `--bucket` names the bucket; JSON uses `BucketName`. Encryption applies to uploads " +
 	"only; objects stored before enabling stay unencrypted, and objects written while enabled stay encrypted " +
-	"after disabling. S3 copy of an encrypted object fails with 501 `NotImplemented`, so copy, move, and rename " +
-	"do not work for encrypted data. Confirms the state with one read. " +
+	"after disabling. In `HCM04`, S3 copy of an encrypted object fails with 501 `NotImplemented`, so copy, move, " +
+	"and rename do not work for encrypted data there; `HAN02` is unverified. Confirms the state with one read. " +
 	"On `NotSettled` (exit 1), read get-bucket-encryption before writing again. Needs no `--yes` or prompt. " +
 	"A read-only profile refuses the write before any request."
 

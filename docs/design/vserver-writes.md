@@ -115,8 +115,7 @@ any error, which suggests a rule delete can fail while its group is busy.
 No vServer pricing page or calculator item names security groups, rules,
 or SSH keys; the calculator prices servers, volumes, and IPs. The design
 treats all three as free, so ADR 0002 rule 8 (quote) does not apply. None
-is flagged as possibly billed. On an account with no credit a paid create
-fails, so a live run would show a surprise charge as an error. The
+is flagged as possibly billed. The
 next day's bill must show no vServer line.
 
 ## Non-goals

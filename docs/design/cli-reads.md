@@ -51,16 +51,15 @@ for Zone provenance. Live `network.GetVPC` and `GetSubnet` return bare
 objects, matching the official SDK, the second source for Shape reads.
 
 - Every read returning a row fills its decoded fields.
-- `volume.GetDefaultVolumeType` returns 404 `NotFound` with `{message}` in
-  both regions. The official SDK uses the same path. Whether the account
-  lacks a default type or the endpoint is gone remains unknown.
+- `volume.GetDefaultVolumeType` requires a zone ID. Without one the API
+  used the region's first zone, and a disabled zone returns 404; see
+  [root disk zone](vserver-root-disk-zone.md).
 - `volume.ListVolumeTypeZones` decodes only the live item fields: `ID`,
   `Name`, `Description`, and `Zone`.
-- Registry lists are Empty and map-backed; unseen keys reach output under
-  [Secrets](#secrets).
-- No volume, load balancer, certificate, global load balancer, registry
-  repository, or registry user exists in the test account. Their Gets and
-  child lists are Shape.
+- Registry models are typed; no populated row has been verified.
+- Volume, load balancer, certificate, global load balancer, registry
+  repository, and registry user Gets and child lists stay Shape until a
+  populated response is verified for each operation.
 
 ## Commands
 
@@ -246,13 +245,11 @@ Short description: "Block volumes, volume types, and snapshots".
 | `list-volume-type-zones` | `--zone-id` | Project | Live |
 | `list-volume-types` | `--volume-type-zone-id` | Project | Live |
 | `get-volume-type` | `--volume-type-id` (r) | Project | Live |
-| `get-default-volume-type` | none | Project | Broken |
+| `get-default-volume-type` | `--zone-id` (r) | Project | Live |
 | `list-encryption-types` | none | Project | Live |
 | `list-snapshots` | `--volume-id` (r), `--page`, `--size` | Project | Shape |
 | `list-all-snapshots` | none | Project | Empty |
 
-- `get-default-volume-type` stays out of the table until a live account
-  returns 200 (see [decision 3](#owner-decisions)).
 - `list-all-snapshots` sends one request per volume after the volume list.
 - `Volume.VolumeType`, `Volume.Throughput`, and several `Snapshot` fields
   are `any`. They print whatever the API sent, with the API's key names.
@@ -322,7 +319,7 @@ Short description: "Container registry repositories".
 | `list-users` | `--name`, `--page`, `--size` | Global | Empty |
 
 `--access-level` defaults to `ALL`; other values are unknown. Both models
-are map-backed without live rows. [Secrets](#secrets) gates `list-users`.
+are typed; no populated row has been verified.
 
 ## Service names and pages
 
@@ -337,11 +334,7 @@ Pages use `CLI-<Title>.md`; project, portal, and volume use the default rule.
 Typed Outputs omit credential and unknown fields. Map-backed models pass
 every key through, with these risks:
 
-- `containerregistry list-users`: a user may carry a password or robot
-  token; no live row identifies the keys. Hold until a live capture supports
-  a typed `User` with no secret field ([decision 4](#owner-decisions)).
-- `containerregistry list-repositories`: secrets are unlikely, but no live
-  row exists. Ship with key redaction.
+- Registry `User` and `Repository` are typed and omit secret fields.
 - `portal get-user-info`: print the caller's email, names, user ID, cash,
   and billing status, which are account data, not credentials. The wiki
   warns that agent transcripts retain them.
@@ -389,7 +382,7 @@ The `portal-user` check logs only a key count, never `%+v` account data.
 
 - All commands are reads. `--read-only` does not affect them.
 - A missing required flag stops before any request, as today.
-- Key redaction and the held `list-users` keep registry secrets out of
+- Key redaction and typed registry models keep registry secrets out of
   stdout. No command writes a file.
 - No adversarial review is needed: no write, auth, or credential code
   changes. The one final review per release still runs.
@@ -437,10 +430,10 @@ The owner approves these recommendations.
    load balancers for checks costs money and needs paid-write approval.
 2. Use `NoFlag` for project `Region`. A shared `--filter-region` rename
    would also affect vStorage's unrelated field.
-3. Hold `get-default-volume-type` until a live 200. It returns `NotFound`
-   in both regions; a command that always exits 4 misleads agents.
-4. Hold registry `list-users` until a live capture supports typed `User`.
-   Approve one user create/delete if free; otherwise wait.
+3. `get-default-volume-type` requires `--zone-id`; a call without a zone
+   used a disabled zone and returned `NotFound`.
+4. Registry `list-users` ships with a typed `User` that has no secret
+   field.
 5. In R2, drop seven never-sent envelope fields from `VolumeTypeZone`.
    This breaks SDK callers, permitted before `v1.0.0`, and needs a release
    note. Keeping the fields would print empty columns.

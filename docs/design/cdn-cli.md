@@ -166,8 +166,8 @@ record points at it. Each step asserts statuses and names only:
 4. Enable: status 1. Enable again: `Changed: false`.
 5. Update `browserCache` to `1d`, or to `1M` when it is `1d`: status 1,
    the value changed, every other action name still there, and every
-   `id` kept except `alwaysHttps`. The test account's package refuses
-   `developmentMode`.
+   `id` kept except `alwaysHttps`. Skip `developmentMode` when the
+   package refuses it.
 6. Delete the active CDN: status 4 `DELETING`, and a second delete
    returns `ErrBusy`. Poll the detail every 10 seconds, up to 10 minutes,
    until `NotFound`. A third delete returns `NotFound` from its read.
@@ -209,9 +209,9 @@ Each release ships the SDK and CLI together, with the `cdn` wiki pages.
 
 C1b and C2 ship together as v0.60.0, after the CLI half and the review.
 C3 and C4 follow as separate releases. C1b to C4 add methods and commands
-only. Package limits are per account: the test account's package allows
-one origin, no alternative names, and five purges a day, so no test adds
-an origin or a name. The C3 live run purges once.
+only. Package limits are per account; the observed package allowed one origin,
+no alternative names, and five purges a day. No test adds an origin or a
+name. The C3 live run purges once.
 
 ## Owner decisions
 

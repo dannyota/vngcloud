@@ -36,8 +36,7 @@ The console's create body has `type` `API`, `subtype` `HTTP`, `name`,
 `locations` (location UUIDs; a name gets 404 `Not found location`), and
 `notifications` (`In-alarm`, `Up`, and `Undetermined` lists). The server
 requires a name of 5 to 30 characters that starts with a letter. Checks
-draw on a prepaid package quota; the test account has 10 API tests free
-until 2026-10-26.
+draw on a prepaid package quota; check the remaining quota before a run.
 
 ## Non-goals
 

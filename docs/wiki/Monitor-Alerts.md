@@ -439,9 +439,8 @@ response's `alarmLog` object; a response with no `alarmLog` at all still
 decodes `InAlarm` and `OK` from top-level `inAlarm` and `ok` keys, leaving
 every other `LogAlarmDetail` field zero.
 
-`GetAlarm`'s response shape has not been checked against a real alarm at
-all: the test account has none of either kind, and the design's source for
-the alarm calls is the console's own JavaScript, not a live capture. A live
+`GetAlarm`'s response shape has not been checked against a populated
+response, and the design's source for the alarm calls is the console's own JavaScript, not a live capture. A live
 `GetAlarm` for an ID with no matching alarm returned a 500, not a 404, so
 unlike `GetCheck` and `GetChannel`, a missing alarm does not resolve to
 `vngcloud.IsNotFound(err) == true`; it comes back as a plain

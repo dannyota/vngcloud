@@ -147,55 +147,15 @@ const portalUserInfoNote = "Prints account data: email, names, user ID, and cash
 	"It is the caller's own account, but an agent transcript that keeps this command's output keeps " +
 	"that data too.\n\n" + portalMapRedactionNote
 
-// unverifiedLiveNote builds the shared text for an output shape the live
-// checks cannot confirm, because the test account holds no such resource and
-// the shape comes from GreenNode's official SDK rather than a live capture.
-// volume and loadbalancer notes reuse it, differing only in the resource
-// named.
-func unverifiedLiveNote(resource string) string {
-	return "Unverified live: the test account has no " + resource +
-		", so this output shape comes from GreenNode's official SDK, not a live capture."
-}
+const sdkShapeUnverifiedNote = "Unverified live: no populated response has been captured, so this output shape comes from GreenNode's official SDK."
 
-// unverifiedConsoleNote is unverifiedLiveNote's variant for a shape that has
-// no source in GreenNode's official SDK at all: monitor's log project and
-// alarm shapes are inferred from the vMonitor console's own code and a
-// third-party source (the design's Source section), never from an SDK
-// GreenNode publishes.
-func unverifiedConsoleNote(resource string) string {
-	return "Unverified live: the test account has no " + resource +
-		", so this output shape is inferred from the console's code, not a live capture."
-}
-
-// volumeShapeUnverifiedNote flags an output shape the live checks cannot
-// confirm: the test account holds no volume, so nothing exercises this
-// command's decoding against a real response.
-var volumeShapeUnverifiedNote = unverifiedLiveNote("volume")
-
-// loadBalancerShapeUnverifiedNote flags an output shape the live checks
-// cannot confirm: the test account holds no load balancer, so nothing
-// exercises this command's decoding, or any child resource's, against a
-// real response.
-var loadBalancerShapeUnverifiedNote = unverifiedLiveNote("load balancer")
-
-// certificateShapeUnverifiedNote flags get-certificate's output shape: the
-// test account holds no certificate, so nothing exercises its decoding
-// against a real response.
-var certificateShapeUnverifiedNote = unverifiedLiveNote("certificate")
-
-// containerregistry's own doc notes (list-repositories through delete-user)
-// live in gendocs_notes_containerregistry.go, kept apart from this file so
-// neither grows past the length limit.
-
-// globalLoadBalancerShapeUnverifiedNote flags an output shape the live
-// checks cannot confirm: the test account holds no global load balancer, so
-// nothing exercises this command's decoding against a real response.
-var globalLoadBalancerShapeUnverifiedNote = unverifiedLiveNote("global load balancer")
-
-// monitorAlarmShapeUnverifiedNote flags an output shape the live checks
-// cannot confirm: the test account holds no alarm, so nothing exercises
-// list-alarms' or get-alarm's decoding against a real response.
-var monitorAlarmShapeUnverifiedNote = unverifiedConsoleNote("alarm")
+const (
+	volumeShapeUnverifiedNote             = sdkShapeUnverifiedNote
+	loadBalancerShapeUnverifiedNote       = sdkShapeUnverifiedNote
+	certificateShapeUnverifiedNote        = sdkShapeUnverifiedNote
+	globalLoadBalancerShapeUnverifiedNote = sdkShapeUnverifiedNote
+	monitorAlarmShapeUnverifiedNote       = "Unverified live: no populated response has been captured, so this output shape is inferred from the console's code."
+)
 
 // monitorGetAlarmUnknownIDNote documents get-alarm's own exit code for a
 // missing alarm, since it differs from every other Get command's: the API
