@@ -1,6 +1,12 @@
 package cli
 
 func init() {
+	for _, name := range []string{"get-nat-instance", "list-nat-inbound-rules"} {
+		docOpNotes["network "+name] = "Reads in `hcm-3` or `han-1` with IAM or service-account authentication. Read-only profiles can run this command.\n" +
+			"An omitted `--zone-id` requires a unique zone mapping for the selected region.\n" +
+			"See [Network NAT](Network-NAT.md) for fields and routing."
+		docExampleOverride["network "+name] = "vngcloud network " + name + " --nat-id <nat-id>"
+	}
 	docOpNotes["network list-nat-instances"] = "Reads one page in `hcm-3` or `han-1`. Read-only profiles can run this command.\n" +
 		"`--page` defaults to 1 and `--size` defaults to 10. No automatic paging occurs.\n" +
 		"Live multi-page behavior remains unverified. An omitted `--zone-id` requires\n" +

@@ -53,6 +53,10 @@ var networkOps = []Op[network.Client]{
 	Read[network.Client, network.ListVNetworkRegionsInput, network.ListVNetworkRegionsOutput](
 		kebab("ListVNetworkRegions"), (*network.Client).ListVNetworkRegions),
 	networkNATListOp(),
+	Read[network.Client, network.GetNATInstanceInput, network.GetNATInstanceOutput](
+		"get-nat-instance", (*network.Client).GetNATInstance),
+	Read[network.Client, network.ListNATInboundRulesInput, network.ListNATInboundRulesOutput](
+		"list-nat-inbound-rules", (*network.Client).ListNATInboundRules),
 	Read[network.Client, network.ListNATZonesInput, network.ListNATZonesOutput](
 		"list-nat-zones", (*network.Client).ListNATZones),
 	Read[network.Client, network.ListNATPackagesInput, network.ListNATPackagesOutput](

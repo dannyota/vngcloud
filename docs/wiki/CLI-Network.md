@@ -480,6 +480,23 @@ Kind: Read.
 vngcloud network get-endpoint --endpoint-id <endpoint-id> --query Endpoint
 ```
 
+## get-nat-instance
+
+Kind: Read.
+
+Reads in `hcm-3` or `han-1` with IAM or service-account authentication. Read-only profiles can run this command.
+An omitted `--zone-id` requires a unique zone mapping for the selected region.
+See [Network NAT](Network-NAT.md) for fields and routing.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--nat-id` | `string` | yes |
+| `--zone-id` | `string` |  |
+
+```sh
+vngcloud network get-nat-instance --nat-id <nat-id>
+```
+
 ## get-network-acl
 
 Kind: Read.
@@ -663,6 +680,23 @@ Kind: Read.
 
 ```sh
 vngcloud network list-interconnects
+```
+
+## list-nat-inbound-rules
+
+Kind: Read.
+
+Reads in `hcm-3` or `han-1` with IAM or service-account authentication. Read-only profiles can run this command.
+An omitted `--zone-id` requires a unique zone mapping for the selected region.
+See [Network NAT](Network-NAT.md) for fields and routing.
+
+| Flag | Type | Required |
+|-|-|-|
+| `--nat-id` | `string` | yes |
+| `--zone-id` | `string` |  |
+
+```sh
+vngcloud network list-nat-inbound-rules --nat-id <nat-id>
 ```
 
 ## list-nat-instances
