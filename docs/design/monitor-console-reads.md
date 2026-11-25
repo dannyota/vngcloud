@@ -3,8 +3,10 @@
 Status: Accepted for the dashboard reads. The resize quote is next and
 needs its own evidence. The other sections are held.
 
-Ship dashboard reads and resize quotes independently. Hold location metrics,
-dashboard delete, and saved-channel test send pending evidence.
+Ship dashboard reads and resize quotes independently. HTTP response-time
+averages moved to [check response times](monitor-check-response-times.md).
+Hold other location metrics, per-run results, dashboard delete, and
+saved-channel test send pending evidence.
 
 ## Evidence and shared rules
 
@@ -319,7 +321,8 @@ reads. Sample HTTP series only for a verified HTTP snapshot. Use
 Pass criteria in addition to 200 and the shared rule:
 
 - `checks`: path-safe ID captured. `check-snapshot`: matching HTTP check,
-  valid alarm and location IDs. `http-response-time`: points in the window
+  valid alarm and location IDs. `http-response-time`: points within the
+  [window rule](monitor-check-response-times.md#requests-and-response-checks)
   attributable to this check/alarm; repeat for shared-location evidence.
 - `custom-p1`, `custom-p2`, `generated-p1`, `generated-p2`: requested page
   and size, correct `system` value on each row, distinct IDs or empty after
@@ -336,7 +339,9 @@ Pass criteria in addition to 200 and the shared rule:
 1. Dashboard list and get first. Hold list if filtered totals are unproven.
 2. Resize quote for one kind at a time after its exact POST observation.
    Quote upgrades only; do not order or buy a missing quota to test.
-3. Hold location metrics until sampling proves value and scope. Keep per-run
+3. HTTP response-time averages follow
+   [check response times](monitor-check-response-times.md). Hold other
+   location metrics until sampling proves value and scope. Keep per-run
    results open without a stored-result route. Hold dashboard delete and
    channel test separately pending evidence, owner approval of each write
    contract and live test, and independent adversarial review.
