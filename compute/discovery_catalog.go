@@ -142,7 +142,7 @@ func (d *flavorDiscovery) flavors(op, url, key string, zone flavorDiscoveryZone,
 			if (in.Family != "" && in.Family != family) || (in.Platform != "" && in.Platform != platform) || (in.Name != "" && in.Name != f.Name) || (in.MinRAM > 0 && f.Memory < in.MinRAM) || (in.MaxRAM > 0 && f.Memory > in.MaxRAM) || (in.AvailableOnly && (f.IsSoldOut || f.RemainingVMs <= 0)) {
 				continue
 			}
-			if !*zone.Enabled {
+			if in.ZoneID == "" && !*zone.Enabled {
 				row.Price.Status = "inapplicable"
 			}
 			rows = append(rows, row)

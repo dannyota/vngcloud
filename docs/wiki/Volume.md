@@ -61,11 +61,12 @@ prices, err := client.ListVolumePrices(ctx, &volume.ListVolumePricesInput{
 Each `VolumePrice` retains its `VolumeType`, zone name and enabled status,
 quoted `SizeGB`, encryption key, nullable `PricePerGB`, and `Price`.
 Discovery treats unfiltered type-zone catalogs as region-wide and ignores
-their zone metadata. Each enabled selected zone gets a quote for every
-filtered type and encryption choice. A quote refusal produces a failed row.
+their zone metadata. Each selected zone gets a quote for every filtered type
+and encryption choice; an explicitly selected zone is quoted even when the
+catalog marks it disabled. A quote refusal produces a failed row.
 It preserves both type IDs and quotes `VolumeTypeID`, falling back to `ID`.
-Disabled zones and sizes outside a type's bounds remain `inapplicable` rows
-without quotes. Row `ZoneID` names the selected zone; the composed
+Without a zone selection, disabled zones stay `inapplicable`; sizes outside a
+type's bounds always do. Row `ZoneID` names the selected zone; the composed
 `VolumeType` retains its catalog fields.
 
 `PricePerGB` is the effective monthly rate at the chosen provisioned GB, not

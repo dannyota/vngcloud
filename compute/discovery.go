@@ -116,7 +116,7 @@ func (c *Client) ListFlavorPrices(ctx context.Context, in *ListFlavorPricesInput
 		return nil, err
 	}
 	for _, zone := range zones {
-		if !*zone.Enabled {
+		if in.ZoneID == "" && !*zone.Enabled {
 			d.note("inapplicable", zone.ID, "The zone is disabled; discovery retains its catalog rows without quotes.")
 		}
 		if err = d.consoleCatalog(project, zone, platforms, in); err != nil {
@@ -141,7 +141,7 @@ func (c *Client) ListFlavorPrices(ctx context.Context, in *ListFlavorPricesInput
 	if len(d.out.Items) == 0 && len(d.errs) == 0 {
 		d.note("unmatched-scope", "compute", "No supported flavor matches the requested catalog scope and exact filters.")
 	}
-	if !slices.ContainsFunc(d.out.Items, func(row FlavorPrice) bool { return row.ZoneEnabled != nil && *row.ZoneEnabled }) {
+	if !slices.ContainsFunc(d.out.Items, func(row FlavorPrice) bool { return row.Price.Status != "inapplicable" }) {
 		return d.finish()
 	}
 	types, err := d.volumeCatalog(project)
@@ -152,7 +152,7 @@ func (c *Client) ListFlavorPrices(ctx context.Context, in *ListFlavorPricesInput
 		return d.finish()
 	}
 	for _, zone := range zones {
-		if !*zone.Enabled {
+		if in.ZoneID == "" && !*zone.Enabled {
 			continue
 		}
 		images, e := d.images(project, zone.ID)

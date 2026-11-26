@@ -249,7 +249,9 @@ logical calls before retry/authentication overhead:
 Compute's base includes zones, platform codes, unfiltered volume type zones, and
 A image reads. Volume's base includes zones, unfiltered type zones, and
 encryption types. Both reuse each type-zone read once. Skip image and
-quote reads for disabled zones. Unknown/inapplicable rows cost no quote.
+quote reads for disabled zones unless the caller selected the zone; an
+explicit selection is quoted because `isEnabled` does not prove the account
+cannot buy there. Unknown/inapplicable rows cost no quote.
 
 Add at most one `GET v1/projects` to compute, volume, and network when project
 resolution is uncached; count it in the budget and retain ambiguity errors.

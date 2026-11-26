@@ -22,8 +22,9 @@ JSON cannot supply credentials, endpoints, headers, or order options. Explicit
 Each row needs a unique Key and Quantity from 1 to 1000. At most 1000 rows and
 10000 summed quantities are allowed. Servers need explicit zone, flavor, image,
 root size, and root type IDs. Pricing requires unlicensed Ubuntu with a usable
-minimum root size; other images can remain unknown. Disabled zones are
-inapplicable. Use returned encryption type keys, never encryption key material.
+minimum root size; other images can remain unknown. Explicit catalog zones are
+eligible for quotes regardless of their enabled flag. Use returned encryption type keys,
+never encryption key material.
 DataDiskSize and DataDiskTypeID specify one bundled disk per server unit,
 already included in its quote. Volumes are additional disks counted once;
 their Quantity is never multiplied by a server group's Quantity. ServerKey

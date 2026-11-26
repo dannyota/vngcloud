@@ -11,8 +11,9 @@ const discoveryOutputNote = "Returns Items and Metadata for account-scoped month
 
 const volumeDiscoveryNote = discoveryOutputNote + " Size 0 uses each type's minimum. " +
 	"Encryption defaults to all; none omits encryption from the quote, and an exact returned " +
-	"key selects that encryption type. Disabled zones and sizes outside an offering's bounds " +
-	"remain inapplicable rows without quotes. Quotes exclude snapshots, backups, and server CES."
+	"key selects that encryption type. Without --zone-id, catalog-disabled zones remain " +
+	"inapplicable. An explicitly selected catalog zone is eligible for quotes regardless of its flag. " +
+	"Sizes outside an offering's bounds remain inapplicable. Quotes exclude snapshots, backups, and server CES."
 
 const storageDiscoveryNote = discoveryOutputNote + " QuotaGB 0 uses the monthly package minimum. " +
 	"Type is an exact catalog name. Region is a JSON-only storage region override; the global " +
@@ -24,8 +25,9 @@ const computeDiscoveryNote = discoveryOutputNote + " Family, platform, and name 
 	"or unit-price for the raw RAM rate. GiB values remain unknown. Each quote reports only " +
 	"the INSTANCE TYPE component of its recorded supported unlicensed Ubuntu reference and " +
 	"3000 IOPS root configuration. Root disks, data disks, CES, licensing, IPs, bandwidth, " +
-	"traffic, snapshots, backups, and NAT are excluded. Disabled zones remain inapplicable; " +
-	"sold-out flavors remain visible unless --available-only. Missing reference support " +
+	"traffic, snapshots, backups, and NAT are excluded. Without --zone-id, catalog-disabled zones " +
+	"remain inapplicable. An explicitly selected catalog zone is eligible for quotes regardless of its flag. " +
+	"Sold-out flavors remain visible unless --available-only. Missing reference support " +
 	"leaves unknown prices. A refused reference fails without fallback. Non-public populated " +
 	"custom and GPU branches remain fixture-gated."
 

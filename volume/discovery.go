@@ -143,7 +143,7 @@ func (c *Client) ListVolumePrices(ctx context.Context, in *ListVolumePricesInput
 				}
 				for _, encryption := range choices {
 					row := VolumePrice{VolumeType: v, ZoneID: z.ID, ZoneName: z.Name, ZoneEnabled: z.Enabled, EncryptionTypeID: encryption, SizeGB: size, Price: pricing.DiscoveryPrice{Status: "unknown", Source: "pricing.GetQuote"}}
-					if !*z.Enabled || size < v.MinSize || size > v.MaxSize {
+					if (in.ZoneID == "" && !*z.Enabled) || size < v.MinSize || size > v.MaxSize {
 						row.Price.Status = "inapplicable"
 						d.out.Metadata.Notes = append(d.out.Metadata.Notes, pricing.PricingNote{Topic: "inapplicable", Scope: z.ID + "/" + id, Text: "The zone is disabled or the requested size is outside the offering's bounds.", Evidence: "observed"})
 					}

@@ -331,7 +331,7 @@ if err != nil { log.Print(err) }
 Replace synthetic selectors with returned catalog IDs. Servers require an
 explicit unlicensed Ubuntu image with a usable minimum root disk size. Flavor
 IDs go to the quote unchanged; success proves no deployment feasibility.
-Disabled zones yield `inapplicable`. Other images can yield `unknown`.
+Without a zone selection, disabled zones yield `inapplicable`; an explicitly selected zone is quoted. Other images can yield `unknown`.
 Invalid explicit selectors or sizes reject the whole setup before any quote,
 including with `AllowPartial`.
 

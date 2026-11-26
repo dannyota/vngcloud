@@ -37,7 +37,7 @@ type EstimateInput struct {
 type EstimateServer struct {
 	// Key labels this component under EstimateInput's setup-wide key rules.
 	Key string
-	// ZoneID selects an explicit returned zone; disabled zones are inapplicable.
+	// ZoneID selects an explicit zone from the region's catalog.
 	ZoneID string
 	// FlavorID goes to the quote unchanged and establishes no deployability.
 	FlavorID string
@@ -74,7 +74,7 @@ type EstimateVolume struct {
 	// ServerKey optionally names a server group in the same zone. An encrypted
 	// volume requires that group's root to be encrypted. No attachment occurs.
 	ServerKey string
-	// ZoneID selects an explicit returned zone; disabled zones are inapplicable.
+	// ZoneID selects an explicit zone from the region's catalog.
 	ZoneID string
 	// VolumeTypeID selects the returned disk type.
 	VolumeTypeID string

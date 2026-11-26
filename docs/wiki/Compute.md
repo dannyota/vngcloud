@@ -133,8 +133,10 @@ before requests. RAM's byte unit is unverified: `RAMUnit` is `unknown`, and
 `RAMGiB` and `PricePerGiB` remain nil.
 
 Each `FlavorPrice` preserves the catalog `Flavor`, family, platform, zone, and
-visibility. Family types do not establish a flavor-to-type join. Disabled zones
-remain `inapplicable` without quotes. Sold-out rows remain visible unless
+visibility. Family types do not establish a flavor-to-type join. A zone
+selected explicitly is quoted even when the catalog marks it disabled, because
+that flag does not prove the account cannot buy there; a refusal produces a
+failed row. Without a zone selection, disabled zones stay `inapplicable`. Sold-out rows remain visible unless
 `AvailableOnly` requests rows that are not sold out and have positive remaining
 VMs. Catalog visibility and remaining VMs promise no sale eligibility or future
 capacity. GPU family catalogs are excluded before flavor reads; `Metadata.Notes`

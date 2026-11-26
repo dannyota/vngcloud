@@ -26,14 +26,14 @@ func (d *estimateRun) project() (string, error) {
 	return estimateCached(d, "project", func() (string, error) { return d.client.RequireDiscoveryProjectID(d.session) })
 }
 
-func (d *estimateRun) regional(zone string) (bool, []pricecatalog.VolumeType, error) {
+func (d *estimateRun) regional(zone string) ([]pricecatalog.VolumeType, error) {
 	project, err := d.project()
 	if err != nil {
-		return false, nil, err
+		return nil, err
 	}
 	zones, err := estimateCached(d, "zones", func() ([]pricecatalog.Zone, error) { return pricecatalog.Zones(d.client, d.session, project) })
 	if err != nil {
-		return false, nil, err
+		return nil, err
 	}
 	var selected *pricecatalog.Zone
 	for i := range zones {
@@ -43,15 +43,11 @@ func (d *estimateRun) regional(zone string) (bool, []pricecatalog.VolumeType, er
 		}
 	}
 	if selected == nil {
-		return false, nil, estimateInvalid("ZoneID")
+		return nil, estimateInvalid("ZoneID")
 	}
-	types, err := estimateCached(d, "volume types", func() ([]pricecatalog.VolumeType, error) {
+	return estimateCached(d, "volume types", func() ([]pricecatalog.VolumeType, error) {
 		return pricecatalog.VolumeCatalog(d.client, d.session, project)
 	})
-	if err != nil {
-		return false, nil, err
-	}
-	return *selected.Enabled, types, nil
 }
 
 func estimateDisk(types []pricecatalog.VolumeType, id string, size int) error {
@@ -134,7 +130,7 @@ func (d *estimateRun) status(i int, status, reason string) {
 }
 
 func (d *estimateRun) prepareServer(i int, server EstimateServer) (*transport.Request, error) {
-	enabled, types, err := d.regional(server.ZoneID)
+	types, err := d.regional(server.ZoneID)
 	if err != nil {
 		return nil, err
 	}
@@ -148,10 +144,6 @@ func (d *estimateRun) prepareServer(i int, server EstimateServer) (*transport.Re
 	}
 	if err = d.encryption(server.RootDiskEncryptionTypeID, server.DataDiskEncryptionTypeID); err != nil {
 		return nil, err
-	}
-	if !enabled {
-		d.status(i, "inapplicable", "zone-disabled")
-		return nil, nil
 	}
 	usable, err := d.image(server)
 	if err != nil {
@@ -169,8 +161,8 @@ func (d *estimateRun) prepareServer(i int, server EstimateServer) (*transport.Re
 	return &req, nil
 }
 
-func (d *estimateRun) prepareVolume(i int, volume EstimateVolume) (*transport.Request, error) {
-	enabled, types, err := d.regional(volume.ZoneID)
+func (d *estimateRun) prepareVolume(volume EstimateVolume) (*transport.Request, error) {
+	types, err := d.regional(volume.ZoneID)
 	if err != nil {
 		return nil, err
 	}
@@ -179,10 +171,6 @@ func (d *estimateRun) prepareVolume(i int, volume EstimateVolume) (*transport.Re
 	}
 	if err = d.encryption(volume.EncryptionTypeID); err != nil {
 		return nil, err
-	}
-	if !enabled {
-		d.status(i, "inapplicable", "zone-disabled")
-		return nil, nil
 	}
 	info, err := quoteinput.VolumeInfo(quoteinput.Volume{ZoneID: volume.ZoneID, VolumeTypeID: volume.VolumeTypeID, Size: volume.Size, EncryptionTypeID: volume.EncryptionTypeID})
 	if err != nil {
@@ -236,7 +224,7 @@ func (d *estimateRun) prepareItem(i int) (*transport.Request, error) {
 	}
 	n := i - len(d.input.Servers)
 	if n < len(d.input.Volumes) {
-		return d.prepareVolume(i, d.input.Volumes[n])
+		return d.prepareVolume(d.input.Volumes[n])
 	}
 	n -= len(d.input.Volumes)
 	if n < len(d.input.PublicIPs) {

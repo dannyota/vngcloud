@@ -329,7 +329,6 @@ func TestEstimateCatalogFailuresPropagateAndIndependentRowsContinue(t *testing.T
 
 func TestEstimateDeliberateImageAndZoneUnknowns(t *testing.T) {
 	for _, tc := range []struct{ name, zone, image, status string }{
-		{"disabled", "HCM03-1A", "img-5", "inapplicable"},
 		{"licensed", "HCM03-1C", "img-3", "unknown"},
 		{"not Ubuntu", "HCM03-1C", "img-1", "unknown"},
 		{"unknown licence", "HCM03-1C", "img-9", "unknown"},

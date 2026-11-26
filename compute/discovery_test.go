@@ -170,8 +170,8 @@ func TestListFlavorPricesInvocationFreshness(t *testing.T) {
 
 func TestListFlavorPricesDisabledAndExactFilters(t *testing.T) {
 	for _, name := range []string{"s2-general-1x2", "S2-general-1x2"} {
-		c := newTestClient(t, flavorDiscoveryHandler(t, nil, func(http.ResponseWriter, *http.Request) { t.Error("unexpected quote") }))
-		out, err := c.ListFlavorPrices(flavorDiscoveryContext(), &ListFlavorPricesInput{ZoneID: "HCM03-1A", Family: "general-purpose", Platform: "code-s2", Name: name})
+		c := newTestClient(t, flavorDiscoveryHandler(t, map[string]string{"/v1/project-1/zones": `{"data":[{"uuid":"HCM03-1A","isEnabled":false}]}`}, func(http.ResponseWriter, *http.Request) { t.Error("unexpected quote") }))
+		out, err := c.ListFlavorPrices(flavorDiscoveryContext(), &ListFlavorPricesInput{Family: "general-purpose", Platform: "code-s2", Name: name})
 		want := 1
 		if name != "s2-general-1x2" {
 			want = 0
@@ -321,7 +321,6 @@ func TestListFlavorPricesSkipsUnusedReferenceReads(t *testing.T) {
 		{name: "unmatched-platform", in: ListFlavorPricesInput{ZoneID: "HCM03-1C", Family: "general-purpose", Platform: "unknown-platform"}, requests: 3},
 		{name: "unmatched-name", in: ListFlavorPricesInput{ZoneID: "HCM03-1C", Family: "general-purpose", Platform: "code-s2", Name: "unknown-name"}, requests: 4},
 		{name: "unmatched-ram", in: ListFlavorPricesInput{ZoneID: "HCM03-1C", Family: "general-purpose", Platform: "code-s2", MinRAM: 1000000}, requests: 4},
-		{name: "disabled-only", in: ListFlavorPricesInput{ZoneID: "HCM03-1A", Family: "general-purpose", Platform: "code-s2", Name: "s2-general-1x2"}, rows: 1, requests: 4},
 	} {
 		for _, tightBudget := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/%t", tc.name, tightBudget), func(t *testing.T) {
