@@ -475,14 +475,128 @@ class WorkflowTests(unittest.TestCase):
             env = dict(os.environ, TAG=tag, RUNNER_TEMP=temp,
                        MANIFEST_DIGEST=hashlib.sha256(manifest.encode()).hexdigest())
             def check():
-                return subprocess.run(["bash", "-eo", "pipefail", "-c", step["run"]],
+                return subprocess.run(["bash", "-e", "-c", step["run"]],
                                       cwd=temp, env=env, capture_output=True).returncode
             self.assertEqual(check(), 0)
             (assets / names[0]).write_text("tampered")
             self.assertNotEqual(check(), 0)
             (assets / names[0]).write_bytes(names[0].encode())
+            target = Path(temp) / "target"
+            target.write_bytes(names[0].encode())
+            (assets / names[0]).unlink()
+            (assets / names[0]).symlink_to(target)
+            self.assertNotEqual(check(), 0)
+            (assets / names[0]).unlink()
+            (assets / names[0]).write_bytes(names[0].encode())
             (assets / "extra").write_text("extra")
             self.assertNotEqual(check(), 0)
+
+    def test_release_attestation_rejects_matching_symlink(self):
+        step = self.workflows["release"]["jobs"]["attest"]["steps"][1]
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            assets = root / "assets"
+            assets.mkdir()
+            names = [f"vngcloud_v1.2.3_{osname}_{arch}{'.exe' if osname == 'windows' else ''}"
+                     for osname in ("darwin", "linux", "windows") for arch in ("amd64", "arm64")]
+            for name in names:
+                (assets / name).write_text(name)
+            target = root / "target"
+            target.write_text(names[-1])
+            (assets / names[-1]).unlink()
+            (assets / names[-1]).symlink_to(target)
+            env = dict(os.environ, TAG="v1.2.3", RUNNER_TEMP=temp, GITHUB_OUTPUT=str(root / "output"))
+            result = subprocess.run(["bash", "-e", "-c", step["run"]], cwd=temp,
+                                    env=env, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse((assets / "SHA256SUMS").exists())
+
+    def test_release_draft_identity_and_checks(self):
+        step = self.workflows["release"]["jobs"]["publish"]["steps"][-1]
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            assets = root / "assets"
+            assets.mkdir()
+            for i in range(7):
+                (assets / f"asset{i}").write_text(f"data{i}")
+            records = [{"name": p.name, "digest": "sha256:" + hashlib.sha256(p.read_bytes()).hexdigest()}
+                       for p in assets.iterdir()]
+            (root / "RELEASE_NOTES.md").write_text("## v1.2.3 - Test\n\nNotes\n")
+            gh = root / "gh"
+            gh.write_text(f'#!{sys.executable}\n' + '''import json, os, pathlib, sys
+args = sys.argv[1:]
+if args[:2] == ["release", "create"]:
+    print("https://github.com/owner/repo/releases/tag/v1.2.3")
+elif args[:2] == ["api", "--paginate"] and args[2].endswith("/releases?per_page=100"):
+    print(json.dumps([[{"id": 42, "tag_name": "v1.2.3", "draft": True, "html_url": "https://github.com/owner/repo/releases/tag/v1.2.3"}]]))
+elif args[:2] == ["api", "--paginate"] and args[2].endswith("/releases/42/assets?per_page=100"):
+    print(json.dumps([json.loads(os.environ["ASSETS"])]))
+elif args[:1] == ["api"] and "/git/ref/tags/" in args[1]:
+    print(os.environ["REMOTE_TAG"])
+elif args[:3] == ["api", "-X", "PATCH"] and args[3].endswith("/releases/42"):
+    pathlib.Path(os.environ["MARKER"]).write_text("published")
+else:
+    sys.exit(1)
+''')
+            gh.chmod(0o700)
+            marker = root / "published"
+            env = dict(os.environ, PATH=temp + ":" + os.environ["PATH"], TAG="v1.2.3",
+                       TAG_OBJECT="good", REMOTE_TAG="good", ASSETS=json.dumps(records),
+                       GITHUB_REPOSITORY="owner/repo", RUNNER_TEMP=temp, MARKER=str(marker))
+            def run():
+                return subprocess.run(["bash", "-e", "-c", step["run"]], cwd=temp,
+                                      env=env, capture_output=True, text=True)
+            result = run()
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(marker.exists())
+            marker.unlink()
+            env["REMOTE_TAG"] = "moved"
+            self.assertNotEqual(run().returncode, 0)
+            self.assertFalse(marker.exists())
+            env["REMOTE_TAG"] = "good"
+            records[0]["digest"] = "sha256:" + "0" * 64
+            env["ASSETS"] = json.dumps(records)
+            self.assertNotEqual(run().returncode, 0)
+            self.assertFalse(marker.exists())
+
+    def test_release_tag_verification(self):
+        step = next(s for s in self.workflows["release"]["jobs"]["build"]["steps"] if s.get("id") == "verify")
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            def run(*args):
+                return subprocess.run(args, cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
+            def git(*args):
+                return run("git", *args)
+            run("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(root / "trusted"))
+            run("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(root / "other"))
+            git("init", "-q")
+            git("config", "user.name", "Test")
+            git("config", "user.email", "test@example.invalid")
+            git("config", "commit.gpgsign", "false")
+            (repo / ".github").mkdir()
+            (repo / ".github" / "allowed-signers").write_text("release " + (root / "trusted.pub").read_text())
+            git("add", ".github/allowed-signers")
+            git("commit", "-qm", "test")
+            first = git("rev-parse", "HEAD")
+            git("update-ref", "refs/remotes/origin/master", first)
+            def tag(name, key):
+                git("-c", "gpg.format=ssh", "-c", f"user.signingkey={root / key}", "tag", "-s", name, "-m", "test")
+            def verify(name, sha):
+                env = dict(os.environ, TAG=name, EVENT_SHA=sha, GITHUB_OUTPUT=str(root / "output"))
+                return subprocess.run(["bash", "-e", "-c", step["run"]], cwd=repo,
+                                      env=env, capture_output=True, text=True)
+            tag("v1.2.3", "trusted")
+            self.assertEqual(verify("v1.2.3", first).returncode, 0)
+            tag("v1.2.4", "other")
+            self.assertNotEqual(verify("v1.2.4", first).returncode, 0)
+            git("update-ref", "refs/tags/v1.2.5", git("rev-parse", "refs/tags/v1.2.3"))
+            self.assertNotEqual(verify("v1.2.5", first).returncode, 0)
+            git("commit", "--allow-empty", "-qm", "off master")
+            second = git("rev-parse", "HEAD")
+            tag("v1.2.6", "trusted")
+            self.assertNotEqual(verify("v1.2.6", second).returncode, 0)
 
     def test_workflow_inventory(self):
         self.assertEqual({path.name for path in workflow_paths()}, {f"{name}.yml" for name in FILES})
