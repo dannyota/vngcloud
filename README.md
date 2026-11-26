@@ -17,7 +17,8 @@ names, types, and fields, CLI flags, query keys, and exit codes change only
 in a new major version.
 
 [Tags](https://github.com/dannyota/vngcloud/tags) |
-[Release notes](RELEASE_NOTES.md)
+[Release notes](RELEASE_NOTES.md) |
+[Wiki](https://github.com/dannyota/vngcloud/wiki)
 
 ## CLI quick start
 
@@ -26,7 +27,7 @@ configure an IAM-user profile, and read your budgets without creating or
 changing cloud resources:
 
 ```bash
-go install danny.vn/vngcloud/cmd/vngcloud@latest   # or @v1.0.0 to pin
+go install danny.vn/vngcloud/cmd/vngcloud@latest   # or pin a release tag
 vngcloud configure
 vngcloud billing list-budgets --read-only
 ```
@@ -169,15 +170,15 @@ Licensed under [Apache 2.0](LICENSE).
 [go-version-badge]:
   https://img.shields.io/github/go-mod/go-version/dannyota/vngcloud
 [license-badge]: https://img.shields.io/github/license/dannyota/vngcloud
-[getting-started]: docs/wiki/Getting-Started.md
-[cli]: docs/wiki/CLI.md
-[exit-codes]: docs/wiki/CLI.md#exit-codes
-[services]: docs/wiki/Services.md#coverage
-[config]: docs/wiki/Configuration.md
-[auth]: docs/wiki/Authentication.md
-[security]: docs/wiki/Security.md
-[limitations]: docs/wiki/Limitations.md
-[billing]: docs/wiki/Billing-and-Pricing.md
-[storage]: docs/wiki/Storage.md
-[storage-objects]: docs/wiki/Storage-Objects.md
-[workload]: docs/wiki/Storage-Workload-Access.md
+[getting-started]: https://github.com/dannyota/vngcloud/wiki/Getting-Started
+[cli]: https://github.com/dannyota/vngcloud/wiki/CLI
+[exit-codes]: https://github.com/dannyota/vngcloud/wiki/CLI#exit-codes
+[services]: https://github.com/dannyota/vngcloud/wiki/Services#coverage
+[config]: https://github.com/dannyota/vngcloud/wiki/Configuration
+[auth]: https://github.com/dannyota/vngcloud/wiki/Authentication
+[security]: https://github.com/dannyota/vngcloud/wiki/Security
+[limitations]: https://github.com/dannyota/vngcloud/wiki/Limitations
+[billing]: https://github.com/dannyota/vngcloud/wiki/Billing-and-Pricing
+[storage]: https://github.com/dannyota/vngcloud/wiki/Storage
+[storage-objects]: https://github.com/dannyota/vngcloud/wiki/Storage-Objects
+[workload]: https://github.com/dannyota/vngcloud/wiki/Storage-Workload-Access
