@@ -76,20 +76,14 @@ Require one HTTP 200 JSON object with a successful observed envelope and an
 explicit `data` array. Preserve `[]`. Reject missing, null or wrong-type
 required fields, duplicate keys or package IDs, case aliases of known keys,
 trailing JSON and evidence of more pages. Ignore unprojected keys after checks.
-Freeze required keys and nullability from the probe before implementation.
+Required keys and kinds follow the console code and the recorded HCM read.
 
-The manager sends one authenticated GET to each fixed base above at
-`/v1/projects/{project}/bandwidth/package-config` using the caller's IAM bearer
-and a known project in that region. Send `Accept: application/json`, no query,
-body, cookies or redirects. Apply the same response cap and keep only sanitized
-key names, kinds, null/absent counts, and shape checks. Inspect the envelope's
-success, error and paging fields and row IDs, text, numeric range and scale,
-and any price, currency, period or unit keys. Both regions pass for the catalog
-when each returns HTTP 200 JSON with a complete, nonempty `data` array, unique
-nonempty IDs and compatible field types and nullability that support the
-projection. An empty array cannot establish row types. The manager confirms the
-contract before code. Ship the SDK and wiki with sanitized fixtures for both
-regions and negative decoder, routing, reflection and CLI tests.
+The shipped read is its own probe. Before release, the manager runs the built
+CLI read-only in `hcm-3` and `han-1` with the caller's IAM login and each
+region's project. Both pass when the command exits 0 with a nonempty list;
+a strict-decoding `InvalidResponse` means the contract needs revising before
+release, and its output shows no response values. Ship the SDK and wiki with
+synthetic fixtures and negative decoder, routing, reflection and CLI tests.
 
 [han]: https://han-1.console.greennode.ai/vserver/161.d6d061e98608e934.js
 [hcm]: https://hcm-3.console.greennode.ai/vserver/161.be4056dfe6576d1f.js
