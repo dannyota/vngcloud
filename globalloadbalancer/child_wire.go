@@ -1,5 +1,7 @@
 package globalloadbalancer
 
+import "encoding/json"
+
 type wireGLB struct {
 	ID      string `json:"id"`
 	Package string `json:"package"`
@@ -19,9 +21,9 @@ type wirePackage struct {
 	ID          string `json:"id"`
 	Enabled     *bool  `json:"enabled"`
 	VLBPackages []struct {
-		Region       string `json:"region"`
-		GLBPackageID string `json:"glb_package_id"`
-		VLBPackageID string `json:"vlb_package_id"`
+		Region       string          `json:"region"`
+		GLBPackageID json.RawMessage `json:"glb_package_id"`
+		VLBPackageID string          `json:"vlb_package_id"`
 	} `json:"vlbPackages"`
 }
 

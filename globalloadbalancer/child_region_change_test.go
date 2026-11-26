@@ -69,6 +69,8 @@ func TestChildRegionCatalogRefusals(t *testing.T) {
 		"ambiguous name":          {"GET /v1/regions", strings.Replace(regions, `"name":"HAN-1"`, `"name":"hcm-3"`, 1), false},
 		"ambiguous package alias": {"GET /v1/regions", strings.Replace(regions, `"name":"HAN-1"`, `"name":"hcm"`, 1), false},
 		"shared id":               {"GET /v1/regions", strings.Replace(regions, `"id":"han"`, `"id":"HCM"`, 1), false},
+		"null glb package":        {"GET /v1/packages", strings.Replace(packages, `"glb_package_id":"pkg-1"`, `"glb_package_id":null`, 1), false},
+		"empty glb package":       {"GET /v1/packages", strings.Replace(packages, `"glb_package_id":"pkg-1"`, `"glb_package_id":""`, 1), false},
 		"foreign package":         {"GET /v1/packages", strings.Replace(packages, `"glb_package_id":"pkg-1"`, `"glb_package_id":"pkg-2"`, 1), false},
 		"conflicting aliases":     {"GET /v1/packages", strings.Replace(packages, `"region":"han"`, `"region":"HCM-3"`, 1), false},
 	} {
@@ -80,6 +82,18 @@ func TestChildRegionCatalogRefusals(t *testing.T) {
 				t.Fatalf("err=%v writes=%d", err, f.writes())
 			}
 		})
+	}
+}
+
+func TestChildRefusesAmbiguousUnselectedPackageLinks(t *testing.T) {
+	regions := regionCatalogFixture(t, "child_regions.json")
+	regions = strings.Replace(regions, "\n]", `,{"id":"other","name":"han","status":"INACTIVE"}`+"\n]", 1)
+	packages := regionCatalogFixture(t, "child_packages.json")
+	packages = strings.Replace(packages, `"region":"han","glb_package_id":"pkg-1","vlb_package_id":"vlb-2"`, `"region":"han","glb_package_id":"pkg-1","vlb_package_id":"vlb-2"},{"region":"HAN","glb_package_id":"pkg-1","vlb_package_id":"vlb-3"`, 1)
+	f := newFixture(t).on("GET /v1/regions", jsonBody(regions)).on("GET /v1/packages", jsonBody(packages))
+	_, err := regionTestClient(t, f, "hcm-3").CreatePool(bg(), poolInput())
+	if err == nil || f.writes() != 0 {
+		t.Fatalf("err=%v writes=%d", err, f.writes())
 	}
 }
 

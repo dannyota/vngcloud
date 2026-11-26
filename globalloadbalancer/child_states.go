@@ -1,6 +1,10 @@
 package globalloadbalancer
 
-import "strings"
+import (
+	"encoding/json"
+	"strings"
+	"unicode"
+)
 
 type stateClass int
 
@@ -62,37 +66,60 @@ func regionMatches(configured string, region wireRegion) bool {
 		region.VServerEndpoint == "https://"+configured+".api.vngcloud.vn/vserver/vserver-gateway"
 }
 
+func foldAlias(value string) string {
+	return strings.Map(func(r rune) rune {
+		minRune := r
+		for next := unicode.SimpleFold(r); next != r; next = unicode.SimpleFold(next) {
+			if next < minRune {
+				minRune = next
+			}
+		}
+		return minRune
+	}, value)
+}
+
 func packageSupports(p wirePackage, configured, regionID string, regions []wireRegion) bool {
 	if p.Enabled == nil || !*p.Enabled {
 		return false
 	}
+	aliases := make(map[string]int, len(regions)*2)
+	for i, region := range regions {
+		for _, value := range []string{region.Name, region.ID} {
+			if value == "" {
+				continue
+			}
+			key := foldAlias(value)
+			if previous, ok := aliases[key]; ok && previous != i {
+				aliases[key] = -1
+			} else if !ok {
+				aliases[key] = i
+			}
+		}
+	}
 	matched := false
 	ids := make(map[int]string)
 	for _, v := range p.VLBPackages {
-		if v.GLBPackageID != "" && v.GLBPackageID != p.ID {
-			return false
-		}
-		index := -1
-		for i, region := range regions {
-			if v.Region != "" && (strings.EqualFold(v.Region, region.Name) || strings.EqualFold(v.Region, region.ID)) {
-				if index != -1 {
-					if strings.EqualFold(v.Region, configured) || strings.EqualFold(v.Region, regionID) {
-						return false
-					}
-					index = -2
-					break
-				}
-				index = i
+		if v.GLBPackageID != nil {
+			var id string
+			if json.Unmarshal(v.GLBPackageID, &id) != nil || id != p.ID {
+				return false
 			}
 		}
-		if index >= 0 && v.VLBPackageID != "" {
+		index, found := aliases[foldAlias(v.Region)]
+		if v.VLBPackageID != "" {
+			if !found || index < 0 {
+				return false
+			}
 			if prior := ids[index]; prior != "" && prior != v.VLBPackageID {
 				return false
 			}
 			ids[index] = v.VLBPackageID
 		}
 		if strings.EqualFold(v.Region, configured) || strings.EqualFold(v.Region, regionID) {
-			matched = index >= 0
+			if !found || index < 0 {
+				return false
+			}
+			matched = true
 		}
 	}
 	return matched
