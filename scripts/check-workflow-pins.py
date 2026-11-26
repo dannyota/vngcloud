@@ -7,7 +7,7 @@ import re
 import sys
 
 ROOT = Path(__file__).resolve().parent.parent
-FILES = {"ci.yml", "codeql.yml", "tools.yml", "wiki.yml"}
+FILES = {"ci.yml", "codeql.yml", "release.yml", "tools.yml", "wiki.yml"}
 USE = re.compile(r"^\s*-?\s*uses:")
 PIN = re.compile(r"\s*-?\s*uses: ([\w.-]+/[\w./-]+)@([0-9a-f]{40}) # v([0-9]+\.[0-9]+\.[0-9]+)\s*")
 

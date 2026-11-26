@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import copy
 import fnmatch
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -24,7 +25,7 @@ WIKI_ENV = {
 }
 TRUST = "github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository"
 TOKEN = "${{ (" + TRUST + ") && secrets.GITHUB_TOKEN || '' }}"
-FILES = ("ci", "codeql", "tools", "wiki")
+FILES = ("ci", "codeql", "release", "tools", "wiki")
 IDENTITY = '''actual=$(git rev-parse HEAD)
 test "$actual" = "$EXPECTED_SHA"
 echo "tested_sha=$actual" >> "$GITHUB_OUTPUT"
@@ -107,7 +108,55 @@ def triggered(workflow, name, paths):
     return True
 
 
+def release_policy(workflow):
+    assert workflow["on"] == {"push": {"tags": ["v*"]}}
+    assert workflow["permissions"] == {}
+    assert workflow["concurrency"] == {"group": "release-${{ github.ref }}", "cancel-in-progress": "false"}
+    assert set(workflow["jobs"]) == {"build", "attest", "publish"}
+    guard = ("github.repository == 'dannyota/vngcloud' && github.event_name == 'push' && "
+             "github.event.created && !github.event.deleted && github.ref_type == 'tag' && github.ref_protected")
+    permissions = {"build": {"contents": "read"},
+                   "attest": {"id-token": "write", "attestations": "write"},
+                   "publish": {"contents": "write"}}
+    for name, job in workflow["jobs"].items():
+        controls(job, (guard,))
+        assert job["permissions"] == permissions[name]
+        assert job["runs-on"] == "ubuntu-latest"
+        assert int(job["timeout-minutes"]) > 0
+        assert "environment" not in job and "env" not in job and "strategy" not in job
+        for step in job["steps"]:
+            controls(step)
+            assert "${{" not in step.get("run", "")
+            if "uses" in step:
+                assert re.fullmatch(r"[\w.-]+/[\w./-]+@[0-9a-f]{40}", step["uses"])
+    assert workflow["jobs"]["attest"]["needs"] == "build"
+    assert workflow["jobs"]["publish"]["needs"] == ["build", "attest"]
+    for name in ("build", "publish"):
+        checkout = workflow["jobs"][name]["steps"][0]
+        assert checkout["uses"].startswith("actions/checkout@")
+        assert checkout["with"]["ref"] == "${{ github.sha }}"
+        assert checkout["with"]["persist-credentials"] == "false"
+    for name in ("attest", "publish"):
+        downloads = [s for s in workflow["jobs"][name]["steps"] if s.get("uses", "").startswith("actions/download-artifact@")]
+        assert len(downloads) == 1
+        source = "build" if name == "attest" else "attest"
+        assert downloads[0]["with"]["artifact-ids"] == "${{ needs." + source + ".outputs.artifact_id }}"
+    attest = [s for s in workflow["jobs"]["attest"]["steps"] if s.get("uses", "").startswith("actions/attest@")]
+    assert len(attest) == 1
+    assert attest[0]["uses"] == "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6"
+    assert attest[0]["with"]["push-to-registry"] == "false"
+    assert attest[0]["with"]["create-storage-record"] == "false"
+    assert len(attest[0]["with"]["subject-path"].splitlines()) == 7
+    for name, job in workflow["jobs"].items():
+        for step in job["steps"]:
+            if "GH_TOKEN" in step.get("env", {}):
+                assert name == "publish" and "gh release create" in step.get("run", "")
+
+
 def source_policy(name, workflow):
+    if name == "release":
+        release_policy(workflow)
+        return
     assert workflow["permissions"] == {"contents": "read"}
     assert "pull_request_target" not in workflow["on"]
     assert "env" not in workflow
@@ -255,7 +304,7 @@ def publication_policy(workflows):
             if any("wiki-sync.sh" in s.get("run", "") and "--dry-run" not in s["run"]
                    for s in job["steps"]):
                 publishers.append((name, job_id))
-    assert writers == [("ci", "wiki")]
+    assert writers == [("ci", "wiki"), ("release", "publish")]
     assert publishers == [("ci", "wiki")]
     ci = workflows["ci"]
     assert ci["jobs"]["wiki"]["steps"][0]["uses"] == ci["jobs"]["go"]["steps"][0]["uses"]
@@ -281,6 +330,8 @@ class WorkflowTests(unittest.TestCase):
     def test_triggers_and_source_controls(self):
         for name, workflow in self.workflows.items():
             source_policy(name, workflow)
+            if name == "release":
+                continue
             events = {"push", "workflow_dispatch"}
             if name != "codeql":
                 events.add("pull_request")
@@ -313,8 +364,10 @@ class WorkflowTests(unittest.TestCase):
             for paths, expected in cases:
                 if event == "push":
                     expected = expected | {"codeql"}
-                self.assertEqual({n for n, w in self.workflows.items() if triggered(w, event, paths)}, expected)
+                self.assertEqual({n for n, w in self.workflows.items() if n != "release" and triggered(w, event, paths)}, expected)
         for name, workflow in self.workflows.items():
+            if name == "release":
+                continue
             self.assertTrue(triggered(workflow, "workflow_dispatch", ["README.md"]))
             self.assertEqual(triggered(workflow, "schedule", []), name in ("tools", "codeql"))
 
@@ -391,6 +444,45 @@ class WorkflowTests(unittest.TestCase):
         for needs, accepted in cases:
             self.assertEqual(shell(script, NEEDS_JSON=json.dumps(needs), EXPECTED_SHA="head").returncode == 0, accepted)
         self.assertNotEqual(shell(script, NEEDS_JSON="{", EXPECTED_SHA="head").returncode, 0)
+
+    def test_release_controls_and_mutations(self):
+        workflow = self.workflows["release"]
+        release_policy(workflow)
+        mutations = [
+            lambda w: w["jobs"]["build"].pop("if"),
+            lambda w: w["jobs"]["attest"]["permissions"].update(contents="write"),
+            lambda w: w["jobs"]["publish"].update(needs=["attest"]),
+            lambda w: w["jobs"]["build"]["steps"][0]["with"].update({"persist-credentials": "true"}),
+            lambda w: w["jobs"]["attest"]["steps"][0]["with"].update({"artifact-ids": "1"}),
+            lambda w: w["jobs"]["attest"]["steps"][2]["with"].update({"create-storage-record": "true"}),
+            lambda w: w["jobs"]["publish"]["steps"][-1].update({"continue-on-error": "true"}),
+        ]
+        for mutate in mutations:
+            self.rejected(release_policy, workflow, mutate)
+
+    def test_release_manifest_rejects_tampering(self):
+        step = self.workflows["release"]["jobs"]["publish"]["steps"][2]
+        with tempfile.TemporaryDirectory() as temp:
+            assets = Path(temp) / "assets"
+            assets.mkdir()
+            tag = "v1.2.3"
+            names = [f"vngcloud_{tag}_{osname}_{arch}{'.exe' if osname == 'windows' else ''}"
+                     for osname in ("darwin", "linux", "windows") for arch in ("amd64", "arm64")]
+            for name in names:
+                (assets / name).write_bytes(name.encode())
+            manifest = "".join(f"{hashlib.sha256(name.encode()).hexdigest()}  {name}\n" for name in sorted(names))
+            (assets / "SHA256SUMS").write_text(manifest)
+            env = dict(os.environ, TAG=tag, RUNNER_TEMP=temp,
+                       MANIFEST_DIGEST=hashlib.sha256(manifest.encode()).hexdigest())
+            def check():
+                return subprocess.run(["bash", "-eo", "pipefail", "-c", step["run"]],
+                                      cwd=temp, env=env, capture_output=True).returncode
+            self.assertEqual(check(), 0)
+            (assets / names[0]).write_text("tampered")
+            self.assertNotEqual(check(), 0)
+            (assets / names[0]).write_bytes(names[0].encode())
+            (assets / "extra").write_text("extra")
+            self.assertNotEqual(check(), 0)
 
     def test_workflow_inventory(self):
         self.assertEqual({path.name for path in workflow_paths()}, {f"{name}.yml" for name in FILES})

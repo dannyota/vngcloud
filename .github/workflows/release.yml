@@ -1,0 +1,225 @@
+name: Release binaries
+
+on:
+  push:
+    tags: ['v*']
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.repository == 'dannyota/vngcloud' && github.event_name == 'push' && github.event.created && !github.event.deleted && github.ref_type == 'tag' && github.ref_protected
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      tag_object: ${{ steps.verify.outputs.tag_object }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify tag and source
+        id: verify
+        env:
+          TAG: ${{ github.ref_name }}
+          EVENT_SHA: ${{ github.sha }}
+        run: |
+          [[ "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          test "$(git cat-file -t "refs/tags/$TAG")" = tag
+          test "$(git cat-file tag "refs/tags/$TAG" | awk '/^tag / {print $2; exit}')" = "$TAG"
+          git -c gpg.format=ssh -c gpg.minTrustLevel=fully -c gpg.ssh.allowedSignersFile=.github/allowed-signers verify-tag "refs/tags/$TAG"
+          test "$(git rev-parse "refs/tags/$TAG^{}")" = "$EVENT_SHA"
+          test "$(git rev-parse HEAD)" = "$EVENT_SHA"
+          git merge-base --is-ancestor "$EVENT_SHA" refs/remotes/origin/master
+          test -z "$(git status --porcelain)"
+          printf 'tag_object=%s\n' "$(git rev-parse "refs/tags/$TAG")" >> "$GITHUB_OUTPUT"
+      - name: Build and verify reproducibility
+        env:
+          TAG: ${{ github.ref_name }}
+          GOTOOLCHAIN: local
+          GOWORK: off
+          CGO_ENABLED: '0'
+          GOAMD64: v1
+          GOARM64: v8.0
+        run: |
+          pin=$(awk '$1 == "golang" {print $2}' .tool-versions)
+          test "$(awk '$1 == "go" {print $2}' go.mod)" = "$pin"
+          test "$(go env GOVERSION)" = "go$pin"
+          mkdir -p "$RUNNER_TEMP/one/src" "$RUNNER_TEMP/two/src" "$RUNNER_TEMP/one/out" "$RUNNER_TEMP/two/out"
+          git archive HEAD | tar -x -C "$RUNNER_TEMP/one/src"
+          git archive HEAD | tar -x -C "$RUNNER_TEMP/two/src"
+          for build in one two; do
+            export GOCACHE="$RUNNER_TEMP/$build/cache"
+            cd "$RUNNER_TEMP/$build/src"
+            for os in darwin linux windows; do
+              for arch in amd64 arm64; do
+                name="vngcloud_${TAG}_${os}_${arch}"
+                if [ "$os" = windows ]; then name="$name.exe"; fi
+                GOOS="$os" GOARCH="$arch" go build -mod=readonly -trimpath -buildvcs=false -ldflags "-X danny.vn/vngcloud/internal/cli.releaseVersion=$TAG" -o "$RUNNER_TEMP/$build/out/$name" ./cmd/vngcloud
+                info=$(go version -m "$RUNNER_TEMP/$build/out/$name")
+                printf '%s\n' "$info" | grep -Fx "$(printf '\tbuild\tGOOS=%s' "$os")"
+                printf '%s\n' "$info" | grep -Fx "$(printf '\tbuild\tGOARCH=%s' "$arch")"
+                printf '%s\n' "$info" | grep -F "go$pin"
+                printf '%s\n' "$info" | grep -Fx "$(printf '\tbuild\tCGO_ENABLED=0')"
+                printf '%s\n' "$info" | grep -Fx "$(printf '\tbuild\t-trimpath=true')"
+                if [ "$arch" = amd64 ]; then setting=GOAMD64=v1; else setting=GOARM64=v8.0; fi
+                printf '%s\n' "$info" | grep -Fx "$(printf '\tbuild\t%s' "$setting")"
+              done
+            done
+          done
+          cd "$RUNNER_TEMP/one/out"
+          sha256sum -- * > "$RUNNER_TEMP/one.sha256"
+          cd "$RUNNER_TEMP/two/out"
+          sha256sum -- * > "$RUNNER_TEMP/two.sha256"
+          cmp "$RUNNER_TEMP/one.sha256" "$RUNNER_TEMP/two.sha256"
+          expected="vngcloud $TAG go$pin linux/amd64"
+          test "$("$RUNNER_TEMP/one/out/vngcloud_${TAG}_linux_amd64" version)" = "$expected"
+          test "$("$RUNNER_TEMP/one/out/vngcloud_${TAG}_linux_amd64" --version)" = "$expected"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        id: upload
+        with:
+          name: release-build
+          path: ${{ runner.temp }}/one/out/*
+          if-no-files-found: error
+
+  attest:
+    if: github.repository == 'dannyota/vngcloud' && github.event_name == 'push' && github.event.created && !github.event.deleted && github.ref_type == 'tag' && github.ref_protected
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      attestations: write
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      manifest_digest: ${{ steps.manifest.outputs.digest }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          path: assets
+      - name: Check files and create checksums
+        id: manifest
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          [[ "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          cd assets
+          for os in darwin linux windows; do
+            for arch in amd64 arm64; do
+              name="vngcloud_${TAG}_${os}_${arch}"
+              if [ "$os" = windows ]; then name="$name.exe"; fi
+              test -f "$name"
+              test ! -L "$name"
+              printf '%s\n' "$name"
+            done
+          done | LC_ALL=C sort > "$RUNNER_TEMP/expected"
+          find . -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort > "$RUNNER_TEMP/actual"
+          cmp "$RUNNER_TEMP/expected" "$RUNNER_TEMP/actual"
+          xargs -d '\n' sha256sum < "$RUNNER_TEMP/expected" > SHA256SUMS
+          printf 'digest=%s\n' "$(sha256sum SHA256SUMS | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            assets/SHA256SUMS
+            assets/vngcloud_${{ github.ref_name }}_darwin_amd64
+            assets/vngcloud_${{ github.ref_name }}_darwin_arm64
+            assets/vngcloud_${{ github.ref_name }}_linux_amd64
+            assets/vngcloud_${{ github.ref_name }}_linux_arm64
+            assets/vngcloud_${{ github.ref_name }}_windows_amd64.exe
+            assets/vngcloud_${{ github.ref_name }}_windows_arm64.exe
+          push-to-registry: false
+          create-storage-record: false
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        id: upload
+        with:
+          name: release-attested
+          path: assets/*
+          if-no-files-found: error
+
+  publish:
+    if: github.repository == 'dannyota/vngcloud' && github.event_name == 'push' && github.event.created && !github.event.deleted && github.ref_type == 'tag' && github.ref_protected
+    needs: [build, attest]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.attest.outputs.artifact_id }}
+          path: assets
+      - name: Verify downloaded assets
+        env:
+          TAG: ${{ github.ref_name }}
+          MANIFEST_DIGEST: ${{ needs.attest.outputs.manifest_digest }}
+        run: |
+          [[ "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          cd assets
+          for os in darwin linux windows; do
+            for arch in amd64 arm64; do
+              name="vngcloud_${TAG}_${os}_${arch}"
+              if [ "$os" = windows ]; then name="$name.exe"; fi
+              test -f "$name"
+              test ! -L "$name"
+              printf '%s\n' "$name"
+            done
+          done | LC_ALL=C sort > "$RUNNER_TEMP/expected"
+          test -f SHA256SUMS && test ! -L SHA256SUMS
+          { printf 'SHA256SUMS\n'; list=$(<"$RUNNER_TEMP/expected"); printf '%s\n' "$list"; } | LC_ALL=C sort > "$RUNNER_TEMP/all"
+          find . -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort > "$RUNNER_TEMP/actual"
+          cmp "$RUNNER_TEMP/all" "$RUNNER_TEMP/actual"
+          test "$(sha256sum SHA256SUMS | cut -d ' ' -f 1)" = "$MANIFEST_DIGEST"
+          xargs -d '\n' sha256sum < "$RUNNER_TEMP/expected" > "$RUNNER_TEMP/checksums"
+          cmp SHA256SUMS "$RUNNER_TEMP/checksums"
+      - name: Create and verify draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          TAG_OBJECT: ${{ needs.build.outputs.tag_object }}
+        run: |
+          python3 - "$TAG" <<'PY'
+          import pathlib, re, sys
+          tag = sys.argv[1]
+          text = pathlib.Path('RELEASE_NOTES.md').read_text()
+          sections = re.findall(r'^## (v[^\s]+)(?:\s+-[^\n]*)?\n(.*?)(?=^## |\Z)', text, re.M | re.S)
+          matches = [body.strip() for name, body in sections if name == tag]
+          if len(matches) != 1 or not matches[0]:
+              sys.exit('Matching release notes missing or ambiguous')
+          pathlib.Path('notes.txt').write_text(matches[0] + '\n')
+          PY
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --title "$TAG" --notes-file notes.txt assets/*
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" > "$RUNNER_TEMP/release.json"
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases/$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$RUNNER_TEMP/release.json")/assets?per_page=100" --slurp > "$RUNNER_TEMP/assets.json"
+          python3 - "$RUNNER_TEMP/assets.json" <<'PY'
+          import hashlib, json, pathlib, sys
+          pages = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          actual = {}
+          for item in sum(pages, []):
+              name = item['name']
+              if name in actual:
+                  sys.exit('Duplicate release asset')
+              actual[name] = item['digest']
+          expected = {p.name: 'sha256:' + hashlib.sha256(p.read_bytes()).hexdigest() for p in pathlib.Path('assets').iterdir()}
+          if actual != expected:
+              sys.exit('Release asset digest mismatch')
+          PY
+          remote=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '.object.sha')
+          test "$remote" = "$TAG_OBJECT"
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false

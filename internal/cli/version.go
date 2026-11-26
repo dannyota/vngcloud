@@ -21,14 +21,15 @@ func newVersionCmd(e *env) *cobra.Command {
 	}
 }
 
-// versionString reports the module version from the build info embedded by
-// `go build` and `go install` (or "(devel)" when there is none, as for a
-// plain `go run` or a binary built from a local checkout), plus the Go
-// version and platform it was built for.
+var releaseVersion string
+
 func versionString() string {
 	version := "(devel)"
 	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" {
 		version = info.Main.Version
+	}
+	if releaseVersion != "" {
+		version = releaseVersion
 	}
 	return fmt.Sprintf("vngcloud %s go%s %s/%s",
 		version, strings.TrimPrefix(runtime.Version(), "go"), runtime.GOOS, runtime.GOARCH)

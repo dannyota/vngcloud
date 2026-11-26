@@ -41,7 +41,7 @@ jobs:
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
-      - uses: github/codeql-action/init@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
+      - uses: github/codeql-action/init@e274593ecfcbcdc39c8f034978d84614cebcb71d # v4.39.5
         with:
           languages: go
           build-mode: manual
@@ -50,6 +50,6 @@ jobs:
           GOPROXY: https://proxy.golang.org
           GOTOOLCHAIN: local
         run: go build ./...
-      - uses: github/codeql-action/analyze@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
+      - uses: github/codeql-action/analyze@e274593ecfcbcdc39c8f034978d84614cebcb71d # v4.39.5
         with:
           category: /language:go
