@@ -149,6 +149,26 @@ func TestQuotaStatusIneligibleCatalog(t *testing.T) {
 	}
 }
 
+func TestSyntheticStatusRefusesRedactedPackageID(t *testing.T) {
+	const id = "offer-[redacted]"
+	classes, _, _ := catalogBodies(t)
+	classes = strings.ReplaceAll(classes, createPackageID, id)
+	pkg := strings.ReplaceAll(testutil.FixtureBody(t, "../testdata/monitor/ListSyntheticClassPackages.json"), createPackageID, id)
+	quota := strings.ReplaceAll(testutil.FixtureBody(t, "../testdata/monitor/GetSyntheticQuota.json"), createPackageID, id)
+	detail := strings.ReplaceAll(testutil.FixtureBody(t, "../testdata/monitor/GetSyntheticQuotaDetailNullable.json"), createPackageID, id)
+	var calls []string
+	c := statusClient(t, map[string]func(http.ResponseWriter, *http.Request){
+		"/billing-api/v2/synthetic/quota-class":                                func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(classes)) },
+		"/billing-api/v2/synthetic/quota-class/" + createClassID + "/packages": func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(pkg)) },
+		"/billing-api/v1/synthetic/quota":                                      func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(quota)) },
+		"/billing-api/v2/synthetic/quota-syn-1/quota-detail":                   func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(detail)) },
+	}, &calls)
+	out, err := c.GetQuotaStatus(context.Background(), &GetQuotaStatusInput{Kind: "synthetic"})
+	if !errors.Is(err, ErrQuotaStatusIncomplete) || out.Items[0].NextSafeCommand != "" {
+		t.Fatalf("out=%+v err=%v", out, err)
+	}
+}
+
 func TestQuotaStatusInvalidKind(t *testing.T) {
 	var calls []string
 	c := statusClient(t, nil, &calls)

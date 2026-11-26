@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"reflect"
 	"slices"
+	"strings"
 	"time"
 
 	"danny.vn/vngcloud/internal/core"
@@ -128,6 +129,38 @@ func (c *Client) prepareSyntheticCreate(ctx context.Context, op string, in Creat
 	return c.resolveSyntheticTerms(ctx, op, in.ClassID, in.PackageID, in.Quantity, credentials)
 }
 
+func (c *Client) syntheticDecisionIDsSafe(credentials *monitorReadCredentials, ids ...string) bool {
+	for _, id := range ids {
+		safe, _ := c.c.RedactError(id, "", (*credentials)...)
+		if id == "" || safe != id || strings.Contains(id, "[redacted]") {
+			return false
+		}
+	}
+	return true
+}
+
+func (c *Client) syntheticCatalogIDsSafe(credentials *monitorReadCredentials, classes []SyntheticQuotaClass, classID, packageID string) bool {
+	if !c.syntheticDecisionIDsSafe(credentials, classID, packageID) {
+		return false
+	}
+	for _, class := range classes {
+		if !c.syntheticDecisionIDsSafe(credentials, class.ID) {
+			return false
+		}
+		for _, option := range class.Options {
+			if !c.syntheticDecisionIDsSafe(credentials, option.PackageID) {
+				return false
+			}
+		}
+		for _, pkg := range class.Packages {
+			if !c.syntheticDecisionIDsSafe(credentials, pkg.ID) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func (c *Client) resolveSyntheticTerms(ctx context.Context, op, classID, packageID string, quantity int, credentials *monitorReadCredentials) (syntheticCreateTerms, error) {
 	var t syntheticCreateTerms
 	reader := quotaCompositeReader{client: c, credentials: credentials}
@@ -149,6 +182,9 @@ func (c *Client) resolveSyntheticTerms(ctx context.Context, op, classID, package
 		}
 	}
 	for i := range classes {
+		if !c.syntheticDecisionIDsSafe(credentials, classes[i].ID) {
+			return t, quotaResponseError(op)
+		}
 		raw, err = reader.read(ctx, op, "v2", "synthetic", "quota-class", classes[i].ID, "packages")
 		if err != nil {
 			return t, err
@@ -160,6 +196,9 @@ func (c *Client) resolveSyntheticTerms(ctx context.Context, op, classID, package
 		if classes[i].ID == classID {
 			t.class = classes[i]
 		}
+	}
+	if !c.syntheticCatalogIDsSafe(credentials, classes, classID, packageID) {
+		return t, quotaResponseError(op)
 	}
 	if t.class.ID == "" || t.class.Status != QuotaStatusActive {
 		return t, lifecycleUnsupported(op, "selected synthetic class")
@@ -222,6 +261,9 @@ func (c *Client) resolveSyntheticTerms(ctx context.Context, op, classID, package
 	slices.Sort(t.periods)
 	if !slices.Contains(t.periods, 1) || len(catalogPeriods(t.periods, t.maximum, true)) != 1 {
 		return t, lifecycleUnsupported(op, "synthetic month period")
+	}
+	if !c.syntheticCatalogIDsSafe(credentials, classes, classID, packageID) {
+		return t, quotaResponseError(op)
 	}
 	return t, nil
 }
@@ -376,7 +418,7 @@ func (c *Client) CreateSyntheticQuota(ctx context.Context, in *CreateSyntheticQu
 	if quote.GuardPrice != 0 {
 		return out, lifecycleUnsupported(op, "paid synthetic quota")
 	}
-	fresh, err := c.prepareSyntheticCreate(ctx, op, input, credentials)
+	fresh, err := c.resolveSyntheticTerms(ctx, op, input.ClassID, input.PackageID, input.Quantity, credentials)
 	if err != nil {
 		if errors.Is(err, core.ErrInvalidInput) {
 			return out, fmt.Errorf("%s: final create terms changed: %w", op, ErrQuotaChanged)
@@ -385,6 +427,15 @@ func (c *Client) CreateSyntheticQuota(ctx context.Context, in *CreateSyntheticQu
 	}
 	if !reflect.DeepEqual(terms, fresh) {
 		return out, fmt.Errorf("%s: final create terms changed: %w", op, ErrQuotaChanged)
+	}
+	if err = c.requireSyntheticAbsent(ctx, op, credentials); err != nil {
+		if errors.Is(err, core.ErrInvalidInput) {
+			return out, fmt.Errorf("%s: final quota changed: %w", op, ErrQuotaChanged)
+		}
+		return out, err
+	}
+	if !c.syntheticDecisionIDsSafe(credentials, terms.class.ID, terms.pkg.ID, terms.option.PackageID) {
+		return out, quotaResponseError(op)
 	}
 	if err = ctx.Err(); err != nil {
 		return out, err

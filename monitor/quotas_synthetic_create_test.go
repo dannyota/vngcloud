@@ -193,6 +193,63 @@ func TestSyntheticCreateConfirmationRejectsChangedDetail(t *testing.T) {
 	}
 }
 
+func TestSyntheticCreateQuotaAppearsDuringFinalCatalog(t *testing.T) {
+	s := &syntheticCreateServer{send: func(http.ResponseWriter, *http.Request) {}}
+	var appeared atomic.Bool
+	s.quota = func(int32) string {
+		if appeared.Load() {
+			return testutil.FixtureBody(t, "../testdata/monitor/GetSyntheticQuotaCreated.json")
+		}
+		return ""
+	}
+	base := s.handler(t)
+	c := New(testutil.NewRetryConfig(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/billing-api/v1/settings" && s.quotes.Load() > 0 {
+			appeared.Store(true)
+		}
+		base(w, r)
+	})))
+	out, err := c.CreateSyntheticQuota(context.Background(), syntheticCreateInput())
+	if !errors.Is(err, ErrQuotaChanged) || out.Sent != "no" || s.sends.Load() != 0 {
+		t.Fatalf("out=%+v err=%v sends=%d", out, err, s.sends.Load())
+	}
+}
+
+func TestSyntheticCreateRefusesRedactedPackageID(t *testing.T) {
+	const id = "offer-[redacted]"
+	classes, _, _ := catalogBodies(t)
+	s := &syntheticCreateServer{
+		classes:  strings.ReplaceAll(classes, createPackageID, id),
+		packages: strings.ReplaceAll(testutil.FixtureBody(t, "../testdata/monitor/ListSyntheticClassPackages.json"), createPackageID, id),
+		send:     func(http.ResponseWriter, *http.Request) {},
+	}
+	in := syntheticCreateInput()
+	in.PackageID = id
+	out, err := syntheticCreateClient(t, s).CreateSyntheticQuota(context.Background(), in)
+	if err == nil || out.Sent != "no" || s.quotes.Load() != 0 || s.sends.Load() != 0 {
+		t.Fatalf("out=%+v err=%v", out, err)
+	}
+}
+
+func TestSyntheticCreateRefusesIDMatchingRefreshedCredential(t *testing.T) {
+	const first = "initial-test-credential"
+	const second = "later-test-credential"
+	classes, _, _ := catalogBodies(t)
+	s := &syntheticCreateServer{
+		classes:  strings.ReplaceAll(classes, createPackageID, second),
+		packages: strings.ReplaceAll(testutil.FixtureBody(t, "../testdata/monitor/ListSyntheticClassPackages.json"), createPackageID, second),
+		send:     func(http.ResponseWriter, *http.Request) {},
+	}
+	c := monitorRefreshClient(t, first, second, "/billing-api/v1/settings", s.handler(t))
+	in := syntheticCreateInput()
+	in.PackageID = second
+	out, err := c.CreateSyntheticQuota(context.Background(), in)
+	if err == nil || out.Sent != "no" || s.quotes.Load() != 0 || s.sends.Load() != 0 {
+		t.Fatalf("out=%+v err=%v", out, err)
+	}
+	assertMonitorCredentialsAbsent(t, out, err, first, second)
+}
+
 func TestSyntheticCreateRefusesSharedPackage(t *testing.T) {
 	s := &syntheticCreateServer{send: func(http.ResponseWriter, *http.Request) { t.Error("unexpected order") }}
 	base := s.handler(t)

@@ -154,6 +154,24 @@ func fmtSyntheticCase(recovery bool, body string) string {
 	}
 	return "renew/" + body
 }
+func TestSyntheticMutationRefusesRedactedPackageID(t *testing.T) {
+	for _, recovery := range []bool{false, true} {
+		t.Run(fmtSyntheticCase(recovery, "redacted-id"), func(t *testing.T) {
+			s := &syntheticOrderServer{recovery: recovery, send: func(http.ResponseWriter, *http.Request) {}}
+			s.quota = func(int32) string {
+				return strings.ReplaceAll(syntheticFixture(t, recovery), createPackageID, "offer-[redacted]")
+			}
+			s.detail = func(int32) string {
+				return strings.ReplaceAll(testutil.FixtureBody(t, "../testdata/monitor/GetSyntheticQuotaDetailNullable.json"), createPackageID, "offer-[redacted]")
+			}
+			out, err := syntheticCall(syntheticTestClient(t, s), recovery, false)
+			if err == nil || out.outcome.Sent != "no" || s.quotes.Load() != 0 || s.sends.Load() != 0 {
+				t.Fatalf("out=%+v err=%v", out, err)
+			}
+		})
+	}
+}
+
 func TestSyntheticMutationDifferentFreeClassAndCapacity(t *testing.T) {
 	for _, recovery := range []bool{false, true} {
 		t.Run(fmtSyntheticCase(recovery, "different-offer"), func(t *testing.T) {

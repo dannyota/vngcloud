@@ -127,6 +127,9 @@ func (c *Client) syntheticTerms(ctx context.Context, in syntheticMutationInput, 
 	if err != nil {
 		return syntheticMutationTerms{}, err
 	}
+	if !c.syntheticDecisionIDsSafe(credentials, out.Quota.ID, out.Quota.PackageID, out.Detail.classID) {
+		return syntheticMutationTerms{}, quotaResponseError(in.op)
+	}
 	if err := syntheticQuotaTimes(in.op, out.Quota); err != nil {
 		return syntheticMutationTerms{}, err
 	}
@@ -162,6 +165,9 @@ func (c *Client) syntheticEligible(in syntheticMutationInput, t syntheticMutatio
 	return nil
 }
 func (c *Client) quoteSyntheticMutation(ctx context.Context, op string, t syntheticMutationTerms, credentials *monitorReadCredentials) (*QuotaQuote, error) {
+	if !c.syntheticDecisionIDsSafe(credentials, t.quota.ID, t.quota.PackageID, t.detail.classID) {
+		return nil, quotaResponseError(op)
+	}
 	raw, _, err := c.quotaRequest(ctx, transport.Request{Operation: op, Method: http.MethodPost, URL: c.billingRoute("v2", []string{"synthetic", "prices", "created-price"}), Body: t.quoteBody(), Idempotent: true, OK: []int{200}}, credentials)
 	if err != nil {
 		return nil, err
@@ -443,6 +449,9 @@ func (c *Client) runSyntheticMutationLocked(ctx context.Context, in syntheticMut
 	}
 	if eligibilityErr != nil || !reflect.DeepEqual(resolved, freshCatalog) || !terms.key(in).matches(fresh.key(in)) || terms.detail.classID != fresh.detail.classID || terms.detail.Location != fresh.detail.Location || fresh.detail.Price == nil || *fresh.detail.Price != 0 {
 		return result, status, fmt.Errorf("%s: final quota terms changed: %w", in.op, ErrQuotaChanged)
+	}
+	if !c.syntheticDecisionIDsSafe(credentials, terms.quota.ID, terms.quota.PackageID, terms.detail.classID, resolved.class.ID, resolved.pkg.ID, resolved.option.PackageID) {
+		return result, status, quotaResponseError(in.op)
 	}
 	if err = ctx.Err(); err != nil {
 		return result, status, err

@@ -137,7 +137,7 @@ func (c *Client) quotaStatusRow(ctx context.Context, op, kind string, asOf time.
 			return row, quotaResponseError(op)
 		}
 		classID := o.text("classId", false)
-		if o.invalid || core.CheckPathID(op, "class ID", classID) != nil {
+		if o.invalid || core.CheckPathID(op, "class ID", classID) != nil || !c.syntheticDecisionIDsSafe(reader.credentials, quota.ID, quota.PackageID, classID) {
 			return row, quotaResponseError(op)
 		}
 		eligible := false
@@ -216,6 +216,9 @@ func (c *Client) syntheticStatusEligible(ctx context.Context, op string, reader 
 		}
 	}
 	for i := range classes {
+		if !c.syntheticDecisionIDsSafe(reader.credentials, classes[i].ID) {
+			return false, quotaResponseError(op)
+		}
 		raw, err = reader.read(ctx, op, "v2", "synthetic", "quota-class", classes[i].ID, "packages")
 		if err != nil {
 			return false, err
@@ -247,6 +250,9 @@ func (c *Client) syntheticStatusEligible(ctx context.Context, op string, reader 
 		}
 	}
 	if o.invalid || !ok || len(periods) == 0 || maximum <= 0 {
+		return false, quotaResponseError(op)
+	}
+	if !c.syntheticCatalogIDsSafe(reader.credentials, classes, classID, packageID) {
 		return false, quotaResponseError(op)
 	}
 	for _, class := range classes {
