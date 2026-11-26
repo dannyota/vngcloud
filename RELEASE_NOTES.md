@@ -1,5 +1,14 @@
 # Release Notes
 
+## v1.8.1 - NAT create in any enabled HCM zone
+
+- `network create-nat-instance` and `quote-create-nat-instance` no longer
+  refuse an enabled availability zone because the VPC picker lists only
+  the VPC's home zone. Every HCM VPC reports HCM03-1A there, so HCM03-1B
+  and HCM03-1C were wrongly refused. The VPC is still checked by identity
+  in the project and region, and the AZ and offer by your catalog.
+- `delete-nat-instance` is live-verified in `hcm-3`.
+
 ## v1.8.0 - Per-account options and release binaries
 
 - Commands now follow what your own account offers instead of the options
