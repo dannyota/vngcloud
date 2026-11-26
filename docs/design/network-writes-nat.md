@@ -29,9 +29,9 @@ tool serves many accounts, so each call checks the caller's own account
 before ordering: V3 eligibility, an enabled AZ in the account's NAT
 catalog, a VPC in the caller's project and region, one exact VND offer,
 and a fresh quote within `MaxPrice`. An account that lacks any of them is
-refused before purchase. `han-1` is live-verified. In `hcm-3`, delete is
-live-verified and SDK create waits on the
-[HCM run](network-nat-hcm-checks.md). Use the same SDK
+refused before purchase. Create and delete are live-verified in `han-1`
+and in `hcm-3` (HCM03-1C; see the
+[HCM run results](network-nat-hcm-checks.md#run-results)). Use the same SDK
 and CLI surface, direct order, fresh quote and `MaxPrice`, renewal-off
 confirmation, VPC ownership guards, and send-once and cleanup rules.
 Reuse the [NAT routing](../../network/nat_routing.go): HCM pins

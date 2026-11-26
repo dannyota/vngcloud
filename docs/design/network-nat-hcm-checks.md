@@ -110,3 +110,15 @@ writes unverified and block further paid runs until resolved. Add sanitized HCM 
 and cost results here, and record observed detail and inbound-rule shapes
 in the read design. Keep resource IDs, balances, transactions, and raw
 responses private.
+
+## Run results
+
+Three runs of the SDK harness with an explicit `VNGCLOUD_LIVE_NAT_AZ` of
+HCM03-1C passed every pre-order guard, quoted Standard at 712,400 VND, and
+created one NAT each. Each reached ACTIVE in 5 to 6 minutes with renewal
+MANUAL. The harness deleted it, saw NAT and billing absent, and removed the
+disposable VPC; refunds left a net cost of 0 to 16 VND per run.
+`GetNATInstance` passed on the held NAT. `ListNATInboundRules` returned
+`InvalidResponse` because HCM rule IDs contain `_`; the read contract now
+accepts them (see the [read evidence](network-nat-reads.md#observed-live-evidence)).
+A full run with both probe reads passing is still to be recorded.
