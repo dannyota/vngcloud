@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -135,18 +136,21 @@ func (c *Client) quotaStatusRow(ctx context.Context, op, kind string, asOf time.
 		if o.text("resourceId", false) != quota.ID || o.text("packageId", false) != quota.PackageID || o.invalid {
 			return row, quotaResponseError(op)
 		}
-		if row.ClassName == "Basic" && row.Price != nil && *row.Price == 0 && api == 10 && location == 1 {
+		classID := o.text("classId", false)
+		if o.invalid || core.CheckPathID(op, "class ID", classID) != nil {
+			return row, quotaResponseError(op)
+		}
+		eligible := false
+		if row.Price != nil && *row.Price == 0 {
+			eligible, err = c.syntheticStatusEligible(ctx, op, reader, classID, quota.PackageID, api, location)
+			if err != nil {
+				return row, err
+			}
+		}
+		if eligible {
 			windowEnd := asOf.Add(7 * 24 * time.Hour)
 			open := quota.Status == QuotaStatusActive && quota.EndTime.After(asOf) && !quota.EndTime.After(windowEnd)
 			row.RenewWindowOpen = &open
-			if !quota.POC && !quota.AutoRenew {
-				if open {
-					row.NextSafeCommand = "monitor renew-synthetic-quota"
-				}
-				if quota.Status == QuotaStatusInTrash && quota.EndTime.Before(asOf) {
-					row.NextSafeCommand = "monitor recover-synthetic-quota"
-				}
-			}
 		}
 	} else {
 		raw, readErr := reader.read(ctx, op, "v1", segment, "packages")
@@ -183,6 +187,73 @@ func (c *Client) quotaStatusRow(ctx context.Context, op, kind string, asOf time.
 	seconds := quotaSecondsLeft(quota.EndTime, asOf)
 	row.TimeLeftSeconds = &seconds
 	return row, nil
+}
+
+func (c *Client) syntheticStatusEligible(ctx context.Context, op string, reader *quotaCompositeReader, classID, packageID string, api, location int) (bool, error) {
+	raw, err := reader.read(ctx, op, "v2", "synthetic", "quota-class")
+	if err != nil {
+		return false, err
+	}
+	classes, err := decodeSyntheticClasses(op, raw)
+	if err != nil {
+		return false, err
+	}
+	if len(classes) > 64 {
+		return false, quotaResponseError(op)
+	}
+	slices.SortFunc(classes, compareSyntheticClasses)
+	for _, class := range classes {
+		if core.CheckPathID(op, "class ID", class.ID) != nil {
+			return false, quotaResponseError(op)
+		}
+	}
+	for i := range classes {
+		raw, err = reader.read(ctx, op, "v2", "synthetic", "quota-class", classes[i].ID, "packages")
+		if err != nil {
+			return false, err
+		}
+		classes[i].Packages, err = decodeSyntheticClassPackages(op, raw)
+		if err != nil {
+			return false, err
+		}
+	}
+	raw, err = reader.read(ctx, op, "v1", "settings")
+	if err != nil {
+		return false, err
+	}
+	o := quotaObjectOf(raw)
+	periods, ok := quotaArray(o.fields["monthPeriods"])
+	maximum := o.integer("maxMonthPeriodForFreeQuota", false)
+	_ = o.text("paymentMethod", false)
+	seen := map[int]bool{}
+	eligiblePeriods := 0
+	for _, rawPeriod := range periods {
+		p := quotaObjectOf(quotaPeriodJSON(rawPeriod))
+		period := p.integer("period", false)
+		if p.invalid || period <= 0 || seen[period] {
+			return false, quotaResponseError(op)
+		}
+		seen[period] = true
+		if period <= maximum {
+			eligiblePeriods++
+		}
+	}
+	if o.invalid || !ok || len(periods) == 0 || maximum <= 0 {
+		return false, quotaResponseError(op)
+	}
+	for _, class := range classes {
+		for _, pkg := range class.Packages {
+			if class.ID == classID && pkg.ID == packageID {
+				if pkg.Price == nil {
+					return false, quotaResponseError(op)
+				}
+				if pkg.API != 1 {
+					return false, nil
+				}
+			}
+		}
+	}
+	return api > 0 && eligiblePeriods == 1 && seen[1] && syntheticFreeOffer(classes, classID, packageID, api, location), nil
 }
 
 // Parsed RFC 3339 timestamps have a much wider range than time.Duration.

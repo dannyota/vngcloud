@@ -46,6 +46,7 @@ type SyntheticClassOption struct {
 	Price                          *float64
 	MonthPeriods                   []int
 	AutoRenewEligible              *bool
+	status                         string
 }
 
 // SyntheticPackage holds a synthetic package and its supported periods.
@@ -138,9 +139,7 @@ func (c *Client) ListSyntheticPackages(ctx context.Context, _ *ListSyntheticPack
 		class := &out.Items[i]
 		for j := range class.Options {
 			option := &class.Options[j]
-			if class.Name == "Basic" && class.Status == QuotaStatusActive && option.Location == 1 && option.MinAPI == 10 && option.MaxAPI == 10 && option.Step == 1 {
-				refused := false
-				option.AutoRenewEligible = &refused
+			if syntheticFreeOffer(out.Items, class.ID, option.PackageID, 0, option.Location) {
 				option.MonthPeriods = catalogPeriods(out.MonthPeriods, out.MaxMonthPeriodForFreeQuota, true)
 			}
 		}
@@ -171,6 +170,36 @@ func (c *Client) ListSyntheticPackages(ctx context.Context, _ *ListSyntheticPack
 		return strings.Compare(a.ID, b.ID)
 	})
 	return out, nil
+}
+
+func syntheticFreeOffer(classes []SyntheticQuotaClass, classID, packageID string, quantity, location int) bool {
+	var foundClass SyntheticQuotaClass
+	var foundOption SyntheticClassOption
+	var foundPackage SyntheticClassPackage
+	packages, options := 0, 0
+	for _, class := range classes {
+		for _, pkg := range class.Packages {
+			if pkg.ID == packageID {
+				packages++
+				if class.ID == classID {
+					foundClass, foundPackage = class, pkg
+				}
+			}
+		}
+		for _, option := range class.Options {
+			if option.PackageID == packageID {
+				options++
+				if class.ID == classID {
+					foundOption = option
+				}
+			}
+		}
+	}
+	return packages == 1 && options == 1 && foundClass.ID != "" && foundClass.Status == QuotaStatusActive &&
+		foundOption.status == QuotaStatusActive && foundPackage.Price != nil && *foundPackage.Price == 0 &&
+		foundPackage.Location == location && foundOption.Location == location && foundPackage.API > 0 &&
+		(quantity == 0 || (quantity >= foundOption.MinAPI && quantity <= foundOption.MaxAPI && foundOption.Step > 0 &&
+			(quantity-foundOption.MinAPI)%foundOption.Step == 0 && quantity%foundPackage.API == 0))
 }
 
 func quotaPeriodJSON(period json.RawMessage) json.RawMessage {
@@ -230,7 +259,7 @@ func decodeSyntheticClasses(op string, raw json.RawMessage) ([]SyntheticQuotaCla
 			options := map[identity]bool{}
 			for _, location := range locations {
 				item := quotaObjectOf(location)
-				option := SyntheticClassOption{PackageID: item.text("packageId", false), Location: item.integer("amount", false), MinAPI: item.integer("minApi", false), MaxAPI: item.integer("maxApi", false), Step: item.integer("step", false), MonthPeriods: []int{}}
+				option := SyntheticClassOption{PackageID: item.text("packageId", false), Location: item.integer("amount", false), MinAPI: item.integer("minApi", false), MaxAPI: item.integer("maxApi", false), Step: item.integer("step", false), MonthPeriods: []int{}, status: item.text("status", false)}
 				key := identity{option.PackageID, option.Location}
 				if item.invalid || option.PackageID == "" || option.Location <= 0 || option.MinAPI <= 0 || option.MaxAPI < option.MinAPI || option.Step <= 0 || options[key] {
 					return nil, quotaResponseError(op)

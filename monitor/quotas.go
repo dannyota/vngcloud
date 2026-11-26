@@ -125,6 +125,9 @@ func (c *Client) quotaRequestOutcome(ctx context.Context, req transport.Request,
 		return nil, status, nil, false
 	}
 	// Scrub retained strings, including description keys, before projection.
+	if !quotaUniqueKeys(raw) {
+		return nil, status, monitorReadError(op, status, "InvalidResponse", "quota response had invalid structure", nil), notSent
+	}
 	var value any
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
@@ -198,6 +201,48 @@ func (c *Client) scrubQuotaStrings(value any, credentials []string) any {
 		return safe
 	}
 	return value
+}
+
+func quotaUniqueKeys(raw []byte) bool {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var scan func() bool
+	scan = func() bool {
+		token, err := decoder.Token()
+		if err != nil {
+			return false
+		}
+		delim, ok := token.(json.Delim)
+		if !ok {
+			return true
+		}
+		switch delim {
+		case '{':
+			seen := map[string]bool{}
+			for decoder.More() {
+				key, err := decoder.Token()
+				name, ok := key.(string)
+				if err != nil || !ok || seen[name] {
+					return false
+				}
+				seen[name] = true
+				if !scan() {
+					return false
+				}
+			}
+		case '[':
+			for decoder.More() {
+				if !scan() {
+					return false
+				}
+			}
+		default:
+			return false
+		}
+		_, err = decoder.Token()
+		return err == nil
+	}
+	return scan()
 }
 
 type quotaObject struct {
@@ -297,6 +342,15 @@ func (o *quotaObject) price() *float64 {
 		return nil
 	}
 	o.decode("price", &v, true)
+	if v != nil && *v == 0 {
+		raw := strings.TrimSpace(string(o.fields["price"]))
+		if i := strings.IndexAny(raw, "eE"); i >= 0 {
+			raw = raw[:i]
+		}
+		if strings.Trim(raw, "-0.") != "" {
+			o.invalid = true
+		}
+	}
 	if v != nil && (*v < 0 || math.IsNaN(*v) || math.IsInf(*v, 0)) {
 		o.invalid = true
 	}

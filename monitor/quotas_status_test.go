@@ -18,12 +18,15 @@ import (
 func statusClient(t *testing.T, overrides map[string]func(http.ResponseWriter, *http.Request), calls *[]string) *Client {
 	t.Helper()
 	fixtures := map[string]string{
-		"/billing-api/v1/synthetic/quota":                    "GetSyntheticQuota",
-		"/billing-api/v2/synthetic/quota-syn-1/quota-detail": "GetSyntheticQuotaDetailNullable",
-		"/billing-api/v1/email/quota":                        "GetNotificationQuotaEmail",
-		"/billing-api/v1/email/packages":                     "ListNotificationPackagesEmail",
-		"/billing-api/v1/sms/quota":                          "GetNotificationQuotaSMS",
-		"/billing-api/v1/sms/packages":                       "ListNotificationPackagesSMS",
+		"/billing-api/v2/synthetic/quota-class":                                "ListSyntheticQuotaClasses",
+		"/billing-api/v1/settings":                                             "GetQuotaSettings",
+		"/billing-api/v2/synthetic/quota-class/" + createClassID + "/packages": "ListSyntheticClassPackages",
+		"/billing-api/v1/synthetic/quota":                                      "GetSyntheticQuota",
+		"/billing-api/v2/synthetic/quota-syn-1/quota-detail":                   "GetSyntheticQuotaDetailNullable",
+		"/billing-api/v1/email/quota":                                          "GetNotificationQuotaEmail",
+		"/billing-api/v1/email/packages":                                       "ListNotificationPackagesEmail",
+		"/billing-api/v1/sms/quota":                                            "GetNotificationQuotaSMS",
+		"/billing-api/v1/sms/packages":                                         "ListNotificationPackagesSMS",
 	}
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		*calls = append(*calls, r.URL.Path)
@@ -32,6 +35,10 @@ func statusClient(t *testing.T, overrides map[string]func(http.ResponseWriter, *
 		}
 		if handler := overrides[r.URL.Path]; handler != nil {
 			handler(w, r)
+			return
+		}
+		if strings.Contains(r.URL.Path, "/quota-class/") && strings.HasSuffix(r.URL.Path, "/packages") && fixtures[r.URL.Path] == "" {
+			_, _ = w.Write([]byte(`[]`))
 			return
 		}
 		if fixture := fixtures[r.URL.Path]; fixture != "" {
@@ -61,15 +68,15 @@ func TestQuotaStatusSnapshotAndFilter(t *testing.T) {
 				t.Fatalf("snapshot=%+v clock=%d", out, clockCalls)
 			}
 			if kind == "" {
-				if len(out.Items) != 3 || out.Items[0].Kind != "Synthetic" || out.Items[1].Kind != "Email" || out.Items[2].Kind != "SMS" || len(calls) != 6 {
+				if len(out.Items) != 3 || out.Items[0].Kind != "Synthetic" || out.Items[1].Kind != "Email" || out.Items[2].Kind != "SMS" || len(calls) != 11 {
 					t.Fatalf("out=%+v calls=%v", out, calls)
 				}
-			} else if len(out.Items) != 1 || len(calls) != 2 {
+			} else if len(out.Items) != 1 || (kind == "sYnThEtIc" && len(calls) != 7) || (kind != "sYnThEtIc" && len(calls) != 2) {
 				t.Fatalf("out=%+v calls=%v", out, calls)
 			}
 			if kind == "sYnThEtIc" || kind == "" {
 				row := out.Items[0]
-				if row.ClassName != "Basic" || row.PackageName != "" || row.Quota.PackageID != "32b3743d-94b8-49ab-984d-bd7ec99b46f6" || row.Price == nil || *row.Price != 0 || row.TimeLeftSeconds == nil || *row.TimeLeftSeconds != 510180 || row.AutoRenew == nil || *row.AutoRenew || row.RenewWindowOpen == nil || !*row.RenewWindowOpen || row.NextSafeCommand != "monitor renew-synthetic-quota" {
+				if row.ClassName != "Basic" || row.PackageName != "" || row.Quota.PackageID != "32b3743d-94b8-49ab-984d-bd7ec99b46f6" || row.Price == nil || *row.Price != 0 || row.TimeLeftSeconds == nil || *row.TimeLeftSeconds != 510180 || row.AutoRenew == nil || *row.AutoRenew || row.RenewWindowOpen == nil || !*row.RenewWindowOpen || row.NextSafeCommand != "monitor get-synthetic-quota" {
 					t.Fatalf("row=%+v", row)
 				}
 				if !reflect.DeepEqual(calls[:2], []string{"/billing-api/v1/synthetic/quota", "/billing-api/v2/synthetic/quota-syn-1/quota-detail"}) {
@@ -83,6 +90,60 @@ func TestQuotaStatusSnapshotAndFilter(t *testing.T) {
 				if row.Kind != "Synthetic" && (row.Price == nil || row.PackageName == "" || row.RenewWindowOpen != nil) {
 					t.Fatalf("notification=%+v", row)
 				}
+			}
+		})
+	}
+}
+
+func TestQuotaStatusDoesNotTrustClassName(t *testing.T) {
+	classes, _, _ := catalogBodies(t)
+	classes = strings.ReplaceAll(classes, `"name": "Basic"`, `"name": "Starter"`)
+	detail := strings.ReplaceAll(testutil.FixtureBody(t, "../testdata/monitor/GetSyntheticQuotaDetailNullable.json"), `"className": "Basic"`, `"className": "Starter"`)
+	var calls []string
+	c := statusClient(t, map[string]func(http.ResponseWriter, *http.Request){
+		"/billing-api/v2/synthetic/quota-class":              func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(classes)) },
+		"/billing-api/v2/synthetic/quota-syn-1/quota-detail": func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(detail)) },
+	}, &calls)
+	out, err := c.GetQuotaStatus(context.Background(), &GetQuotaStatusInput{Kind: "synthetic"})
+	if err != nil || out.Items[0].RenewWindowOpen == nil || !*out.Items[0].RenewWindowOpen {
+		t.Fatalf("out=%+v err=%v", out, err)
+	}
+}
+
+func TestQuotaStatusIneligibleCatalog(t *testing.T) {
+	for _, mode := range []string{"shared-package", "shared-option", "inactive-option", "inactive-class", "paid-package", "wrong-class", "multiple-periods"} {
+		t.Run(mode, func(t *testing.T) {
+			classes, _, settings := catalogBodies(t)
+			pkg := testutil.FixtureBody(t, "../testdata/monitor/ListSyntheticClassPackages.json")
+			detail := testutil.FixtureBody(t, "../testdata/monitor/GetSyntheticQuotaDetailNullable.json")
+			empty := `[]`
+			switch mode {
+			case "shared-package":
+				empty = pkg
+			case "shared-option":
+				classes = strings.Replace(classes, `"amount": 1,`, `"amount": 2, "minApi": 10, "maxApi": 10, "step": 1, "status": "DISABLED", "packageId": "32b3743d-94b8-49ab-984d-bd7ec99b46f6"}, {"amount": 1,`, 1)
+			case "inactive-option":
+				classes = strings.Replace(classes, `"status": "ACTIVE",`+"\n"+`          "priority"`, `"status": "DISABLED",`+"\n"+`          "priority"`, 1)
+			case "inactive-class":
+				classes = strings.Replace(classes, `"status": "ACTIVE"`, `"status": "DISABLED"`, 1)
+			case "paid-package":
+				pkg = strings.Replace(pkg, `"price": 0.0`, `"price": 0.01`, 1)
+			case "wrong-class":
+				detail = strings.ReplaceAll(detail, createClassID, "70b57f46-edaf-4f6f-9293-acf816a5b81d")
+			case "multiple-periods":
+				settings = strings.ReplaceAll(settings, `"maxMonthPeriodForFreeQuota": 1`, `"maxMonthPeriodForFreeQuota": 3`)
+			}
+			var calls []string
+			c := statusClient(t, map[string]func(http.ResponseWriter, *http.Request){
+				"/billing-api/v2/synthetic/quota-class":                                               func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(classes)) },
+				"/billing-api/v2/synthetic/quota-class/" + createClassID + "/packages":                func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(pkg)) },
+				"/billing-api/v2/synthetic/quota-class/70b57f46-edaf-4f6f-9293-acf816a5b81d/packages": func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(empty)) },
+				"/billing-api/v2/synthetic/quota-syn-1/quota-detail":                                  func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(detail)) },
+				"/billing-api/v1/settings":                                                            func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(settings)) },
+			}, &calls)
+			out, err := c.GetQuotaStatus(context.Background(), &GetQuotaStatusInput{Kind: "synthetic"})
+			if err != nil || out.Items[0].RenewWindowOpen != nil || out.Items[0].NextSafeCommand != "monitor get-synthetic-quota" {
+				t.Fatalf("out=%+v err=%v", out, err)
 			}
 		})
 	}
@@ -207,12 +268,6 @@ func TestQuotaStatusRenewalBoundaryAndOverflow(t *testing.T) {
 			}
 			row := out.Items[0]
 			next := "monitor get-synthetic-quota"
-			if tc.open {
-				next = "monitor renew-synthetic-quota"
-			}
-			if tc.name == "expired" {
-				next = "monitor recover-synthetic-quota"
-			}
 			if *row.TimeLeftSeconds != tc.seconds || (row.RenewWindowOpen != nil) != tc.known || (tc.known && *row.RenewWindowOpen != tc.open) || row.Status != tc.status || row.NextSafeCommand != next {
 				t.Fatalf("row=%+v seconds=%d", row, *row.TimeLeftSeconds)
 			}
@@ -266,7 +321,7 @@ func TestQuotaStatusResponseLimits(t *testing.T) {
 			var calls []string
 			c := statusClient(t, handlers, &calls)
 			out, err := c.GetQuotaStatus(context.Background(), nil)
-			if len(calls) != 6 {
+			if (!oversize && len(calls) != 11) || (oversize && len(calls) != 6) {
 				t.Fatalf("calls=%v", calls)
 			}
 			if oversize {
@@ -372,13 +427,7 @@ func TestQuotaStatusNextSafeCommandFlags(t *testing.T) {
 				c := statusClient(t, map[string]func(http.ResponseWriter, *http.Request){"/billing-api/v1/synthetic/quota": func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(quota)) }}, &calls)
 				out, err := c.GetQuotaStatus(context.Background(), &GetQuotaStatusInput{Kind: "synthetic"})
 				next := "monitor get-synthetic-quota"
-				if flag == "none" {
-					next = "monitor renew-synthetic-quota"
-					if status == "IN-TRASH" {
-						next = "monitor recover-synthetic-quota"
-					}
-				}
-				if err != nil || out.Items[0].NextSafeCommand != next || len(calls) != 2 {
+				if err != nil || out.Items[0].NextSafeCommand != next || len(calls) != 7 {
 					t.Fatalf("out=%+v err=%v calls=%v", out, err, calls)
 				}
 			})

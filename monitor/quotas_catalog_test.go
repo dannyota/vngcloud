@@ -65,7 +65,7 @@ func TestSyntheticCatalogRawFixtures(t *testing.T) {
 		t.Fatalf("catalog = %+v", out)
 	}
 	option, pkg := out.Items[0].Options[0], out.Packages[0]
-	if option.PackageID == pkg.ID || option.Price != nil || option.AutoRenewEligible == nil || *option.AutoRenewEligible || pkg.AutoRenewEligible != nil || pkg.Price == nil || *pkg.Price != 0 || pkg.TierID != 24 || pkg.API != 10 || pkg.Location != 1 {
+	if option.PackageID == pkg.ID || option.Price != nil || option.AutoRenewEligible != nil || pkg.AutoRenewEligible != nil || pkg.Price == nil || *pkg.Price != 0 || pkg.TierID != 24 || pkg.API != 10 || pkg.Location != 1 {
 		t.Fatalf("option=%+v package=%+v", option, pkg)
 	}
 	if !reflect.DeepEqual(option.MonthPeriods, []int{1}) || !reflect.DeepEqual(pkg.MonthPeriods, []int{1}) || !reflect.DeepEqual(out.MonthPeriods, []int{1, 3, 6, 12, 24, 36}) || out.MaxMonthPeriodForFreeQuota != 1 || out.PaymentMethod != "PRE-PAID" {
@@ -73,9 +73,20 @@ func TestSyntheticCatalogRawFixtures(t *testing.T) {
 	}
 }
 
+func TestSyntheticCatalogDifferentFreeClass(t *testing.T) {
+	classes, packages, settings := catalogBodies(t)
+	classes = strings.ReplaceAll(classes, `"name": "Basic"`, `"name": "Starter"`)
+	classes = strings.ReplaceAll(classes, `"maxApi": 10`, `"maxApi": 20`)
+	out, err := catalogFixture(t, classes, packages, settings, nil).ListSyntheticPackages(context.Background(), nil)
+	if err != nil || !reflect.DeepEqual(out.Items[0].Options[0].MonthPeriods, []int{1}) {
+		t.Fatalf("out=%+v err=%v", out, err)
+	}
+}
+
 func TestSyntheticCatalogInvalidStructure(t *testing.T) {
 	classes, packages, settings := catalogBodies(t)
 	for _, tc := range []struct{ name, classes, packages, settings string }{
+		{"duplicate-key", strings.Replace(classes, `"status": "ACTIVE"`, `"status": "DISABLED", "status": "ACTIVE"`, 1), packages, settings},
 		{"null-classes", "null", packages, settings},
 		{"missing-config", strings.ReplaceAll(classes, `"config": {`, `"other": {`), packages, settings},
 		{"null-config", strings.ReplaceAll(classes, `"locations": [`, `"locations": null, "unused": [`), packages, settings},
@@ -452,7 +463,11 @@ func TestQuotaCompositeRetainedBodyBudgetWithRetries(t *testing.T) {
 				}
 				bodies := make(map[string]string, len(fixtures))
 				for path, name := range fixtures {
-					bodies[path] = quotaBudgetPaddedBody(t, testutil.FixtureBody(t, "../testdata/monitor/"+name+".json"))
+					body := testutil.FixtureBody(t, "../testdata/monitor/"+name+".json")
+					if operation == "status" && name == "GetSyntheticQuotaDetailNullable" {
+						body = strings.ReplaceAll(body, `"price": 0.0`, `"price": 1.0`)
+					}
+					bodies[path] = quotaBudgetPaddedBody(t, body)
 				}
 				first := "/billing-api/v2/synthetic/quota-class"
 				if operation == "status" {
