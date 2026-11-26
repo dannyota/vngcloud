@@ -90,6 +90,10 @@ vngcloud network list-bandwidth-packages --region "$region" \
   --project-id "$project" --query 'length(Items)' --output json
 ```
 
+The built read passed in both regions with the default IAM profile: `hcm-3`
+returned 17 packages and `han-1` 12, every `Bandwidth` decoded as an integer,
+and `Type` held `Domestic` or `International`.
+
 Ship the SDK and wiki with decoder, routing, reflection and CLI tests. Include
 `data` with a conflicting error marker, an overridden vServer host receiving
 zero requests, and a reflected bearer in a 401 yielding `InvalidResponse`

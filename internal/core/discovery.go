@@ -23,6 +23,15 @@ func (c *Client) DoDiscoveryJSONStatus(ctx context.Context, req transport.Reques
 	return status, wrapTransportErr(err)
 }
 
+// DoProjectDiscoveryJSONStatus guards project discovery responses.
+func (c *Client) DoProjectDiscoveryJSONStatus(ctx context.Context, req transport.Request, out any) (int, error) {
+	if c.err != nil {
+		return 0, c.err
+	}
+	status, err := c.transport.DoProjectDiscoveryJSONStatus(ctx, req, out, nil)
+	return status, wrapTransportErr(err)
+}
+
 // RequireDiscoveryProjectID guards the auxiliary read before cache commits.
 func (c *Client) RequireDiscoveryProjectID(s *discovery.Session) (string, error) {
 	if c.err != nil {

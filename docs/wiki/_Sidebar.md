@@ -28,6 +28,7 @@
 - [Network ACLs](Network-ACLs.md)
 - [Network DHCP Options](Network-DHCPOptions.md)
 - [Network Virtual IPs](Network-VirtualIPs.md)
+- [Network Bandwidth Packages](Network-Bandwidth.md)
 - [Database](Database.md)
 - [Tagging](Tagging.md)
 - [Storage](Storage.md)

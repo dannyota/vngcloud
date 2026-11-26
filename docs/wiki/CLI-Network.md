@@ -626,6 +626,16 @@ No fields.
 vngcloud network list-all-virtual-ip-address-address-pairs
 ```
 
+## list-bandwidth-packages
+
+Kind: Read.
+
+No fields.
+
+```sh
+vngcloud network list-bandwidth-packages
+```
+
 ## list-dhcp-options
 
 Kind: Read.

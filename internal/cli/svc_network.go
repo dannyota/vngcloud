@@ -49,6 +49,7 @@ import (
 // Destructive. A read-only profile refuses every one of these Write
 // operations, before any request.
 var networkOps = []Op[network.Client]{
+	Read[network.Client, network.ListBandwidthPackagesInput, network.ListBandwidthPackagesOutput]("list-bandwidth-packages", (*network.Client).ListBandwidthPackages),
 	discoveryRead("list-network-prices", (*network.Client).ListNetworkPrices),
 	Read[network.Client, network.ListVNetworkRegionsInput, network.ListVNetworkRegionsOutput](
 		kebab("ListVNetworkRegions"), (*network.Client).ListVNetworkRegions),
