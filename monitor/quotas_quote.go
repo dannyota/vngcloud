@@ -168,6 +168,15 @@ func decodeQuotaPrice(op string, raw json.RawMessage) (float64, error) {
 	o := quotaObjectOf(raw)
 	var price float64
 	o.decode("optimumPrice", &price, false)
+	if price == 0 {
+		value := strings.TrimSpace(string(o.fields["optimumPrice"]))
+		if i := strings.IndexAny(value, "eE"); i >= 0 {
+			value = value[:i]
+		}
+		if strings.Trim(value, "-0.") != "" {
+			o.invalid = true
+		}
+	}
 	if o.invalid || price < 0 || math.IsNaN(price) || math.IsInf(price, 0) {
 		return 0, quotaResponseError(op)
 	}

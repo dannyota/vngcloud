@@ -40,6 +40,14 @@ func (s *lifecycleServer) handler(t *testing.T) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		path := "/billing-api/v1/" + s.kind + "/quota"
 		switch {
+		case r.URL.Path == "/billing-api/v2/synthetic/quota-class":
+			testutil.WriteFixture(t, w, "../testdata/monitor/ListSyntheticQuotaClasses.json")
+		case r.URL.Path == "/billing-api/v2/synthetic/quota-class/"+createClassID+"/packages":
+			testutil.WriteFixture(t, w, "../testdata/monitor/ListSyntheticClassPackages.json")
+		case strings.HasPrefix(r.URL.Path, "/billing-api/v2/synthetic/quota-class/") && strings.HasSuffix(r.URL.Path, "/packages"):
+			_, _ = io.WriteString(w, `[]`)
+		case r.URL.Path == "/billing-api/v1/settings":
+			testutil.WriteFixture(t, w, "../testdata/monitor/GetQuotaSettings.json")
 		case r.Method == http.MethodGet && r.URL.Path == path:
 			n := s.reads.Add(1)
 			body := s.quota(n)

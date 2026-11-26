@@ -24,6 +24,8 @@ type syntheticOrderServer struct {
 	quota                         func(int32) string
 	detail                        func(int32) string
 	price                         string
+	classes                       string
+	quantity                      int
 	send                          http.HandlerFunc
 }
 
@@ -31,6 +33,18 @@ func (s *syntheticOrderServer) handler(t *testing.T) http.HandlerFunc {
 	t.Helper()
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/billing-api/v2/synthetic/quota-class":
+			if s.classes != "" {
+				_, _ = io.WriteString(w, s.classes)
+			} else {
+				testutil.WriteFixture(t, w, "../testdata/monitor/ListSyntheticQuotaClasses.json")
+			}
+		case "/billing-api/v2/synthetic/quota-class/" + createClassID + "/packages":
+			testutil.WriteFixture(t, w, "../testdata/monitor/ListSyntheticClassPackages.json")
+		case "/billing-api/v2/synthetic/quota-class/70b57f46-edaf-4f6f-9293-acf816a5b81d/packages", "/billing-api/v2/synthetic/quota-class/d8c1d829-205b-4ce4-9c1c-32756f748d25/packages":
+			_, _ = io.WriteString(w, `[]`)
+		case "/billing-api/v1/settings":
+			testutil.WriteFixture(t, w, "../testdata/monitor/GetQuotaSettings.json")
 		case "/billing-api/v1/synthetic/quota":
 			n := s.reads.Add(1)
 			if body := s.quota(n); body != "" {
@@ -49,7 +63,11 @@ func (s *syntheticOrderServer) handler(t *testing.T) http.HandlerFunc {
 			s.quotes.Add(1)
 			var body map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&body)
-			if !reflect.DeepEqual(body, map[string]any{"redirectUrl": "", "packageId": "32b3743d-94b8-49ab-984d-bd7ec99b46f6", "quantity": float64(10), "resourceId": "quota-syn-1"}) {
+			quantity := s.quantity
+			if quantity == 0 {
+				quantity = 10
+			}
+			if !reflect.DeepEqual(body, map[string]any{"redirectUrl": "", "packageId": "32b3743d-94b8-49ab-984d-bd7ec99b46f6", "quantity": float64(quantity), "resourceId": "quota-syn-1"}) {
 				t.Errorf("quote=%v", body)
 			}
 			if s.price != "" {
@@ -136,6 +154,79 @@ func fmtSyntheticCase(recovery bool, body string) string {
 	}
 	return "renew/" + body
 }
+func TestSyntheticMutationDifferentFreeClassAndCapacity(t *testing.T) {
+	for _, recovery := range []bool{false, true} {
+		t.Run(fmtSyntheticCase(recovery, "different-offer"), func(t *testing.T) {
+			classes, _, _ := catalogBodies(t)
+			classes = strings.ReplaceAll(classes, `"name": "Basic"`, `"name": "Starter"`)
+			classes = strings.ReplaceAll(classes, `"maxApi": 10`, `"maxApi": 20`)
+			s := &syntheticOrderServer{recovery: recovery, classes: classes, quantity: 20, send: func(http.ResponseWriter, *http.Request) {}}
+			s.quota = func(int32) string {
+				if s.sends.Load() == 0 {
+					return syntheticFixture(t, recovery)
+				}
+				body := syntheticFixture(t, false)
+				if !recovery {
+					body = strings.ReplaceAll(body, "2026-12-01", "2027-01-01")
+				}
+				return body
+			}
+			s.detail = func(int32) string {
+				body := testutil.FixtureBody(t, "../testdata/monitor/GetSyntheticQuotaDetailNullable.json")
+				body = strings.ReplaceAll(body, `"className": "Basic"`, `"className": "Starter"`)
+				return strings.ReplaceAll(body, `"api": 10`, `"api": 20`)
+			}
+			out, err := syntheticCall(syntheticTestClient(t, s), recovery, false)
+			if err != nil || !out.confirmed || s.sends.Load() != 1 {
+				t.Fatalf("out=%+v err=%v", out, err)
+			}
+		})
+	}
+}
+
+func TestSyntheticMutationConfirmationRejectsChangedDetail(t *testing.T) {
+	for _, recovery := range []bool{false, true} {
+		for _, field := range []string{"classId", "api", "location", "price"} {
+			t.Run(fmtSyntheticCase(recovery, field), func(t *testing.T) {
+				s := &syntheticOrderServer{recovery: recovery, send: func(http.ResponseWriter, *http.Request) {}}
+				s.quota = func(int32) string {
+					body := syntheticFixture(t, recovery)
+					if s.sends.Load() > 0 {
+						body = syntheticFixture(t, false)
+						body = strings.ReplaceAll(body, "2026-12-01", "2027-01-01")
+					}
+					return body
+				}
+				s.detail = func(int32) string {
+					body := testutil.FixtureBody(t, "../testdata/monitor/GetSyntheticQuotaDetailNullable.json")
+					if s.sends.Load() == 0 {
+						return body
+					}
+					switch field {
+					case "classId":
+						return strings.ReplaceAll(body, createClassID, "other")
+					case "api":
+						return strings.ReplaceAll(body, `"api": 10`, `"api": 11`)
+					case "location":
+						return strings.ReplaceAll(body, `"location": 1`, `"location": 2`)
+					default:
+						return strings.ReplaceAll(body, `"price": 0.0`, `"price": 1`)
+					}
+				}
+				c := syntheticTestClient(t, s)
+				out, err := syntheticCall(c, recovery, false)
+				if !errors.Is(err, core.ErrNotSettled) || out.confirmed || s.sends.Load() != 1 {
+					t.Fatalf("out=%+v err=%v", out, err)
+				}
+				again, err := syntheticCall(c, recovery, false)
+				if !errors.Is(err, core.ErrNotSettled) || again.confirmed || s.sends.Load() != 1 {
+					t.Fatalf("again=%+v err=%v", again, err)
+				}
+			})
+		}
+	}
+}
+
 func TestSyntheticMutationReadbackAndGuardMismatch(t *testing.T) {
 	for _, recovery := range []bool{false, true} {
 		for _, confirmed := range []bool{false, true} {
@@ -436,6 +527,14 @@ func TestQuoteRenewSyntheticQuotaRefreshRedactsFrozenIdentity(t *testing.T) {
 			testutil.WriteFixture(t, w, "../testdata/monitor/GetSyntheticQuotaRecovered.json")
 		case "/billing-api/v2/synthetic/quota-syn-1/quota-detail":
 			testutil.WriteFixture(t, w, "../testdata/monitor/GetSyntheticQuotaDetailNullable.json")
+		case "/billing-api/v2/synthetic/quota-class":
+			testutil.WriteFixture(t, w, "../testdata/monitor/ListSyntheticQuotaClasses.json")
+		case "/billing-api/v2/synthetic/quota-class/" + createClassID + "/packages":
+			testutil.WriteFixture(t, w, "../testdata/monitor/ListSyntheticClassPackages.json")
+		case "/billing-api/v2/synthetic/quota-class/70b57f46-edaf-4f6f-9293-acf816a5b81d/packages", "/billing-api/v2/synthetic/quota-class/d8c1d829-205b-4ce4-9c1c-32756f748d25/packages":
+			_, _ = io.WriteString(w, `[]`)
+		case "/billing-api/v1/settings":
+			testutil.WriteFixture(t, w, "../testdata/monitor/GetQuotaSettings.json")
 		case "/billing-api/v2/synthetic/prices/created-price":
 			testutil.WriteFixture(t, w, "../testdata/monitor/QuoteRenewSyntheticQuota.json")
 		default:

@@ -125,6 +125,11 @@ func (c *Client) prepareSyntheticCreate(ctx context.Context, op string, in Creat
 	if err := c.requireSyntheticAbsent(ctx, op, credentials); err != nil {
 		return t, err
 	}
+	return c.resolveSyntheticTerms(ctx, op, in.ClassID, in.PackageID, in.Quantity, credentials)
+}
+
+func (c *Client) resolveSyntheticTerms(ctx context.Context, op, classID, packageID string, quantity int, credentials *monitorReadCredentials) (syntheticCreateTerms, error) {
+	var t syntheticCreateTerms
 	reader := quotaCompositeReader{client: c, credentials: credentials}
 	raw, err := reader.read(ctx, op, "v2", "synthetic", "quota-class")
 	if err != nil {
@@ -137,24 +142,30 @@ func (c *Client) prepareSyntheticCreate(ctx context.Context, op string, in Creat
 	if len(classes) > 64 {
 		return t, quotaResponseError(op)
 	}
+	slices.SortFunc(classes, compareSyntheticClasses)
 	for _, class := range classes {
-		if class.ID == in.ClassID {
-			t.class = class
+		if core.CheckPathID(op, "ClassID", class.ID) != nil {
+			return t, quotaResponseError(op)
+		}
+	}
+	for i := range classes {
+		raw, err = reader.read(ctx, op, "v2", "synthetic", "quota-class", classes[i].ID, "packages")
+		if err != nil {
+			return t, err
+		}
+		classes[i].Packages, err = decodeSyntheticClassPackages(op, raw)
+		if err != nil {
+			return t, err
+		}
+		if classes[i].ID == classID {
+			t.class = classes[i]
 		}
 	}
 	if t.class.ID == "" || t.class.Status != QuotaStatusActive {
 		return t, lifecycleUnsupported(op, "selected synthetic class")
 	}
-	raw, err = reader.read(ctx, op, "v2", "synthetic", "quota-class", t.class.ID, "packages")
-	if err != nil {
-		return t, err
-	}
-	packages, err := decodeSyntheticClassPackages(op, raw)
-	if err != nil {
-		return t, err
-	}
-	for _, pkg := range packages {
-		if pkg.ID == in.PackageID {
+	for _, pkg := range t.class.Packages {
+		if pkg.ID == packageID {
 			t.pkg = pkg
 		}
 	}
@@ -168,17 +179,14 @@ func (c *Client) prepareSyntheticCreate(ctx context.Context, op string, in Creat
 			matches++
 		}
 	}
-	if matches != 1 || in.Quantity < t.option.MinAPI || in.Quantity > t.option.MaxAPI || (in.Quantity-t.option.MinAPI)%t.option.Step != 0 {
-		return t, lifecycleUnsupported(op, "synthetic quantity or package option")
-	}
-	if t.class.Name != "Basic" || t.pkg.API != 1 || t.pkg.Location != 1 || in.Quantity != 10 {
-		return t, lifecycleUnsupported(op, "synthetic class or capacity")
-	}
 	if t.pkg.Price == nil {
 		return t, quotaResponseError(op)
 	}
-	t.quantity = in.Quantity
-	t.listPrice = *t.pkg.Price * float64(in.Quantity)
+	if matches != 1 || t.pkg.API != 1 || !syntheticFreeOffer(classes, classID, packageID, quantity, t.pkg.Location) {
+		return t, lifecycleUnsupported(op, "synthetic quantity or package option")
+	}
+	t.quantity = quantity
+	t.listPrice = *t.pkg.Price * float64(quantity)
 	if math.IsNaN(t.listPrice) || math.IsInf(t.listPrice, 0) {
 		return t, quotaResponseError(op)
 	}
@@ -211,7 +219,8 @@ func (c *Client) prepareSyntheticCreate(ctx context.Context, op string, in Creat
 	if o.invalid || len(t.periods) == 0 || t.maximum < 1 {
 		return t, quotaResponseError(op)
 	}
-	if !slices.Contains(t.periods, 1) {
+	slices.Sort(t.periods)
+	if !slices.Contains(t.periods, 1) || len(catalogPeriods(t.periods, t.maximum, true)) != 1 {
 		return t, lifecycleUnsupported(op, "synthetic month period")
 	}
 	return t, nil
@@ -264,14 +273,14 @@ func (c *Client) syntheticCreateReconciler(op string, t syntheticCreateTerms, se
 		if q.Status != QuotaStatusActive || q.PackageID != t.pkg.ID || q.StartTime.Before(sentAt) || !q.EndTime.After(q.StartTime) {
 			return quotaAttemptResolution{}, nil
 		}
-		out, err := c.readSyntheticQuota(ctx, op, credentials)
+		detail, err := c.readSyntheticDetail(ctx, op, *q, credentials)
 		if err != nil {
 			return quotaAttemptResolution{}, err
 		}
-		if out.Quota.ID != q.ID || out.Quota.PackageID != t.pkg.ID || out.Quota.Status != QuotaStatusActive || out.Quota.StartTime.Before(sentAt) || !out.Quota.EndTime.After(out.Quota.StartTime) || out.Detail.ClassName != "Basic" || out.Detail.API != t.quantity || out.Detail.Location != t.pkg.Location {
+		if detail.classID != t.class.ID || detail.API != t.quantity || detail.Location != t.option.Location || detail.Price == nil || *detail.Price != 0 {
 			return quotaAttemptResolution{}, nil
 		}
-		return quotaAttemptResolution{confirmed: true, quota: &out.Quota}, nil
+		return quotaAttemptResolution{confirmed: true, quota: q}, nil
 	}
 }
 func syntheticCreateRetained(a *quotaAttempt) *CreateSyntheticQuotaOutput {

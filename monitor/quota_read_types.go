@@ -84,6 +84,7 @@ type SyntheticQuotaDetail struct {
 	Teams         int
 	ClassName     string
 	TierName      string
+	classID       string
 	// Price is in VND. An absent or null price is unknown, not free.
 	Price *float64
 }

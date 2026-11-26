@@ -273,7 +273,7 @@ func TestEnsureSyntheticQuotaEligibilityBeforeSkip(t *testing.T) {
 				raw := testutil.FixtureBody(t, "../testdata/monitor/GetSyntheticQuotaDetailNullable.json")
 				switch mode {
 				case "class":
-					return strings.ReplaceAll(raw, `"Basic"`, `"Pro"`)
+					return strings.ReplaceAll(raw, createClassID, "other")
 				case "capacity":
 					return strings.ReplaceAll(raw, `"api": 10`, `"api": 20`)
 				case "price":
@@ -391,6 +391,8 @@ func TestSyntheticReconciliationCallerOperation(t *testing.T) {
 							testutil.WriteFixture(t, w, "../testdata/monitor/ListSyntheticQuotaClasses.json")
 						case r.URL.Path == "/billing-api/v2/synthetic/quota-class/"+createClassID+"/packages":
 							testutil.WriteFixture(t, w, "../testdata/monitor/ListSyntheticClassPackages.json")
+						case strings.HasPrefix(r.URL.Path, "/billing-api/v2/synthetic/quota-class/") && strings.HasSuffix(r.URL.Path, "/packages"):
+							_, _ = io.WriteString(w, `[]`)
 						case r.URL.Path == "/billing-api/v1/settings":
 							testutil.WriteFixture(t, w, "../testdata/monitor/GetQuotaSettings.json")
 						case r.URL.Path == "/billing-api/v2/synthetic/prices/created-price":

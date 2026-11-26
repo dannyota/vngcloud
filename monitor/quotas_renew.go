@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"reflect"
 	"strings"
 	"time"
 
@@ -152,11 +153,11 @@ func (c *Client) syntheticEligible(in syntheticMutationInput, t syntheticMutatio
 	if q.ID == "" || q.PackageID == "" || q.StartTime.IsZero() || q.EndTime.IsZero() || q.POC || q.AutoRenew || (in.recover && !q.EndTime.Before(now)) || (!in.recover && !q.EndTime.After(now)) {
 		return fmt.Errorf("%s: quota is ineligible: %w", in.op, core.ErrInvalidInput)
 	}
-	if t.detail.ClassName != "Basic" || t.detail.API != 10 || t.detail.Location != 1 {
-		return lifecycleUnsupported(in.op, "synthetic package")
-	}
 	if t.detail.Price == nil {
 		return quotaResponseError(in.op)
+	}
+	if *t.detail.Price != 0 {
+		return lifecycleUnsupported(in.op, "paid synthetic quota")
 	}
 	return nil
 }
@@ -200,7 +201,18 @@ func (c *Client) QuoteRenewSyntheticQuota(ctx context.Context, in *RenewSyntheti
 	if err = c.syntheticEligible(args, terms, expiry); err != nil {
 		return nil, err
 	}
-	return c.quoteSyntheticMutation(ctx, op, terms, &credentials)
+	resolved, err := c.resolveSyntheticTerms(ctx, op, terms.detail.classID, terms.quota.PackageID, terms.detail.API, &credentials)
+	if err != nil {
+		return nil, err
+	}
+	if resolved.option.Location != terms.detail.Location {
+		return nil, lifecycleUnsupported(op, "synthetic location")
+	}
+	quote, err := c.quoteSyntheticMutation(ctx, op, terms, &credentials)
+	if err == nil && quote.GuardPrice != 0 {
+		return nil, lifecycleUnsupported(op, "paid synthetic quota")
+	}
+	return quote, err
 }
 
 // RenewSyntheticQuota extends an ACTIVE free quota. A not-due result sends
@@ -272,6 +284,13 @@ func (c *Client) syntheticMutationReconciler(in syntheticMutationInput, t synthe
 			return quotaAttemptResolution{}, err
 		}
 		if q.ID != t.quota.ID || q.PackageID != t.quota.PackageID || q.Status != QuotaStatusActive || !q.EndTime.After(t.quota.EndTime) {
+			return quotaAttemptResolution{}, nil
+		}
+		detail, err := c.readSyntheticDetail(ctx, in.op, q, credentials)
+		if err != nil {
+			return quotaAttemptResolution{}, err
+		}
+		if detail.classID != t.detail.classID || detail.API != t.detail.API || detail.Location != t.detail.Location || detail.Price == nil || *detail.Price != 0 {
 			return quotaAttemptResolution{}, nil
 		}
 		return quotaAttemptResolution{confirmed: true, quota: &q}, nil
@@ -384,6 +403,13 @@ func (c *Client) runSyntheticMutationLocked(ctx context.Context, in syntheticMut
 	if err = c.syntheticEligible(in, terms, expiry); err != nil {
 		return result, status, err
 	}
+	resolved, err := c.resolveSyntheticTerms(ctx, in.op, terms.detail.classID, terms.quota.PackageID, terms.detail.API, credentials)
+	if err != nil {
+		return result, status, err
+	}
+	if resolved.option.Location != terms.detail.Location {
+		return result, status, lifecycleUnsupported(in.op, "synthetic location")
+	}
 	if !in.recover && (!in.ensure || *terms.detail.Price == 0) && in.maxDays > 0 && terms.quota.EndTime.After(c.now().Add(time.Duration(in.maxDays)*24*time.Hour)) {
 		result.outcome.Stage = "not-due"
 		return result, status, nil
@@ -399,6 +425,13 @@ func (c *Client) runSyntheticMutationLocked(ctx context.Context, in syntheticMut
 	if quote.GuardPrice != 0 {
 		return result, status, lifecycleUnsupported(in.op, "paid synthetic quota")
 	}
+	freshCatalog, err := c.resolveSyntheticTerms(ctx, in.op, terms.detail.classID, terms.quota.PackageID, terms.detail.API, credentials)
+	if err != nil {
+		if errors.Is(err, core.ErrInvalidInput) {
+			return result, status, fmt.Errorf("%s: final catalog changed: %w", in.op, ErrQuotaChanged)
+		}
+		return result, status, err
+	}
 	fresh, err := c.syntheticTerms(ctx, in, credentials)
 	if err != nil {
 		return result, status, err
@@ -408,7 +441,7 @@ func (c *Client) runSyntheticMutationLocked(ctx context.Context, in syntheticMut
 	if errors.As(eligibilityErr, &invalidResponse) {
 		return result, status, eligibilityErr
 	}
-	if eligibilityErr != nil || !terms.key(in).matches(fresh.key(in)) || terms.detail.ClassName != fresh.detail.ClassName || terms.detail.Location != fresh.detail.Location || fresh.detail.Price == nil || *fresh.detail.Price != 0 {
+	if eligibilityErr != nil || !reflect.DeepEqual(resolved, freshCatalog) || !terms.key(in).matches(fresh.key(in)) || terms.detail.classID != fresh.detail.classID || terms.detail.Location != fresh.detail.Location || fresh.detail.Price == nil || *fresh.detail.Price != 0 {
 		return result, status, fmt.Errorf("%s: final quota terms changed: %w", in.op, ErrQuotaChanged)
 	}
 	if err = ctx.Err(); err != nil {

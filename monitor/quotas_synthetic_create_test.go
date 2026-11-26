@@ -45,6 +45,8 @@ type syntheticCreateServer struct {
 	send                               http.HandlerFunc
 	quota                              func(int32) string
 	classes, packages, settings, price string
+	quantity                           int
+	detail                             string
 }
 
 func (s *syntheticCreateServer) handler(t *testing.T) http.HandlerFunc {
@@ -73,6 +75,8 @@ func (s *syntheticCreateServer) handler(t *testing.T) http.HandlerFunc {
 			} else {
 				testutil.WriteFixture(t, w, "../testdata/monitor/ListSyntheticClassPackages.json")
 			}
+		case "/billing-api/v2/synthetic/quota-class/70b57f46-edaf-4f6f-9293-acf816a5b81d/packages", "/billing-api/v2/synthetic/quota-class/d8c1d829-205b-4ce4-9c1c-32756f748d25/packages":
+			_, _ = io.WriteString(w, `[]`)
 		case "/billing-api/v1/settings":
 			if s.settings != "" {
 				_, _ = io.WriteString(w, s.settings)
@@ -84,7 +88,11 @@ func (s *syntheticCreateServer) handler(t *testing.T) http.HandlerFunc {
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Error(err)
 			}
-			expected := map[string]any{"redirectUrl": "", "packageId": createPackageID, "quantity": float64(10), "buyWith": map[string]any{}}
+			quantity := s.quantity
+			if quantity == 0 {
+				quantity = 10
+			}
+			expected := map[string]any{"redirectUrl": "", "packageId": createPackageID, "quantity": float64(quantity), "buyWith": map[string]any{}}
 			if r.URL.Path == "/billing-api/v2/synthetic/quota" {
 				expected["redirectUrl"] = syntheticQuotaRedirect
 				expected["monthPeriod"] = float64(1)
@@ -105,7 +113,11 @@ func (s *syntheticCreateServer) handler(t *testing.T) http.HandlerFunc {
 				}
 			}
 		case "/billing-api/v2/synthetic/quota-syn-2/quota-detail":
-			testutil.WriteFixture(t, w, "../testdata/monitor/GetSyntheticQuotaCreatedDetail.json")
+			if s.detail != "" {
+				_, _ = io.WriteString(w, s.detail)
+			} else {
+				testutil.WriteFixture(t, w, "../testdata/monitor/GetSyntheticQuotaCreatedDetail.json")
+			}
 		default:
 			t.Errorf("unexpected request %s %s", r.Method, r.URL)
 			w.WriteHeader(400)
@@ -122,6 +134,87 @@ func syntheticCreateClient(t *testing.T, s *syntheticCreateServer) *Client {
 }
 func syntheticCreateInput() *CreateSyntheticQuotaInput {
 	return &CreateSyntheticQuotaInput{ClassID: createClassID, PackageID: createPackageID, Quantity: 10, NoWait: true}
+}
+
+func TestSyntheticCreateDifferentFreeClass(t *testing.T) {
+	classes, _, _ := catalogBodies(t)
+	classes = strings.ReplaceAll(classes, `"name": "Basic"`, `"name": "Starter"`)
+	classes = strings.ReplaceAll(classes, `"maxApi": 10`, `"maxApi": 20`)
+	detail := testutil.FixtureBody(t, "../testdata/monitor/GetSyntheticQuotaCreatedDetail.json")
+	detail = strings.ReplaceAll(detail, `"api": 10`, `"api": 20`)
+	s := &syntheticCreateServer{classes: classes, detail: detail, quantity: 20, send: func(http.ResponseWriter, *http.Request) {}}
+	s.quota = func(int32) string {
+		if s.sends.Load() > 0 {
+			return testutil.FixtureBody(t, "../testdata/monitor/GetSyntheticQuotaCreated.json")
+		}
+		return ""
+	}
+	in := syntheticCreateInput()
+	in.Quantity, in.NoWait = 20, false
+	out, err := syntheticCreateClient(t, s).CreateSyntheticQuota(context.Background(), in)
+	if err != nil || !out.Created || s.sends.Load() != 1 {
+		t.Fatalf("out=%+v err=%v", out, err)
+	}
+}
+
+func TestSyntheticCreateConfirmationRejectsChangedDetail(t *testing.T) {
+	for _, field := range []string{"class", "api", "location", "price"} {
+		t.Run(field, func(t *testing.T) {
+			detail := testutil.FixtureBody(t, "../testdata/monitor/GetSyntheticQuotaCreatedDetail.json")
+			switch field {
+			case "class":
+				detail = strings.ReplaceAll(detail, createClassID, "other")
+			case "api":
+				detail = strings.ReplaceAll(detail, `"api": 10`, `"api": 11`)
+			case "location":
+				detail = strings.ReplaceAll(detail, `"location": 1`, `"location": 2`)
+			case "price":
+				detail = strings.ReplaceAll(detail, `"price": 0.0`, `"price": 1`)
+			}
+			s := &syntheticCreateServer{detail: detail, send: func(http.ResponseWriter, *http.Request) {}}
+			s.quota = func(int32) string {
+				if s.sends.Load() > 0 {
+					return testutil.FixtureBody(t, "../testdata/monitor/GetSyntheticQuotaCreated.json")
+				}
+				return ""
+			}
+			c := syntheticCreateClient(t, s)
+			in := syntheticCreateInput()
+			in.NoWait = false
+			out, err := c.CreateSyntheticQuota(context.Background(), in)
+			if !errors.Is(err, core.ErrNotSettled) || out.Created || s.sends.Load() != 1 {
+				t.Fatalf("out=%+v err=%v", out, err)
+			}
+			_, err = c.CreateSyntheticQuota(context.Background(), in)
+			if !errors.Is(err, core.ErrNotSettled) || s.sends.Load() != 1 {
+				t.Fatalf("err=%v sends=%d", err, s.sends.Load())
+			}
+		})
+	}
+}
+
+func TestSyntheticCreateRefusesSharedPackage(t *testing.T) {
+	s := &syntheticCreateServer{send: func(http.ResponseWriter, *http.Request) { t.Error("unexpected order") }}
+	base := s.handler(t)
+	c := New(testutil.NewRetryConfig(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/billing-api/v2/synthetic/quota-class/70b57f46-edaf-4f6f-9293-acf816a5b81d/packages" {
+			testutil.WriteFixture(t, w, "../testdata/monitor/ListSyntheticClassPackages.json")
+			return
+		}
+		base(w, r)
+	})))
+	out, err := c.CreateSyntheticQuota(context.Background(), syntheticCreateInput())
+	if err == nil || out.Sent != "no" || s.sends.Load() != 0 || s.quotes.Load() != 0 {
+		t.Fatalf("out=%+v err=%v", out, err)
+	}
+}
+
+func TestSyntheticCreateRefusesTinyPositiveQuote(t *testing.T) {
+	s := &syntheticCreateServer{price: `{"optimumPrice":1e-400}`, send: func(http.ResponseWriter, *http.Request) { t.Error("unexpected order") }}
+	out, err := syntheticCreateClient(t, s).CreateSyntheticQuota(context.Background(), syntheticCreateInput())
+	if err == nil || out.Sent != "no" || s.sends.Load() != 0 {
+		t.Fatalf("out=%+v err=%v", out, err)
+	}
 }
 
 func TestSyntheticCreateSingleSend(t *testing.T) {
@@ -255,9 +348,6 @@ func TestSyntheticCreatePreparationRefusals(t *testing.T) {
 			out, err := syntheticCreateClient(t, s).CreateSyntheticQuota(context.Background(), in)
 			if err == nil || out.Sent != "no" || out.Created || s.sends.Load() != 0 {
 				t.Fatalf("out=%+v err=%v", out, err)
-			}
-			if mode == "unpriced" && !errors.Is(err, ErrUnpriced) {
-				t.Fatal(err)
 			}
 			if mode == "price-guard" && !errors.Is(err, ErrPriceAboveMax) {
 				t.Fatal(err)

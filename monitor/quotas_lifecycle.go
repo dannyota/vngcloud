@@ -429,9 +429,20 @@ func (c *Client) readSyntheticQuota(ctx context.Context, op string, credentials 
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	raw, err = c.quotaReadCredentials(ctx, op, "v2", credentials, "synthetic", q.ID, "quota-detail")
+	d, err := c.readSyntheticDetail(ctx, op, q, credentials)
 	if err != nil {
 		return nil, err
+	}
+	for _, field := range []*string{&q.ID, &q.Name, &q.Type, &q.Status, &q.PackageID} {
+		*field, _ = c.c.RedactError(*field, "", (*credentials)...)
+	}
+	return &GetSyntheticQuotaOutput{Quota: q, Detail: d}, nil
+}
+
+func (c *Client) readSyntheticDetail(ctx context.Context, op string, q Quota, credentials *monitorReadCredentials) (SyntheticQuotaDetail, error) {
+	raw, err := c.quotaReadCredentials(ctx, op, "v2", credentials, "synthetic", q.ID, "quota-detail")
+	if err != nil {
+		return SyntheticQuotaDetail{}, err
 	}
 	o := quotaObjectOf(raw)
 	limits := o.notificationLimits()
@@ -441,14 +452,12 @@ func (c *Client) readSyntheticQuota(ctx context.Context, op string, credentials 
 		Slack: quotaLimitValue(limits.Slack), Webhook: quotaLimitValue(limits.Webhook), Telegram: quotaLimitValue(limits.Telegram), Teams: quotaLimitValue(limits.Teams),
 		ClassName: o.text("className", false), TierName: o.text("tierName", true), Price: o.price(),
 	}
+	d.classID = o.text("classId", false)
 	resourceID, packageID := o.text("resourceId", false), o.text("packageId", false)
-	if o.invalid || resourceID != q.ID || packageID != q.PackageID {
-		return nil, quotaResponseError(op)
+	if o.invalid || resourceID != q.ID || packageID != q.PackageID || core.CheckPathID(op, "class ID", d.classID) != nil {
+		return SyntheticQuotaDetail{}, quotaResponseError(op)
 	}
-	for _, field := range []*string{&q.ID, &q.Name, &q.Type, &q.Status, &q.PackageID} {
-		*field, _ = c.c.RedactError(*field, "", (*credentials)...)
-	}
-	return &GetSyntheticQuotaOutput{Quota: q, Detail: d}, nil
+	return d, nil
 }
 
 func (c *Client) runSyntheticDelete(ctx context.Context, in quotaLifecycleInput) (out *quotaWriteResult, err error) {

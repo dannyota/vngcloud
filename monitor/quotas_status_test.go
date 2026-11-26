@@ -76,7 +76,7 @@ func TestQuotaStatusSnapshotAndFilter(t *testing.T) {
 			}
 			if kind == "sYnThEtIc" || kind == "" {
 				row := out.Items[0]
-				if row.ClassName != "Basic" || row.PackageName != "" || row.Quota.PackageID != "32b3743d-94b8-49ab-984d-bd7ec99b46f6" || row.Price == nil || *row.Price != 0 || row.TimeLeftSeconds == nil || *row.TimeLeftSeconds != 510180 || row.AutoRenew == nil || *row.AutoRenew || row.RenewWindowOpen == nil || !*row.RenewWindowOpen || row.NextSafeCommand != "monitor get-synthetic-quota" {
+				if row.ClassName != "Basic" || row.PackageName != "" || row.Quota.PackageID != "32b3743d-94b8-49ab-984d-bd7ec99b46f6" || row.Price == nil || *row.Price != 0 || row.TimeLeftSeconds == nil || *row.TimeLeftSeconds != 510180 || row.AutoRenew == nil || *row.AutoRenew || row.RenewWindowOpen == nil || !*row.RenewWindowOpen || row.NextSafeCommand != "monitor renew-synthetic-quota" {
 					t.Fatalf("row=%+v", row)
 				}
 				if !reflect.DeepEqual(calls[:2], []string{"/billing-api/v1/synthetic/quota", "/billing-api/v2/synthetic/quota-syn-1/quota-detail"}) {
@@ -268,6 +268,12 @@ func TestQuotaStatusRenewalBoundaryAndOverflow(t *testing.T) {
 			}
 			row := out.Items[0]
 			next := "monitor get-synthetic-quota"
+			if tc.open {
+				next = "monitor renew-synthetic-quota"
+			}
+			if tc.name == "expired" {
+				next = "monitor recover-synthetic-quota"
+			}
 			if *row.TimeLeftSeconds != tc.seconds || (row.RenewWindowOpen != nil) != tc.known || (tc.known && *row.RenewWindowOpen != tc.open) || row.Status != tc.status || row.NextSafeCommand != next {
 				t.Fatalf("row=%+v seconds=%d", row, *row.TimeLeftSeconds)
 			}
@@ -427,6 +433,12 @@ func TestQuotaStatusNextSafeCommandFlags(t *testing.T) {
 				c := statusClient(t, map[string]func(http.ResponseWriter, *http.Request){"/billing-api/v1/synthetic/quota": func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(quota)) }}, &calls)
 				out, err := c.GetQuotaStatus(context.Background(), &GetQuotaStatusInput{Kind: "synthetic"})
 				next := "monitor get-synthetic-quota"
+				if flag == "none" {
+					next = "monitor renew-synthetic-quota"
+					if status == "IN-TRASH" {
+						next = "monitor recover-synthetic-quota"
+					}
+				}
 				if err != nil || out.Items[0].NextSafeCommand != next || len(calls) != 7 {
 					t.Fatalf("out=%+v err=%v calls=%v", out, err, calls)
 				}
