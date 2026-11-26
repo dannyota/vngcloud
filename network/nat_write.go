@@ -111,7 +111,7 @@ func (c *Client) DeleteNATInstance(ctx context.Context, in *DeleteNATInstanceInp
 	if err != nil {
 		return nil, err
 	}
-	vpc, err := c.natGuardVPC(ctx, op, s, in.VPCID, "")
+	vpc, err := c.natGuardVPC(ctx, op, s, in.VPCID)
 	if err != nil {
 		return nil, err
 	}

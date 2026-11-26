@@ -64,22 +64,39 @@ func TestNATHCMWriteRejectsNonIAMBeforeRequests(t *testing.T) {
 	}
 }
 
-func TestNATHCMCreateRejectsVPCWithoutZone(t *testing.T) {
-	s := new(natScenario)
-	posts := 0
-	c := natWriteTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost {
-			posts++
-		}
-		if strings.HasSuffix(r.URL.Path, "/vpcs") {
-			_, _ = w.Write([]byte(strings.Replace(natTestVPCs, "HAN01-1B", "other-zone", 1)))
-			return
-		}
-		s.serve(t, w, r)
-	}), vngcloud.WithRegion("hcm-3"))
-	_, err := c.CreateNATInstance(context.Background(), natTestInput())
-	if !errors.Is(err, vngcloud.ErrInvalidInput) || !strings.Contains(err.Error(), "VPC does not list the availability zone") || posts != 0 {
-		t.Fatalf("zone guard %v, POSTs %d", err, posts)
+func TestNATHCMPickerHomeZoneDoesNotRestrictPlacement(t *testing.T) {
+	for _, action := range []string{"quote", "create"} {
+		t.Run(action, func(t *testing.T) {
+			s := new(natScenario)
+			c := natWriteTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case strings.HasSuffix(r.URL.Path, "/zones"):
+					_, _ = w.Write([]byte(`{"code":200,"success":true,"data":[{"uuid":"HCM03-1A","name":"A","zoneType":"AVAILABILITY","isEnabled":false,"isDefault":false,"description":"A"},{"uuid":"HCM03-1C","name":"C","zoneType":"AVAILABILITY","isEnabled":true,"isDefault":false,"description":"C"}]}`))
+				case strings.HasSuffix(r.URL.Path, "/nat-package"):
+					if r.URL.Query().Get("zoneUuid") != "HCM03-1C" {
+						t.Error("package not filtered by selected zone")
+					}
+					_, _ = w.Write([]byte(natTestPackages))
+				case strings.HasSuffix(r.URL.Path, "/vpcs"):
+					_, _ = w.Write([]byte(strings.Replace(natTestVPCs, "HAN01-1B", "HCM03-1A", 1)))
+				default:
+					s.serve(t, w, r)
+				}
+			}), vngcloud.WithRegion("hcm-3"))
+			in := natTestInput()
+			in.AvailabilityZoneID = "HCM03-1C"
+			if action == "quote" {
+				_, err := c.QuoteCreateNATInstance(context.Background(), in)
+				if err != nil || s.orders != 0 || len(s.priceBody) == 0 {
+					t.Fatalf("quote error %v, orders %d, price request %s", err, s.orders, s.priceBody)
+				}
+			} else {
+				_, err := c.CreateNATInstance(context.Background(), in)
+				if err != nil || s.orders != 1 {
+					t.Fatalf("create error %v, orders %d", err, s.orders)
+				}
+			}
+		})
 	}
 }
 
@@ -133,7 +150,6 @@ func TestNATPurchaseGuards(t *testing.T) {
 		{"absent zone", "/zones", `{"success":true,"code":200,"data":[]}`, vngcloud.ErrInvalidInput, ""},
 		{"ambiguous zone", "/zones", `{"success":true,"code":200,"data":[{"uuid":"HAN01-1B","zoneType":"AVAILABILITY","isEnabled":true,"isDefault":false},{"uuid":"HAN01-1B","zoneType":"AVAILABILITY","isEnabled":true,"isDefault":false}]}`, vngcloud.ErrInvalidInput, ""},
 		{"package not in zone", "/nat-package", strings.Replace(natTestPackages, "package-1", "package-2", 1), vngcloud.ErrInvalidInput, ""},
-		{"wrong VPC zone", "/vpcs", strings.Replace(natTestVPCs, "HAN01-1B", "az-2", 1), vngcloud.ErrInvalidInput, ""},
 		{"missing VPC zone", "/vpcs", strings.Replace(natTestVPCs, `"zones":[{"uuid":"HAN01-1B"}]`, `"zones":null`, 1), nil, "InvalidResponse"},
 		{"wrong project", "/vpcs", strings.Replace(natTestVPCs, "pro-00000000-0000-0000-0000-000000000001", "project-2", 1), nil, "InvalidResponse"},
 		{"VPC absent", "/vpcs", natInventory(""), vngcloud.ErrNotFound, ""},

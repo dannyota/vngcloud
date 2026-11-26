@@ -111,7 +111,7 @@ func TestNATPickerScopeFields(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = c.natGuardVPC(context.Background(), "picker-test", scope, "vpc-1", "HAN01-1B")
+			_, err = c.natGuardVPC(context.Background(), "picker-test", scope, "vpc-1")
 			if (err == nil) != tt.valid {
 				t.Fatalf("%v", err)
 			}

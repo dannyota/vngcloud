@@ -103,7 +103,7 @@ func (c *Client) resolveNATPurchase(ctx context.Context, op string, in *CreateNA
 	if matches != 1 || offer.CurrencyUnit != "VND" {
 		return nil, fmt.Errorf("%w: %s requires one exact VND package in the availability zone", core.ErrInvalidInput, op)
 	}
-	vpc, err := c.natGuardVPC(ctx, op, s, in.VPCID, in.AvailabilityZoneID)
+	vpc, err := c.natGuardVPC(ctx, op, s, in.VPCID)
 	if err != nil {
 		return nil, err
 	}
@@ -165,7 +165,7 @@ func natScan[T any](ctx context.Context, c *Client, op string, s natScope, resou
 	}
 	return nil, natInvalid(op)
 }
-func (c *Client) natGuardVPC(ctx context.Context, op string, s natScope, vpcID, az string) (*natPickerVPC, error) {
+func (c *Client) natGuardVPC(ctx context.Context, op string, s natScope, vpcID string) (*natPickerVPC, error) {
 	rows, err := natScan(ctx, c, op, s, "vpcs", func(raw json.RawMessage) ([]natPickerVPC, error) {
 		return natDecodeRows[natPickerVPC](op, raw, "uuid", "projectUuid", "regionId", "zones")
 	}, func(v natPickerVPC) string { return v.UUID })
@@ -185,9 +185,6 @@ func (c *Client) natGuardVPC(ctx context.Context, op string, s natScope, vpcID, 
 			seen[zone.UUID] = true
 		}
 		if v.UUID == vpcID {
-			if az != "" && !seen[az] {
-				return nil, fmt.Errorf("%w: %s: VPC does not list the availability zone", core.ErrInvalidInput, op)
-			}
 			found = &v
 		}
 	}
