@@ -8,6 +8,7 @@ code starts. Decisions with lasting trade-offs also get an
 |-|-|
 | [SDK and CLI](sdk-and-cli.md) | Approved |
 | [CLI](cli.md) | Approved |
+| [CLI release binaries](release-binaries.md) | Proposed |
 | [Billing and pricing](billing.md) | Approved |
 | [Billing history][history] | Decisions accepted; implementation gated |
 | [CDN IP ranges](cdn.md) | Approved |
