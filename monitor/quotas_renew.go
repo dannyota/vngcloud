@@ -159,12 +159,9 @@ func (c *Client) syntheticEligible(in syntheticMutationInput, t syntheticMutatio
 	if t.detail.Price == nil {
 		return quotaResponseError(in.op)
 	}
-	if *t.detail.Price != 0 {
-		return lifecycleUnsupported(in.op, "paid synthetic quota")
-	}
 	return nil
 }
-func (c *Client) quoteSyntheticMutation(ctx context.Context, op string, t syntheticMutationTerms, credentials *monitorReadCredentials) (*QuotaQuote, error) {
+func (c *Client) quoteSyntheticMutation(ctx context.Context, op string, t syntheticMutationTerms, catalogPrice float64, credentials *monitorReadCredentials) (*QuotaQuote, error) {
 	if !c.syntheticDecisionIDsSafe(credentials, t.quota.ID, t.quota.PackageID, t.detail.classID) {
 		return nil, quotaResponseError(op)
 	}
@@ -176,7 +173,7 @@ func (c *Client) quoteSyntheticMutation(ctx context.Context, op string, t synthe
 	if err != nil {
 		return nil, err
 	}
-	list := *t.detail.Price
+	list := math.Max(*t.detail.Price, catalogPrice)
 	if list > 0 && price == 0 {
 		return nil, fmt.Errorf("%s: %w", op, ErrUnpriced)
 	}
@@ -214,7 +211,7 @@ func (c *Client) QuoteRenewSyntheticQuota(ctx context.Context, in *RenewSyntheti
 	if resolved.option.Location != terms.detail.Location {
 		return nil, lifecycleUnsupported(op, "synthetic location")
 	}
-	quote, err := c.quoteSyntheticMutation(ctx, op, terms, &credentials)
+	quote, err := c.quoteSyntheticMutation(ctx, op, terms, resolved.listPrice, &credentials)
 	if err == nil && quote.GuardPrice != 0 {
 		return nil, lifecycleUnsupported(op, "paid synthetic quota")
 	}
@@ -416,12 +413,12 @@ func (c *Client) runSyntheticMutationLocked(ctx context.Context, in syntheticMut
 	if resolved.option.Location != terms.detail.Location {
 		return result, status, lifecycleUnsupported(in.op, "synthetic location")
 	}
-	if !in.recover && (!in.ensure || *terms.detail.Price == 0) && in.maxDays > 0 && terms.quota.EndTime.After(c.now().Add(time.Duration(in.maxDays)*24*time.Hour)) {
+	if !in.recover && *terms.detail.Price == 0 && resolved.listPrice == 0 && in.maxDays > 0 && terms.quota.EndTime.After(c.now().Add(time.Duration(in.maxDays)*24*time.Hour)) {
 		result.outcome.Stage = "not-due"
 		return result, status, nil
 	}
 	result.action = in.action
-	quote, err := c.quoteSyntheticMutation(ctx, in.op, terms, credentials)
+	quote, err := c.quoteSyntheticMutation(ctx, in.op, terms, resolved.listPrice, credentials)
 	if err != nil {
 		return result, status, err
 	}

@@ -85,7 +85,7 @@ func TestRecoverSyntheticQuotaEligibilityAndFinalTerms(t *testing.T) {
 		{name: "wrong location", detailField: "location", detailValue: 2, code: "InvalidUsage"},
 		{name: "wrong capacity", detailField: "api", detailValue: 20, code: "InvalidUsage"},
 		{name: "missing price", detailField: "price", detailValue: nil, code: "InvalidResponse"},
-		{name: "unpriced", detailField: "price", detailValue: 10, code: "InvalidUsage"},
+		{name: "unpriced", detailField: "price", detailValue: 10, code: "Unpriced"},
 		{name: "final class", detailField: "classId", detailValue: "other", final: true, code: "QuotaChanged"},
 		{name: "final location", detailField: "location", detailValue: 2, final: true, code: "QuotaChanged"},
 		{name: "final capacity", detailField: "api", detailValue: 20, final: true, code: "QuotaChanged"},

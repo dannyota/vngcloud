@@ -24,7 +24,7 @@ type syntheticOrderServer struct {
 	quota                         func(int32) string
 	detail                        func(int32) string
 	price                         string
-	classes                       string
+	classes, packages             string
 	quantity                      int
 	send                          http.HandlerFunc
 }
@@ -40,7 +40,11 @@ func (s *syntheticOrderServer) handler(t *testing.T) http.HandlerFunc {
 				testutil.WriteFixture(t, w, "../testdata/monitor/ListSyntheticQuotaClasses.json")
 			}
 		case "/billing-api/v2/synthetic/quota-class/" + createClassID + "/packages":
-			testutil.WriteFixture(t, w, "../testdata/monitor/ListSyntheticClassPackages.json")
+			if s.packages != "" {
+				_, _ = io.WriteString(w, s.packages)
+			} else {
+				testutil.WriteFixture(t, w, "../testdata/monitor/ListSyntheticClassPackages.json")
+			}
 		case "/billing-api/v2/synthetic/quota-class/70b57f46-edaf-4f6f-9293-acf816a5b81d/packages", "/billing-api/v2/synthetic/quota-class/d8c1d829-205b-4ce4-9c1c-32756f748d25/packages":
 			_, _ = io.WriteString(w, `[]`)
 		case "/billing-api/v1/settings":
@@ -120,6 +124,39 @@ func syntheticCall(c *Client, recovery, noWait bool) (*syntheticMutationResult, 
 	result, err := c.runSyntheticMutation(context.Background(), input)
 	return &result, err
 }
+func TestSyntheticMutationPaidPriceClassification(t *testing.T) {
+	for _, recovery := range []bool{false, true} {
+		for _, tc := range []struct {
+			name, catalog, detail, quote string
+			max                          float64
+			want                         error
+		}{
+			{"catalog-unpriced", "1", "0", "0", 0, ErrUnpriced},
+			{"detail-unpriced", "0", "10", "0", 0, ErrUnpriced},
+			{"catalog-above-max", "1", "0", "1", 5, ErrPriceAboveMax},
+			{"detail-above-max", "0", "10", "1", 5, ErrPriceAboveMax},
+			{"paid-covered", "1", "10", "1", 20, core.ErrInvalidInput},
+		} {
+			t.Run(fmtSyntheticCase(recovery, tc.name), func(t *testing.T) {
+				s := &syntheticOrderServer{recovery: recovery, price: `{"optimumPrice":` + tc.quote + `}`, send: func(http.ResponseWriter, *http.Request) {}}
+				s.packages = strings.ReplaceAll(testutil.FixtureBody(t, "../testdata/monitor/ListSyntheticClassPackages.json"), `"price": 0.0`, `"price": `+tc.catalog)
+				s.detail = func(int32) string {
+					return strings.ReplaceAll(testutil.FixtureBody(t, "../testdata/monitor/GetSyntheticQuotaDetailNullable.json"), `"price": 0.0`, `"price": `+tc.detail)
+				}
+				s.quota = func(int32) string { return syntheticFixture(t, recovery) }
+				in := syntheticMutationInput{op: "monitor.RenewSyntheticQuota", expectedEnd: "2026-12-01T05:19:45Z", maxPrice: tc.max}
+				if recovery {
+					in = syntheticMutationInput{op: "monitor.RecoverSyntheticQuota", recover: true, expectedID: "quota-syn-1", maxPrice: tc.max}
+				}
+				out, err := syntheticTestClient(t, s).runSyntheticMutation(context.Background(), in)
+				if !errors.Is(err, tc.want) || out.outcome.Sent != "no" || s.quotes.Load() != 1 || s.sends.Load() != 0 {
+					t.Fatalf("out=%+v err=%v quotes=%d", out, err, s.quotes.Load())
+				}
+			})
+		}
+	}
+}
+
 func TestSyntheticMutationResponsePolicy(t *testing.T) {
 	for _, recovery := range []bool{false, true} {
 		for _, body := range []string{"", "null", "{}", `{"orderId":null,"paymentUrl":null,"amount":{}}`, `{"orderId":"order-1","paymentUrl":"` + syntheticQuotaRedirect + `","unknown":true}`, `{"orderId":3}`, `{"paymentUrl":false}`, `{"paymentUrl":"https://private-canary.invalid/pay"}`, "[]", "true", "{", strings.Repeat("x", quotaMaxBody+1)} {

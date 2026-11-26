@@ -190,6 +190,9 @@ func TestSyntheticMutationCLIRealTransport(t *testing.T) {
 						}
 						_, _ = io.WriteString(w, body)
 					default:
+						if syntheticCLICatalog(t, w, r) {
+							return
+						}
 						t.Errorf("unexpected route %s", r.URL)
 						w.WriteHeader(500)
 					}
@@ -389,6 +392,9 @@ func TestSyntheticMutationCLISendFailures(t *testing.T) {
 						}
 						<-r.Context().Done()
 					default:
+						if syntheticCLICatalog(t, w, r) {
+							return
+						}
 						t.Errorf("unexpected %s", r.URL)
 						w.WriteHeader(500)
 					}
@@ -397,7 +403,7 @@ func TestSyntheticMutationCLISendFailures(t *testing.T) {
 				dialer := new(net.Dialer)
 				rt := &http.Transport{DisableKeepAlives: true, DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
 					n := dials.Add(1)
-					if mode == "dial" && n == 6 {
+					if mode == "dial" && n == 16 {
 						return nil, &net.OpError{Op: "dial", Net: network, Err: syscall.ECONNREFUSED}
 					}
 					return dialer.DialContext(ctx, network, address)
@@ -435,13 +441,30 @@ func TestSyntheticMutationCLISendFailures(t *testing.T) {
 				if result.Sent != wantSent || result.Stage != wantStage || result.Error.Code != wantCode || sends.Load() != wantCount {
 					t.Fatalf("result=%+v error=%+v sends=%d", result, result.Error, sends.Load())
 				}
-				if mode == "dial" && dials.Load() != 6 {
+				if mode == "dial" && dials.Load() != 16 {
 					t.Fatalf("dial attempts=%d", dials.Load())
 				}
 			})
 		}
 	}
 }
+func syntheticCLICatalog(t *testing.T, w http.ResponseWriter, r *http.Request) bool {
+	t.Helper()
+	switch r.URL.Path {
+	case "/billing-api/v2/synthetic/quota-class":
+		_, _ = w.Write(mustSyntheticCLIFixture(t, "ListSyntheticQuotaClasses"))
+	case "/billing-api/v2/synthetic/quota-class/e574cf4a-460b-48d8-a794-80367289a6c8/packages":
+		_, _ = w.Write(mustSyntheticCLIFixture(t, "ListSyntheticClassPackages"))
+	case "/billing-api/v2/synthetic/quota-class/70b57f46-edaf-4f6f-9293-acf816a5b81d/packages", "/billing-api/v2/synthetic/quota-class/d8c1d829-205b-4ce4-9c1c-32756f748d25/packages":
+		_, _ = io.WriteString(w, `[]`)
+	case "/billing-api/v1/settings":
+		_, _ = w.Write(mustSyntheticCLIFixture(t, "GetQuotaSettings"))
+	default:
+		return false
+	}
+	return true
+}
+
 func mustSyntheticCLIFixture(t *testing.T, name string) []byte {
 	t.Helper()
 	body, err := os.ReadFile("../../testdata/monitor/" + name + ".json")
@@ -610,6 +633,9 @@ func TestSyntheticMutationRenderFailureDoesNotPrintAgain(t *testing.T) {
 				case "/billing-api/v2/trash/synthetic/quota", "/billing-api/v2/synthetic/quota/extend-time":
 					sends.Add(1)
 				default:
+					if syntheticCLICatalog(t, w, r) {
+						return
+					}
 					t.Errorf("unexpected %s", r.URL)
 					w.WriteHeader(500)
 				}
@@ -686,6 +712,9 @@ func TestSyntheticMutationCLIRetainedAttemptOutcomes(t *testing.T) {
 								_ = conn.Close()
 							}
 						default:
+							if syntheticCLICatalog(t, w, r) {
+								return
+							}
 							t.Errorf("unexpected %s", r.URL)
 							w.WriteHeader(500)
 						}
@@ -894,7 +923,9 @@ func TestSyntheticCreateDeleteCLITransport(t *testing.T) {
 					case r.URL.Path == "/billing-api/v2/synthetic/quota-class":
 						_, _ = io.WriteString(w, fixture("ListSyntheticQuotaClasses"))
 					case strings.HasSuffix(r.URL.Path, "/packages") && strings.Contains(r.URL.Path, "/quota-class/"):
-						_, _ = io.WriteString(w, fixture("ListSyntheticClassPackages"))
+						if !syntheticCLICatalog(t, w, r) {
+							t.Error("unexpected class package route")
+						}
 					case r.URL.Path == "/billing-api/v1/settings":
 						_, _ = io.WriteString(w, fixture("GetQuotaSettings"))
 					case r.URL.Path == "/billing-api/v2/synthetic/prices/created-price":
@@ -1078,7 +1109,7 @@ func TestSyntheticLifecycleCLISendFailures(t *testing.T) {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 				var sends, dials, finalReads atomic.Int32
-				lastDial := int32(10)
+				lastDial := int32(14)
 				if command == "delete-synthetic-quota" {
 					lastDial = 5
 				}
@@ -1106,7 +1137,9 @@ func TestSyntheticLifecycleCLISendFailures(t *testing.T) {
 					case r.URL.Path == "/billing-api/v2/synthetic/quota-class":
 						_, _ = w.Write(mustSyntheticCLIFixture(t, "ListSyntheticQuotaClasses"))
 					case strings.HasSuffix(r.URL.Path, "/packages"):
-						_, _ = w.Write(mustSyntheticCLIFixture(t, "ListSyntheticClassPackages"))
+						if !syntheticCLICatalog(t, w, r) {
+							t.Error("unexpected class package route")
+						}
 					case r.URL.Path == "/billing-api/v1/settings":
 						_, _ = w.Write(mustSyntheticCLIFixture(t, "GetQuotaSettings"))
 						if finalReads.Add(1) == 2 && mode == "cancel before" {
@@ -1115,6 +1148,9 @@ func TestSyntheticLifecycleCLISendFailures(t *testing.T) {
 					case r.URL.Path == "/billing-api/v2/synthetic/prices/created-price":
 						_, _ = w.Write(mustSyntheticCLIFixture(t, "QuoteCreateSyntheticQuota"))
 					default:
+						if syntheticCLICatalog(t, w, r) {
+							return
+						}
 						t.Errorf("unexpected %s", r.URL)
 						w.WriteHeader(400)
 					}
@@ -1232,6 +1268,9 @@ func TestSyntheticCreateCLIReadbackOutcomes(t *testing.T) {
 						_, _ = io.WriteString(w, `{"paymentUrl":"https://peer-canary.invalid/pay"}`)
 					}
 				default:
+					if syntheticCLICatalog(t, w, r) {
+						return
+					}
 					t.Errorf("unexpected route %s", r.URL)
 					w.WriteHeader(400)
 				}
@@ -1343,13 +1382,18 @@ func TestSyntheticLifecycleCLIRetainedAttempts(t *testing.T) {
 						case r.URL.Path == "/billing-api/v2/synthetic/quota-class":
 							_, _ = w.Write(mustSyntheticCLIFixture(t, "ListSyntheticQuotaClasses"))
 						case strings.HasSuffix(r.URL.Path, "/packages"):
-							_, _ = w.Write(mustSyntheticCLIFixture(t, "ListSyntheticClassPackages"))
+							if !syntheticCLICatalog(t, w, r) {
+								t.Error("unexpected class package route")
+							}
 						case r.URL.Path == "/billing-api/v1/settings":
 							_, _ = w.Write(mustSyntheticCLIFixture(t, "GetQuotaSettings"))
 						case r.URL.Path == "/billing-api/v2/synthetic/prices/created-price":
 							quotes.Add(1)
 							_, _ = w.Write(mustSyntheticCLIFixture(t, "QuoteCreateSyntheticQuota"))
 						default:
+							if syntheticCLICatalog(t, w, r) {
+								return
+							}
 							t.Errorf("unexpected %s", r.URL)
 							w.WriteHeader(400)
 						}
@@ -1509,6 +1553,9 @@ func TestSyntheticMutationMalformedTimestampOutcome(t *testing.T) {
 				case "/billing-api/v2/trash/synthetic/quota", "/billing-api/v2/synthetic/quota/extend-time":
 					sends.Add(1)
 				default:
+					if syntheticCLICatalog(t, w, r) {
+						return
+					}
 					t.Errorf("unexpected %s", r.URL)
 					w.WriteHeader(500)
 				}
@@ -1714,6 +1761,9 @@ func TestEnsureSyntheticQuotaCLIDefaults(t *testing.T) {
 				case "/billing-api/v2/synthetic/quota/extend-time":
 					sends.Add(1)
 				default:
+					if syntheticCLICatalog(t, w, r) {
+						return
+					}
 					t.Errorf("unexpected route %s", r.URL.Path)
 					w.WriteHeader(400)
 				}

@@ -135,11 +135,12 @@ func (c *Client) ListSyntheticPackages(ctx context.Context, _ *ListSyntheticPack
 			p.MonthPeriods = catalogPeriods(out.MonthPeriods, out.MaxMonthPeriodForFreeQuota, *p.Price == 0)
 		}
 	}
+	offers := indexSyntheticOffers(out.Items)
 	for i := range out.Items {
 		class := &out.Items[i]
 		for j := range class.Options {
 			option := &class.Options[j]
-			if syntheticFreeOffer(out.Items, class.ID, option.PackageID, 0, option.Location) {
+			if offer := offers[option.PackageID]; offer.matches(class.ID, 0, option.Location) && offer.pkg.Price != nil && *offer.pkg.Price == 0 {
 				option.MonthPeriods = catalogPeriods(out.MonthPeriods, out.MaxMonthPeriodForFreeQuota, true)
 			}
 		}
@@ -172,34 +173,43 @@ func (c *Client) ListSyntheticPackages(ctx context.Context, _ *ListSyntheticPack
 	return out, nil
 }
 
-func syntheticFreeOffer(classes []SyntheticQuotaClass, classID, packageID string, quantity, location int) bool {
-	var foundClass SyntheticQuotaClass
-	var foundOption SyntheticClassOption
-	var foundPackage SyntheticClassPackage
-	packages, options := 0, 0
+type syntheticOffer struct {
+	class             SyntheticQuotaClass
+	option            SyntheticClassOption
+	optionClassID     string
+	pkg               SyntheticClassPackage
+	packages, options int
+}
+
+func indexSyntheticOffers(classes []SyntheticQuotaClass) map[string]syntheticOffer {
+	offers := make(map[string]syntheticOffer)
 	for _, class := range classes {
 		for _, pkg := range class.Packages {
-			if pkg.ID == packageID {
-				packages++
-				if class.ID == classID {
-					foundClass, foundPackage = class, pkg
-				}
-			}
+			offer := offers[pkg.ID]
+			offer.packages++
+			offer.class, offer.pkg = class, pkg
+			offers[pkg.ID] = offer
 		}
 		for _, option := range class.Options {
-			if option.PackageID == packageID {
-				options++
-				if class.ID == classID {
-					foundOption = option
-				}
-			}
+			offer := offers[option.PackageID]
+			offer.options++
+			offer.option, offer.optionClassID = option, class.ID
+			offers[option.PackageID] = offer
 		}
 	}
-	return packages == 1 && options == 1 && foundClass.ID != "" && foundClass.Status == QuotaStatusActive &&
-		foundOption.status == QuotaStatusActive && foundPackage.Price != nil && *foundPackage.Price == 0 &&
-		foundPackage.Location == location && foundOption.Location == location && foundPackage.API > 0 &&
-		(quantity == 0 || (quantity >= foundOption.MinAPI && quantity <= foundOption.MaxAPI && foundOption.Step > 0 &&
-			(quantity-foundOption.MinAPI)%foundOption.Step == 0 && quantity%foundPackage.API == 0))
+	return offers
+}
+
+func (o syntheticOffer) matches(classID string, quantity, location int) bool {
+	return o.packages == 1 && o.options == 1 && o.class.ID == classID && o.optionClassID == classID && o.class.Status == QuotaStatusActive &&
+		o.option.status == QuotaStatusActive && o.pkg.Location == location && o.option.Location == location && o.pkg.API > 0 &&
+		(quantity == 0 || (quantity >= o.option.MinAPI && quantity <= o.option.MaxAPI && o.option.Step > 0 &&
+			(quantity-o.option.MinAPI)%o.option.Step == 0 && quantity%o.pkg.API == 0))
+}
+
+func syntheticFreeOffer(classes []SyntheticQuotaClass, classID, packageID string, quantity, location int) bool {
+	offer := indexSyntheticOffers(classes)[packageID]
+	return offer.matches(classID, quantity, location) && offer.pkg.Price != nil && *offer.pkg.Price == 0
 }
 
 func quotaPeriodJSON(period json.RawMessage) json.RawMessage {

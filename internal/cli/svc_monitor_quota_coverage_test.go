@@ -77,7 +77,7 @@ func TestMonitorCoverageCommandsReadOnly(t *testing.T) {
 				}
 				want := 6
 				if command == "quota-status" {
-					want = 2
+					want = 7
 				}
 				if fixture.requestCount() != want {
 					t.Fatalf("requests=%d want=%d", fixture.requestCount(), want)
@@ -129,7 +129,7 @@ func TestGoldenMonitorCoverage(t *testing.T) {
 		{Kind: "SMS", PackageName: "sms5", Status: "ACTIVE", AutoRenew: &yes, NextSafeCommand: "monitor get-notification-quota"},
 	}}
 	catalog := &monitor.ListSyntheticPackagesOutput{Items: []monitor.SyntheticQuotaClass{
-		{ID: "class-1", Name: "Basic", Status: "ACTIVE", Description: "Free class", Priority: 1, Packages: []monitor.SyntheticClassPackage{{ID: "class-package-1", Name: "unit-package-free", TierName: "Unit Tier Free", TierID: 1001, API: 1, Location: 1, Price: &price}}, Options: []monitor.SyntheticClassOption{{PackageID: "class-package-1", Location: 1, MinAPI: 10, MaxAPI: 10, Step: 1, MonthPeriods: []int{1}, AutoRenewEligible: &no}}},
+		{ID: "class-1", Name: "Basic", Status: "ACTIVE", Description: "Free class", Priority: 1, Packages: []monitor.SyntheticClassPackage{{ID: "class-package-1", Name: "unit-package-free", TierName: "Unit Tier Free", TierID: 1001, API: 1, Location: 1, Price: &price}}, Options: []monitor.SyntheticClassOption{{PackageID: "class-package-1", Location: 1, MinAPI: 10, MaxAPI: 10, Step: 1, MonthPeriods: []int{1}}}},
 		{ID: "class-2", Name: "Pro", Status: "DISABLED", Description: "Coming soon.", Priority: 2, Options: []monitor.SyntheticClassOption{}},
 	}, Packages: []monitor.SyntheticPackage{{ID: "v1-package-1", Name: "free10", TierID: 24, API: 10, Location: 1, Price: &price, MonthPeriods: []int{1}}}, MonthPeriods: []int{1, 3}, MaxMonthPeriodForFreeQuota: 1, PaymentMethod: "PRE-PAID"}
 	for _, tc := range []struct {

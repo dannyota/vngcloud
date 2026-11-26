@@ -221,7 +221,7 @@ func (c *Client) resolveSyntheticTerms(ctx context.Context, op, classID, package
 	if t.pkg.Price == nil {
 		return t, quotaResponseError(op)
 	}
-	if matches != 1 || t.pkg.API != 1 || !syntheticFreeOffer(classes, classID, packageID, quantity, t.pkg.Location) {
+	if matches != 1 || t.pkg.API != 1 || !indexSyntheticOffers(classes)[packageID].matches(classID, quantity, t.pkg.Location) {
 		return t, lifecycleUnsupported(op, "synthetic quantity or package option")
 	}
 	t.quantity = quantity

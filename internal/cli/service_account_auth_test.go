@@ -346,6 +346,9 @@ func TestSyntheticQuotaCIEnvironmentOnlyAuth(t *testing.T) {
 					w.WriteHeader(409)
 					_, _ = io.WriteString(w, `{"message":"ci-secret-canary"}`)
 				default:
+					if syntheticCLICatalog(t, w, r) {
+						return
+					}
 					t.Errorf("unexpected %s", r.URL)
 					w.WriteHeader(500)
 				}

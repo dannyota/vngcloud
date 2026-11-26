@@ -17,7 +17,7 @@
           "MonthPeriods": [
             1
           ],
-          "AutoRenewEligible": false
+          "AutoRenewEligible": null
         }
       ],
       "Packages": [

@@ -274,6 +274,28 @@ func TestSyntheticCreateRefusesTinyPositiveQuote(t *testing.T) {
 	}
 }
 
+func TestSyntheticCreatePaidPriceClassification(t *testing.T) {
+	for _, tc := range []struct {
+		name, quote string
+		max         float64
+		want        error
+	}{
+		{"unpriced", `{"optimumPrice":0}`, 0, ErrUnpriced},
+		{"above-max", `{"optimumPrice":5}`, 4, ErrPriceAboveMax},
+		{"paid-covered", `{"optimumPrice":5}`, 20, core.ErrInvalidInput},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &syntheticCreateServer{packages: strings.ReplaceAll(testutil.FixtureBody(t, "../testdata/monitor/ListSyntheticClassPackages.json"), `"price": 0.0`, `"price": 1`), price: tc.quote, send: func(http.ResponseWriter, *http.Request) {}}
+			in := syntheticCreateInput()
+			in.MaxPrice = tc.max
+			out, err := syntheticCreateClient(t, s).CreateSyntheticQuota(context.Background(), in)
+			if !errors.Is(err, tc.want) || out.Sent != "no" || s.quotes.Load() != 1 || s.sends.Load() != 0 {
+				t.Fatalf("out=%+v err=%v quotes=%d sends=%d", out, err, s.quotes.Load(), s.sends.Load())
+			}
+		})
+	}
+}
+
 func TestSyntheticCreateSingleSend(t *testing.T) {
 	for _, status := range []int{200, 201, 204, 301, 302, 303, 307, 308, 400, 401, 403, 404, 409, 429, 500, 502, 503, 504, -1} {
 		t.Run(strconv.Itoa(status), func(t *testing.T) {
