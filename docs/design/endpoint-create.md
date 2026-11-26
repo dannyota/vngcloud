@@ -131,6 +131,14 @@ contracts. Catalog and picker reads stay internal to quote and create.
   That join proves placement in the scoped VPC. An envelope without
   `data` supplies no eligible subnet.
 
+For zone, category, service, package, and subnet reads, accept the observed
+unpaged envelope when it shows no sign of additional pages. If paging
+metadata is present, require complete, consistent metadata and read every
+page with the same filters before applying uniqueness checks across all
+rows. Apply the inventory walk bounds and checks below. Refuse before
+pricing if the response indicates more rows and a complete scan cannot
+be established.
+
 ## Quote and create
 
 1. Resolve one typed resource specification. Quote and create serialize
@@ -150,13 +158,13 @@ contracts. Catalog and picker reads stay internal to quote and create.
    200, numeric `code: 0`, `success: true`, and a finite, nonnegative
    `data.optimumPrice` in the observed monthly quote shape. The request
    names the selected package UUID. The observed reply identifies the
-   package by name. Require `propertiesPrice` to contain one entry whose
-   `name` equals the selected package's catalog name. Refuse a name
-   shared by another package in that service's catalog, even for an
-   explicit ID. The selected package establishes VND. Its price property
-   must have `optimumPrice` and `monthlyPrice` equal to the top-level
-   amount. Refuse missing or conflicting required amounts. Use only the
-   fresh quote amount for the cap. Zero returns `ErrUnpriced`.
+   package by name. Require `len(propertiesPrice) == 1`. On that single
+   line, require `name` equal to the selected package's catalog name and
+   both `optimumPrice` and `monthlyPrice` present and equal to the
+   top-level amount. Refuse a name shared by another package in the
+   service's complete catalog, even for an explicit ID. The selected
+   package establishes VND. Use only the fresh quote amount for the cap.
+   Zero returns `ErrUnpriced`.
 4. As with [NAT](network-writes-nat.md#identity-and-payment), compare the
    top-level `optimumPrice` directly to `MaxPrice`, in VND per month, not
    in minor units or prorated VND. Do not round for the comparison.
@@ -268,6 +276,15 @@ Obtain design approval and independent review before implementation.
 Use deterministic fixtures for legacy defaults, explicit alternatives,
 missing and duplicate matches, placement joins, quote matching and cap
 refusals, delete without catalog reads, and existing write protections.
+Include these regression fixtures:
+
+- Two package pages. Page one contains the selected package. Page two
+  repeats its UUID in one case and repeats its name under a different
+  UUID in another. Both responses must stop before pricing.
+- A quote with two `propertiesPrice` entries. One matches the selected
+  name and both amounts. The other names a different package. The quote
+  must fail before any create POST.
+
 Require adversarial write review, matching wiki and generated reference
 updates, and exact-commit checks before release.
 
