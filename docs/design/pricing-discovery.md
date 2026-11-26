@@ -46,8 +46,10 @@ renewal, and generic quote inputs do not change.
 region, not every region. `Region` follows existing storage resolution,
 including HCM04 for the normal hcm-3 mapping; output always names the resolved
 storage region. Do not equate HCM04 with HCM03 or a vServer availability zone.
-Validate explicit zones against `ListZones`. Preserve disabled-zone rows and
-status but skip their quotes with `Status=inapplicable` and a note. Zone
+Validate explicit zones against `ListZones`. Quote an explicitly selected
+zone even when the catalog marks it disabled. Without a zone selection,
+preserve disabled-zone rows and status but skip their quotes with
+`Status=inapplicable` and a note. Zone
 observations belong in
 [catalog evidence](pricing-discovery-api.md#catalog-results).
 

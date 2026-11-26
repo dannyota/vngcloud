@@ -196,7 +196,12 @@ func (c *Client) ListFlavorPrices(ctx context.Context, in *ListFlavorPricesInput
 				row.Reference, e = selectFlavorReferenceWithDisk(s.Context(), row.Flavor, images, types, true)
 			}
 			if e != nil {
-				if errors.Is(e, core.ErrInvalidInput) || !d.record("compute.ListFlavorPrices", flavorDiscoveryKey(*row), e) {
+				if errors.Is(e, errFlavorRootBounds) {
+					row.Price.Status = "inapplicable"
+					d.note("inapplicable", flavorDiscoveryKey(*row), "The reference root disk size exceeds the selected type's maximum.")
+					continue
+				}
+				if !d.record("compute.ListFlavorPrices", flavorDiscoveryKey(*row), e) {
 					return nil, e
 				}
 				return d.finish()

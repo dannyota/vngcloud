@@ -137,8 +137,9 @@ reuse zones and region-wide volume types, preserving both type-ID fields and
 the existing fallback. Do not filter parent type zones by their misleading
 zone metadata. Validate specified sizes against type limits. Read encryption
 keys once when requested. Unknown explicit zone, type, or encryption key and
-out-of-range sizes are invalid input after catalogs, before quotes. A disabled
-zone yields `inapplicable`, nil amount, and an explanation.
+out-of-range sizes are invalid input after catalogs, before quotes. Server and
+volume lines always name a zone, so a zone the catalog marks disabled is still
+quoted; a refusal produces a failed line.
 
 For each enabled server zone, read images once. Require the exact image ID,
 explicit `licence:false`, Ubuntu ignoring ASCII case, and a present positive

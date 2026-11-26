@@ -4,15 +4,16 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"slices"
 
-	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/pricecatalog"
 	"danny.vn/vngcloud/volume"
 )
 
 type flavorReferenceImage = pricecatalog.Image
+
+var errFlavorRootBounds = errors.New("root disk size outside type bounds")
 
 func flavorImageSupport(metadata string) []string {
 	var fields map[string]json.RawMessage
@@ -78,7 +79,7 @@ func selectFlavorReferenceWithDisk(ctx context.Context, flavor Flavor, images []
 	}
 	if !found {
 		if custom && outOfBounds {
-			return nil, fmt.Errorf("%w: root disk size outside type bounds", core.ErrInvalidInput)
+			return nil, errFlavorRootBounds
 		}
 		return nil, nil
 	}

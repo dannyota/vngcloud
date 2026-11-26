@@ -145,7 +145,14 @@ func (c *Client) ListVolumePrices(ctx context.Context, in *ListVolumePricesInput
 					row := VolumePrice{VolumeType: v, ZoneID: z.ID, ZoneName: z.Name, ZoneEnabled: z.Enabled, EncryptionTypeID: encryption, SizeGB: size, Price: pricing.DiscoveryPrice{Status: "unknown", Source: "pricing.GetQuote"}}
 					if (in.ZoneID == "" && !*z.Enabled) || size < v.MinSize || size > v.MaxSize {
 						row.Price.Status = "inapplicable"
-						d.out.Metadata.Notes = append(d.out.Metadata.Notes, pricing.PricingNote{Topic: "inapplicable", Scope: z.ID + "/" + id, Text: "The zone is disabled or the requested size is outside the offering's bounds.", Evidence: "observed"})
+						reason := "The requested size is outside the offering's bounds."
+						if in.ZoneID == "" && !*z.Enabled {
+							reason = "The zone is disabled."
+							if size < v.MinSize || size > v.MaxSize {
+								reason = "The zone is disabled and the requested size is outside the offering's bounds."
+							}
+						}
+						d.out.Metadata.Notes = append(d.out.Metadata.Notes, pricing.PricingNote{Topic: "inapplicable", Scope: z.ID + "/" + id, Text: reason, Evidence: "observed"})
 					}
 					if err := s.AddRows(1); err != nil {
 						if !d.record(op, "rows", err) {

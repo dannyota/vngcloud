@@ -16,7 +16,7 @@ func TestFlavorPricesRootTypeSelection(t *testing.T) {
 	}{
 		{name: "custom", disk: "custom", catalog: `{"volumeTypes":[{"id":"custom","name":"custom","iops":6400,"minSize":1,"maxSize":100}]}`, response: `{"propertiesPrice":[{"name":"INSTANCE TYPE","monthlyPrice":10,"optimumPrice":10},{"name":"ROOT DISK","monthlyPrice":2,"optimumPrice":2}]}`, wantQuote: true},
 		{name: "unknown", disk: "missing", catalog: `{"volumeTypes":[{"id":"custom","name":"custom","iops":6400,"minSize":1,"maxSize":100}]}`, wantError: true},
-		{name: "size", disk: "custom", catalog: `{"volumeTypes":[{"id":"custom","name":"custom","iops":6400,"minSize":1,"maxSize":10}]}`, wantError: true},
+		{name: "size", disk: "custom", catalog: `{"volumeTypes":[{"id":"custom","name":"custom","iops":6400,"minSize":1,"maxSize":10}]}`},
 		{name: "missing root", disk: "custom", catalog: `{"volumeTypes":[{"id":"custom","name":"custom","iops":6400,"minSize":1,"maxSize":100}]}`, response: `{"propertiesPrice":[{"name":"INSTANCE TYPE","monthlyPrice":10,"optimumPrice":10}]}`, wantQuote: true, wantError: true},
 		{name: "wrong line", disk: "custom", catalog: `{"volumeTypes":[{"id":"custom","name":"custom","iops":6400,"minSize":1,"maxSize":100}]}`, response: `{"propertiesPrice":[{"name":"INSTANCE TYPE","monthlyPrice":10,"optimumPrice":10},{"name":"DATA DISK","monthlyPrice":2,"optimumPrice":2}]}`, wantQuote: true, wantError: true},
 	} {
@@ -46,6 +46,12 @@ func TestFlavorPricesRootTypeSelection(t *testing.T) {
 			}
 			if tc.wantError && !tc.wantQuote && !errors.Is(err, vngcloud.ErrInvalidInput) {
 				t.Fatalf("error %v", err)
+			}
+			if tc.name == "size" {
+				if out == nil || len(out.Items) != 1 || out.Items[0].Price.Status != "inapplicable" {
+					t.Fatalf("output %+v", out)
+				}
+				return
 			}
 			if !tc.wantError && (out == nil || len(out.Items) != 1 || out.Items[0].Price.Status != "quoted" || out.Items[0].Reference.RootDiskTypeID != tc.disk) {
 				t.Fatalf("output %+v", out)
