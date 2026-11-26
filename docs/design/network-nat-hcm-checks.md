@@ -122,4 +122,6 @@ disposable VPC; refunds left a net cost of 0 to 16 VND per run.
 `GetNATInstance` passed on the held NAT. `ListNATInboundRules` returned
 `InvalidResponse` because HCM rule IDs contain `_`; the read contract now
 accepts them (see the [read evidence](network-nat-reads.md#observed-live-evidence)).
-A full run with both probe reads passing is still to be recorded.
+A fourth run on v1.8.2 passed end to end: both probe reads passed (seven
+system rules, no null ports), the NAT and VPC were removed, and the net
+cost was 16 VND.
