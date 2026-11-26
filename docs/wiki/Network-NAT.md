@@ -110,7 +110,8 @@ Quote, create, and delete require an explicit `ZoneID`.
 Inventory `ZoneUUID` is an availability-zone ID, not the region path ID.
 Inventory `ProjectUUID` identifies the public project; `VPC.ProjectID`
 identifies a separate backend project. Scope checks use `ProjectUUID` and
-`VPC.RegionID`. Placement checks use the catalog and the VPC picker zones.
+`VPC.RegionID`. Placement checks use the zone and package catalogs; the
+VPC picker proves only VPC identity in the project and region.
 
 ```go
 zones, err := client.ListNATZones(ctx, &network.ListNATZonesInput{
@@ -148,7 +149,7 @@ if err != nil {
 ```
 
 Quote and create require an enabled AVAILABILITY zone, an exact package
-UUID in that zone, and a VPC in the selected project that lists the zone.
+UUID in that zone, and a VPC in the selected project and region.
 Create refuses an existing NAT in that VPC, an exact duplicate name, and
 incomplete or changing inventory scans. Multi-page behavior has not been
 verified live. The SDK checks scan consistency and fails closed. Serialize creates in

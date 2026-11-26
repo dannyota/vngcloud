@@ -59,8 +59,8 @@ IDs before discovery. Quote and create use the same zone/package resolver.
 
 Use the NAT VPC picker to require that the named VPC appears exactly once
 with the shared project and region guards. The picker's `zones` is the
-VPC's home zone, not an AZ allow-list: every HCM VPC reports HCM03-1A, and
-the console orders NATs in HCM03-1B and HCM03-1C for them (see the
+VPC's home zone, not an AZ allow-list: every observed HCM VPC reports
+HCM03-1A, and the console ordered an HCM03-1C NAT on such a VPC (see the
 [HCM live check](network-nat-hcm-checks.md#console-evidence)). Validate
 `zones` IDs as data but never compare them with the selected AZ. Reject
 missing, ambiguous, or inconsistent membership. Complete picker scans need
@@ -115,8 +115,9 @@ prerequisites and stop before ordering if any cannot be confirmed.
 The direct reply cannot identify a NAT. Take the complete baseline before
 ordering and require exactly one new exact-name row, absent by ID from that
 baseline, in the named VPC. Match project, resolved region-level scope, and
-package UUID. Verify availability-zone membership through the catalog and
-VPC join, not by equating inventory `zoneUuid` with `AvailabilityZoneID`.
+package UUID. Verify the AZ through the enabled zone and package catalogs,
+not by equating inventory `zoneUuid` with `AvailabilityZoneID`, and the VPC
+by identity in the project and region.
 An ambiguous row never authorizes a renewal write or automatic deletion.
 
 The live evidence combines an immediate quote-sized cash debit with the
@@ -231,8 +232,9 @@ The owner approved these choices:
    preserve partial output and return NotSettled on failure, without resend
    or deletion.
 3. Waiting: remove NAT create NoWait, retaining delete NoWait.
-4. Placement: require AvailabilityZoneID, validate its enabled state, package
-   and VPC membership, and preserve the existing ZoneID meaning.
+4. Placement: require AvailabilityZoneID, validate its enabled state and
+   package, check VPC identity in the project and region, and preserve the
+   existing ZoneID meaning.
 5. Discovery: add ListNATZones and ListNATPackages with matching CLI reads.
 6. V3: require enabledForAll true and expose no subnet fallback.
 7. HCM: enable both writes for every account, relying on the per-account

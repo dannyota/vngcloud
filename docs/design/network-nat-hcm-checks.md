@@ -20,8 +20,8 @@ That guard was wrong; see the console evidence below.
 The HCM console lists VPCs with the picker filter `zoneType=AVAILABILITY`,
 not by AZ, and every VPC, including ones whose subnets live in HCM03-1C,
 reports `zones: [HCM03-1A]`. It reads subnets per AZ with
-`vpcs/{vpcId}/subnets` and `zoneUuid`, but enables Create for an AZ in
-which the VPC has no subnet. A console order in HCM03-1C on a disposable
+`vpcs/{vpcId}/subnets` and `zoneUuid`, but enabled Create for HCM03-1B on
+a VPC whose only subnet was in HCM03-1C (no 1B order was sent). A console order in HCM03-1C on a disposable
 VPC returned 201 with `resourceInfo` holding `isPoc`, `isEnableAutoRenew`
 (console default true), `isBuyMorePoc`, `natName`, `packageUuid`,
 `vpcUuid`, `regionUuid`, and `projectUuid`, plus `tagDetails`; no AZ or
@@ -44,7 +44,8 @@ run. Use a fresh, absolute `0700` hold directory owned by the runner
 
 ```sh
 VNGCLOUD_LIVE_WRITE=1 VNGCLOUD_LIVE_NAT_WRITE=1 \
-VNGCLOUD_LIVE_NAT_REGION=hcm-3 VNGCLOUD_LIVE_NAT_MAX_PRICE=720000 \
+VNGCLOUD_LIVE_NAT_REGION=hcm-3 VNGCLOUD_LIVE_NAT_AZ=HCM03-1C \
+VNGCLOUD_LIVE_NAT_MAX_PRICE=720000 \
 VNGCLOUD_LIVE_NAT_HOLD_DIR="$nat_hold_dir" VNGCLOUD_LIVE_NAT_HOLD_MAX=15m \
 go test -v -tags livewrite -count=1 -timeout=120m \
   -run '^TestLiveWriteNAT$' ./livetest/
@@ -63,8 +64,10 @@ of the following.
    and an exact project scope. Take complete inventory baselines and stop
    on leftovers. Create one uniquely named disposable VPC with a free CIDR,
    prove its ownership in scope, and confirm an empty route baseline.
-2. Explicit V3 `data.enabledForAll: true`, an enabled `AVAILABILITY` AZ
-   listed for that VPC in the NAT picker, and one matching VND offer UUID
+2. Explicit V3 `data.enabledForAll: true`, the enabled `AVAILABILITY` AZ
+   named by `VNGCLOUD_LIVE_NAT_AZ` (the catalog offers more than one), the
+   VPC exactly once in the picker's project and region, and one matching
+   VND offer UUID
    and SKU in the AZ-filtered catalog. Check for the HAN test's Standard
    offer (`nat.s-standard`) in HCM. Keep the selected AZ and offer in the
    private report for comparison. If the offer or placement is ambiguous
