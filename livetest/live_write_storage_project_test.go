@@ -512,7 +512,7 @@ func TestStorageProjectAttemptCleansValidationFailures(t *testing.T) {
 		t.Run(problem, func(t *testing.T) {
 			orders, deletes, bucketReads := 0, 0, 0
 			renewal := problem == "renewal true"
-			p := storage.Project{ID: "synthetic-new", Name: "vngcloud-live-12345678", RegionID: "<region-id-2>", RegionName: "HCM04", ProjectType: 1, ProjectTypeName: "Gold", PurchaseTypeID: 4, TotalQuota: 30, Status: 1, EnableAutoRenew: &renewal}
+			p := storage.Project{ID: "synthetic-new", Name: "vngcloud-live-12345678", RegionID: "region-id-2", RegionName: "HCM04", ProjectType: 1, ProjectTypeName: "Gold", PurchaseTypeID: 4, TotalQuota: 30, Status: 1, EnableAutoRenew: &renewal}
 			projectJSON, err := json.Marshal(p)
 			if err != nil {
 				t.Fatal(err)

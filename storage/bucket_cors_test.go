@@ -324,7 +324,7 @@ func TestBucketCORSRegion(t *testing.T) {
 		t.Fatalf("headers = %v", headers)
 	}
 	for i, h := range headers {
-		if h != "<region-id-1>" {
+		if h != "region-id-1" {
 			t.Fatalf("header %d = %q, want the HAN02 region id", i, h)
 		}
 	}

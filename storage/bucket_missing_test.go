@@ -150,7 +150,7 @@ func TestMissingBucketReadUsesTheCallersRegionAndContext(t *testing.T) {
 		}
 	}))
 	_, err := c.GetBucketCORS(context.Background(), &GetBucketCORSInput{Region: "han02", ProjectID: "proj-1", Bucket: "my-bucket"})
-	if !vngcloud.IsNotFound(err) || region != "<region-id-1>" {
+	if !vngcloud.IsNotFound(err) || region != "region-id-1" {
 		t.Fatalf("err = %v, region header %q", err, region)
 	}
 	ctx, cancel := context.WithCancel(context.Background())

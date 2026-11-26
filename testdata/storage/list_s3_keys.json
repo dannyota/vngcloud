@@ -3,7 +3,7 @@
   "success": true,
   "datas": [
     {
-      "regionId": "<region-id-2>",
+      "regionId": "region-id-2",
       "projectId": "<project-id>",
       "userId": "<account>",
       "subUserId": null,
@@ -14,7 +14,7 @@
       "status": 1
     },
     {
-      "regionId": "<region-id-2>",
+      "regionId": "region-id-2",
       "projectId": "<project-id>",
       "userId": "<account>",
       "subUserId": null,

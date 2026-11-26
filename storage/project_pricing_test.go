@@ -29,7 +29,7 @@ const pricingQuote = `{"success":true,"data":{"optimumPrice":30000,"originalPric
 func pricingClient(t *testing.T, override map[string]string, prices *int, configKeys map[string]int) *Client {
 	t.Helper()
 	return newTestClient(t, serve(t, func(w http.ResponseWriter, r *http.Request) {
-		checkRegionHeaders(t, r, "<region-id-2>")
+		checkRegionHeaders(t, r, "region-id-2")
 		if r.URL.Query().Has("project_id") {
 			t.Error("project_id sent")
 		}
@@ -49,13 +49,13 @@ func pricingClient(t *testing.T, override map[string]string, prices *int, config
 			if !ok {
 				t.Errorf("unexpected key %q", key)
 			}
-			if len(r.URL.Query()) != 2 || r.URL.Query().Get("region_id") != "<region-id-2>" {
+			if len(r.URL.Query()) != 2 || r.URL.Query().Get("region_id") != "region-id-2" {
 				t.Error("configuration query")
 			}
 			body = fmt.Sprintf(`{"success":true,"datas":[{"key":%q,"value":%q}]}`, key, value)
 		case "/billing-api/v2/price":
 			*prices++
-			if r.Method != http.MethodPost || len(r.URL.Query()) != 1 || r.URL.Query().Get("region_id") != "<region-id-2>" {
+			if r.Method != http.MethodPost || len(r.URL.Query()) != 1 || r.URL.Query().Get("region_id") != "region-id-2" {
 				t.Error("price route")
 			}
 			var got map[string]any
@@ -242,7 +242,7 @@ func TestProjectPricingCatalogVariants(t *testing.T) {
 func TestProjectPricingRawFixtures(t *testing.T) {
 	prices := 0
 	c := newTestClient(t, serve(t, func(w http.ResponseWriter, r *http.Request) {
-		checkRegionHeaders(t, r, "<region-id-2>")
+		checkRegionHeaders(t, r, "region-id-2")
 		file := ""
 		switch r.URL.Path {
 		case "/internal/v1/billing/project_types":
@@ -311,7 +311,7 @@ func TestProjectPricingRetry(t *testing.T) {
 		}
 		_, _ = w.Write([]byte(pricingQuote))
 	})))
-	_, err := c.sendProjectQuote(context.Background(), "storage.QuoteCreateProject", "<region-id-2>", projectPurchaseSpec{quota: 30, purchaseTypeID: 4, projectTypeID: 1})
+	_, err := c.sendProjectQuote(context.Background(), "storage.QuoteCreateProject", "region-id-2", projectPurchaseSpec{quota: 30, purchaseTypeID: 4, projectTypeID: 1})
 	if err != nil || calls != 2 {
 		t.Fatalf("error %v calls %d", err, calls)
 	}

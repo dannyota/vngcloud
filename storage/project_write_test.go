@@ -23,7 +23,7 @@ import (
 	"danny.vn/vngcloud/internal/transport"
 )
 
-const newProjectJSON = `{"projectId":"new-1","projectName":"sdk-project","regionId":"<region-id-2>","regionName":"HCM04","status":1,"totalQuota":30,"projectType":1,"projectTypeName":"Gold","purchaseTypeId":4,"purchaseTypeName":"Pay monthly","enableAutoRenew":false,"autoRenewPeriod":0}`
+const newProjectJSON = `{"projectId":"new-1","projectName":"sdk-project","regionId":"region-id-2","regionName":"HCM04","status":1,"totalQuota":30,"projectType":1,"projectTypeName":"Gold","purchaseTypeId":4,"purchaseTypeName":"Pay monthly","enableAutoRenew":false,"autoRenewPeriod":0}`
 const syntheticOrderJSON = `{"success":true,"data":{"redirectUrl":"https://console.example/storage/projects?token=private"}}`
 
 type projectWriteServer struct {
@@ -39,7 +39,7 @@ type projectWriteServer struct {
 func (s *projectWriteServer) handler(t *testing.T) http.Handler {
 	t.Helper()
 	return serve(t, func(w http.ResponseWriter, r *http.Request) {
-		checkRegionHeaders(t, r, "<region-id-2>")
+		checkRegionHeaders(t, r, "region-id-2")
 		body := ""
 		switch r.URL.Path {
 		case "/internal/v1/billing/project_types":
@@ -127,7 +127,7 @@ func (s *projectWriteServer) handler(t *testing.T) http.Handler {
 			t.Errorf("unapproved route %s", r.URL.Path)
 		}
 		if strings.Contains(r.URL.Path, "configurations") || r.Method != http.MethodGet {
-			if r.URL.Query().Get("region_id") != "<region-id-2>" {
+			if r.URL.Query().Get("region_id") != "region-id-2" {
 				t.Error("query region")
 			}
 		}
@@ -267,7 +267,7 @@ func TestCreateProjectIdentity(t *testing.T) {
 		{"wrong name", projectList(strings.Replace(newProjectJSON, "sdk-project", "other", 1)), false},
 		{"wrong type", projectList(strings.Replace(newProjectJSON, `"projectType":1`, `"projectType":7`, 1)), false},
 		{"wrong quota", projectList(strings.Replace(newProjectJSON, `"totalQuota":30`, `"totalQuota":31`, 1)), false},
-		{"wrong region", projectList(strings.Replace(newProjectJSON, `"regionId":"<region-id-2>"`, `"regionId":"other"`, 1)), false},
+		{"wrong region", projectList(strings.Replace(newProjectJSON, `"regionId":"region-id-2"`, `"regionId":"other"`, 1)), false},
 		{"renewal true", projectList(strings.Replace(newProjectJSON, `"enableAutoRenew":false`, `"enableAutoRenew":true`, 1)), false},
 		{"renewal true no wait", projectList(strings.Replace(newProjectJSON, `"enableAutoRenew":false`, `"enableAutoRenew":true`, 1)), true},
 		{"missing renewal", projectList(strings.Replace(newProjectJSON, `"enableAutoRenew":false,`, "", 1)), false},
@@ -608,7 +608,7 @@ func TestCreateProjectUnclassifiedData(t *testing.T) {
 }
 
 func TestDeleteProjectRejectsWrongRegion(t *testing.T) {
-	s := &projectWriteServer{before: projectList(strings.Replace(newProjectJSON, `"regionId":"<region-id-2>"`, `"regionId":"other"`, 1))}
+	s := &projectWriteServer{before: projectList(strings.Replace(newProjectJSON, `"regionId":"region-id-2"`, `"regionId":"other"`, 1))}
 	c := newTestClient(t, s.handler(t))
 	_, err := c.DeleteProject(context.Background(), &DeleteProjectInput{ProjectID: "new-1"})
 	if err == nil || s.deletes != 0 {

@@ -3,7 +3,7 @@
   "success": true,
   "datas": [
     {
-      "regionId": "<region-id-1>",
+      "regionId": "region-id-1",
       "regionName": "HAN02",
       "regionDisplayingName": "HAN02",
       "status": 1,
@@ -17,7 +17,7 @@
       "backendType": "ceph"
     },
     {
-      "regionId": "<region-id-2>",
+      "regionId": "region-id-2",
       "regionName": "HCM04",
       "regionDisplayingName": "HCM04",
       "status": 1,

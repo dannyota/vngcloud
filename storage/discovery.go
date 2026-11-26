@@ -118,9 +118,10 @@ func (c *Client) discoveryRegion(s *discovery.Session, name string) (string, str
 	}
 	c.regionMu.Lock()
 	id := c.regionIDs[name]
+	canonical := c.regionNames[id]
 	c.regionMu.Unlock()
-	if id != "" {
-		return id, name, nil
+	if id != "" && canonical != "" {
+		return id, canonical, nil
 	}
 	env, err := c.exchange(s.Context(), call{session: s, op: "storage.ListRegions", method: http.MethodGet, url: c.route([]string{"regions"}, nil), ok: []int{200}})
 	if err != nil {
@@ -131,8 +132,10 @@ func (c *Client) discoveryRegion(s *discovery.Session, name string) (string, str
 		return "", "", err
 	}
 	values := make([]pricecatalog.StorageRegion, 0, len(regions))
+	names := make(map[string]string, len(regions))
 	for _, r := range regions {
 		values = append(values, pricecatalog.StorageRegion{ID: r.ID, Name: r.Name})
+		names[r.ID] = r.Name
 	}
 	ids, err := pricecatalog.StorageRegionIDs(op, values)
 	if err != nil {
@@ -146,8 +149,9 @@ func (c *Client) discoveryRegion(s *discovery.Session, name string) (string, str
 	}
 	c.regionMu.Lock()
 	c.regionIDs = ids
+	c.regionNames = names
 	c.regionMu.Unlock()
-	return ids[name], name, nil
+	return ids[name], names[ids[name]], nil
 }
 
 // ListStoragePrices reads monthly package prices without placing an order.

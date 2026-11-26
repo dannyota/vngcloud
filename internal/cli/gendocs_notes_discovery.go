@@ -16,7 +16,8 @@ const volumeDiscoveryNote = discoveryOutputNote + " Size 0 uses each type's mini
 	"Sizes outside an offering's bounds remain inapplicable. Quotes exclude snapshots, backups, and server CES."
 
 const storageDiscoveryNote = discoveryOutputNote + " QuotaGB 0 uses the monthly package minimum. " +
-	"Type is an exact catalog name. Region is a JSON-only storage region override; the global " +
+	"Type is an exact catalog name. Region is a JSON-only storage region override accepting a " +
+	"catalog name or UUID; the global " +
 	"--region still configures vServer. The default for hcm-3 is HCM04. PAYG, egress, and request " +
 	"charges are excluded. Published egress rules conflict, so those costs remain unknown."
 

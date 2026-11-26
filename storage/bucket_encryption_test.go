@@ -55,7 +55,7 @@ func TestPutBucketEncryptionConfirmation(t *testing.T) {
 				defer cancel()
 				var methods []string
 				c := New(testutil.NewConfigWithCapture(t, serve(t, func(w http.ResponseWriter, r *http.Request) {
-					checkRegionHeaders(t, r, "<region-id-2>")
+					checkRegionHeaders(t, r, "region-id-2")
 					methods = append(methods, r.Method)
 					if r.URL.Path != encryptionPath {
 						t.Errorf("path=%s", r.URL.Path)
@@ -136,7 +136,7 @@ func TestBucketEncryptionRegion(t *testing.T) {
 	n := 0
 	c := newTestClient(t, serve(t, func(w http.ResponseWriter, r *http.Request) {
 		n++
-		checkRegionHeaders(t, r, "<region-id-1>")
+		checkRegionHeaders(t, r, "region-id-1")
 		_, _ = w.Write([]byte(`{"success":true,"data":{"encryption":false}}`))
 	}))
 	_, err := c.GetBucketEncryption(t.Context(), &GetBucketEncryptionInput{Region: "han02", ProjectID: "proj-1", BucketName: "my-bucket"})
@@ -247,7 +247,7 @@ func TestPutBucketEncryptionLostResponseDoesNotRead(t *testing.T) {
 		}
 		return nil, io.ErrUnexpectedEOF
 	})))
-	c.regionIDs = map[string]string{"HCM04": "<region-id-2>"}
+	c.regionIDs = map[string]string{"HCM04": "region-id-2"}
 	out, err := putEncryption(t.Context(), c, true)
 	if out != nil || err == nil || calls != 1 || !strings.Contains(err.Error(), "may have happened") {
 		t.Fatalf("out=%+v err=%v calls=%d", out, err, calls)
@@ -258,7 +258,7 @@ func TestPutBucketEncryptionFailedDialIsKnownUnsent(t *testing.T) {
 	c := New(roundTripConfig(t, roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return nil, &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("refused")}
 	})))
-	c.regionIDs = map[string]string{"HCM04": "<region-id-2>"}
+	c.regionIDs = map[string]string{"HCM04": "region-id-2"}
 	out, err := putEncryption(t.Context(), c, true)
 	var api *vngcloud.APIError
 	if out != nil || !errors.As(err, &api) || !api.Retryable || strings.Contains(err.Error(), "may have happened") {

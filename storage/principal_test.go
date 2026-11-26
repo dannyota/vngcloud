@@ -56,7 +56,7 @@ func TestEnsureServiceAccountPrincipalRegion(t *testing.T) {
 	})
 	_, err := newTestClient(t, h).EnsureServiceAccountPrincipal(context.Background(),
 		&EnsureServiceAccountPrincipalInput{Region: "han02", ProjectID: "proj-1", ServiceAccountID: "sa-id-1"})
-	if err != nil || header != "<region-id-1>" {
+	if err != nil || header != "region-id-1" {
 		t.Fatalf("region header = %q, err = %v", header, err)
 	}
 }

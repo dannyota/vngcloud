@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"testing"
 )
 
@@ -38,6 +39,103 @@ func TestProjectPricingRejectsUnresolvedRegions(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestRegionCatalogIncompleteIsNeverCached(t *testing.T) {
+	for _, warm := range []bool{false, true} {
+		t.Run(strconv.FormatBool(warm), func(t *testing.T) {
+			calls := 0
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				if warm && calls == 1 {
+					_, _ = fmt.Fprint(w, `{"success":true,"datas":[{"regionId":"region-2","regionName":"OTHER"}]}`)
+					return
+				}
+				if r.URL.Query().Get("page") == "2" {
+					_, _ = fmt.Fprint(w, `{"success":true,"datas":[{"regionId":"region-2","regionName":"DAD01"}]}`)
+					return
+				}
+				_, _ = fmt.Fprint(w, `{"success":true,"isNext":true,"datas":[{"regionId":"region-1","regionName":"DAD01"}]}`)
+			}))
+			if warm {
+				if _, err := c.regionID(context.Background(), "test", "OTHER"); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := c.regionID(context.Background(), "test", "OTHER"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for range 2 {
+				if _, err := c.regionID(context.Background(), "test", "DAD01"); err == nil {
+					t.Fatal("accepted incomplete catalog")
+				}
+			}
+			want := 2
+			if warm {
+				want++
+			}
+			if calls != want {
+				t.Fatalf("catalog requests %d", calls)
+			}
+		})
+	}
+}
+
+func TestRegionCatalogRejectsInvalidID(t *testing.T) {
+	for _, method := range []string{"management", "discovery"} {
+		t.Run(method, func(t *testing.T) {
+			calls := 0
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				if r.URL.Path != "/internal/v1/regions" {
+					t.Errorf("unexpected request %s", r.URL.Path)
+					return
+				}
+				_, _ = fmt.Fprint(w, `{"success":true,"datas":[{"regionId":"bad/id","regionName":"DAD01"}]}`)
+			}))
+			for range 2 {
+				var err error
+				if method == "management" {
+					_, err = c.regionID(context.Background(), "test", "DAD01")
+				} else {
+					_, err = c.ListStoragePrices(context.Background(), &ListStoragePricesInput{Region: "DAD01"})
+				}
+				if err == nil {
+					t.Fatal("accepted invalid region ID")
+				}
+			}
+			if calls != 2 {
+				t.Fatalf("catalog requests %d", calls)
+			}
+		})
+	}
+}
+
+func TestDiscoveryRegionUUIDCanonicalName(t *testing.T) {
+	regions := 0
+	handler := storageDiscoveryHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, pricingQuote)
+	})
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/internal/v1/regions" {
+			regions++
+			_, _ = fmt.Fprint(w, `{"success":true,"datas":[{"regionId":"region-2","regionName":"HCM04"}]}`)
+			return
+		}
+		handler.ServeHTTP(w, r)
+	}))
+	for range 2 {
+		out, err := c.ListStoragePrices(context.Background(), &ListStoragePricesInput{Region: "region-2"})
+		if err != nil || out == nil || len(out.Items) == 0 {
+			t.Fatalf("output %+v error %v", out, err)
+		}
+		if out.Metadata.Region != "HCM04" || out.Items[0].Region != "HCM04" {
+			t.Fatalf("output %+v", out)
+		}
+	}
+	if regions != 1 {
+		t.Fatalf("region requests %d", regions)
 	}
 }
 
@@ -78,7 +176,7 @@ func TestProjectPricingCatalogRegion(t *testing.T) {
 				t.Fatalf("types %+v, error %v, price requests %d", types, err, prices)
 			}
 			discovery, err := c.ListStoragePrices(context.Background(), &ListStoragePricesInput{Region: region})
-			if err != nil || discovery == nil || len(discovery.Items) != 1 || prices != 3 {
+			if err != nil || discovery == nil || len(discovery.Items) != 1 || discovery.Items[0].Region != "DAD01" || discovery.Metadata.Region != "DAD01" || prices != 3 {
 				t.Fatalf("discovery %+v, error %v, price requests %d", discovery, err, prices)
 			}
 		})

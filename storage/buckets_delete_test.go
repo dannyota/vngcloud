@@ -291,7 +291,7 @@ func TestCreateBucketDialFailureHasNoNote(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := New(cfg)
-	c.regionIDs = map[string]string{"HCM04": "<region-id-2>"}
+	c.regionIDs = map[string]string{"HCM04": "region-id-2"}
 	_, err = c.CreateBucket(context.Background(), &CreateBucketInput{ProjectID: "proj-1", Bucket: "my-bucket"})
 	var apiErr *vngcloud.APIError
 	if !errors.As(err, &apiErr) || apiErr.StatusCode != 0 || !apiErr.Retryable {

@@ -69,7 +69,7 @@ func TestAttachS3KeyRegion(t *testing.T) {
 	})
 	_, err := newTestClient(t, h).AttachS3Key(context.Background(),
 		&AttachS3KeyInput{Region: "han02", ProjectID: "proj-1", UserKeyID: "key-1", ServiceAccountID: "sa-id-1"})
-	if err != nil || header != "<region-id-1>" {
+	if err != nil || header != "region-id-1" {
 		t.Fatalf("region header = %q, err = %v", header, err)
 	}
 }

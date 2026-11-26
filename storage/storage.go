@@ -28,9 +28,10 @@ type Client struct {
 
 	// regionMu guards regionIDs, the vStorage region name to UUID map the
 	// first ListRegions call fills. It is filled once per Client and kept.
-	regionMu   sync.Mutex
-	regionIDs  map[string]string
-	regionGate chan struct{}
+	regionMu    sync.Mutex
+	regionIDs   map[string]string
+	regionNames map[string]string
+	regionGate  chan struct{}
 
 	// sleep and now drive the delete wait; tests replace them with fakes so
 	// the wait never really elapses.
@@ -198,23 +199,32 @@ func (c *Client) regionID(ctx context.Context, op, name string) (string, error) 
 	if ok {
 		return id, nil
 	}
-	out, err := c.ListRegions(ctx, nil)
+	env, err := c.exchange(ctx, call{op: "storage.ListRegions", method: http.MethodGet, url: c.route([]string{"regions"}, nil), ok: []int{200}, validate: func(raw json.RawMessage) error {
+		return validateProjectPagination(op, raw)
+	}})
 	if err != nil {
 		return "", err
 	}
-	regions := make([]pricecatalog.StorageRegion, 0, len(out.Items))
-	for _, r := range out.Items {
+	items, err := requiredProjectList[Region](op, env)
+	if err != nil {
+		return "", err
+	}
+	regions := make([]pricecatalog.StorageRegion, 0, len(items))
+	names := make(map[string]string, len(items))
+	for _, r := range items {
 		if r.ID == "" || r.Name == "" {
 			return "", fmt.Errorf("%w: %s: invalid vStorage region catalog", core.ErrInvalidInput, op)
 		}
 		regions = append(regions, pricecatalog.StorageRegion{ID: r.ID, Name: r.Name})
+		names[r.ID] = r.Name
 	}
-	ids, err := pricecatalog.StorageRegionAliases(op, regions)
+	ids, err := pricecatalog.StorageRegionIDs(op, regions)
 	if err != nil {
 		return "", err
 	}
 	c.regionMu.Lock()
 	c.regionIDs = ids
+	c.regionNames = names
 	id, ok = c.regionIDs[strings.ToUpper(name)]
 	c.regionMu.Unlock()
 	if !ok {

@@ -115,7 +115,7 @@ func (s *autoRenewServer) handler(t *testing.T) http.Handler {
 				t.Error("billing query")
 			}
 		} else {
-			checkRegionHeaders(t, r, "<region-id-2>")
+			checkRegionHeaders(t, r, "region-id-2")
 		}
 		if replacement, ok := s.overrides[r.URL.Path]; ok {
 			body = replacement

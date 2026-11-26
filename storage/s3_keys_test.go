@@ -65,7 +65,7 @@ type keyServer struct {
 
 func (s *keyServer) handler(t *testing.T) http.Handler {
 	return serve(t, func(w http.ResponseWriter, r *http.Request) {
-		checkRegionHeaders(t, r, "<region-id-2>")
+		checkRegionHeaders(t, r, "region-id-2")
 		b, _ := io.ReadAll(r.Body)
 		s.calls.Add(1)
 		s.last.Store(keyRequest{r.Method, r.URL.Path, r.URL.RawQuery, string(b), r.Header.Get("Content-Type")})
@@ -97,7 +97,7 @@ func TestListS3KeysRequestAndFixture(t *testing.T) {
 	}
 	want := S3Key{
 		UserKeyID: "<user-key-id-1>", AccessKey: "<access-key-1>", ProjectID: "<project-id>",
-		RegionID: "<region-id-2>", UserID: "<account>", CreatedDate: "01/01/2026 00:00", Status: 1,
+		RegionID: "region-id-2", UserID: "<account>", CreatedDate: "01/01/2026 00:00", Status: 1,
 	}
 	if len(out.Items) != 2 || out.Items[0] != want || out.Items[1].UserKeyID != "<user-key-id-2>" {
 		t.Fatalf("items = %+v", out.Items)
@@ -123,7 +123,7 @@ func TestListS3KeysRegion(t *testing.T) {
 	if _, err := newTestClient(t, h).ListS3Keys(context.Background(), &ListS3KeysInput{Region: "han02", ProjectID: "proj-1"}); err != nil {
 		t.Fatal(err)
 	}
-	if header != "<region-id-1>" {
+	if header != "region-id-1" {
 		t.Fatalf("region header = %q, want the HAN02 UUID", header)
 	}
 }

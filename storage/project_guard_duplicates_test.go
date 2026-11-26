@@ -72,7 +72,7 @@ func TestProjectDuplicateBaselineKeys(t *testing.T) {
 }
 
 func TestProjectDuplicateRegionKeys(t *testing.T) {
-	body := strings.Replace(testutil.FixtureBody(t, fixtures+"list_regions.json"), `"regionId": "<region-id-2>"`, `"regionId":"wrong","regionId":"<region-id-2>"`, 1)
+	body := strings.Replace(testutil.FixtureBody(t, fixtures+"list_regions.json"), `"regionId": "region-id-2"`, `"regionId":"wrong","regionId":"region-id-2"`, 1)
 	for _, quote := range []bool{true, false} {
 		s := &projectWriteServer{}
 		fallback := s.handler(t)

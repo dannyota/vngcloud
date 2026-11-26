@@ -36,7 +36,7 @@ type bucketServer struct {
 
 func (s *bucketServer) handler(t *testing.T) http.Handler {
 	return serve(t, func(w http.ResponseWriter, r *http.Request) {
-		checkRegionHeaders(t, r, "<region-id-2>")
+		checkRegionHeaders(t, r, "region-id-2")
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == detailsPath:
 			if s.detail != nil {
@@ -70,7 +70,7 @@ const okEnvelope = `{"code":200,"success":true}`
 func TestCreateBucketRequestAndReadBack(t *testing.T) {
 	var sawPost bool
 	h := serve(t, func(w http.ResponseWriter, r *http.Request) {
-		checkRegionHeaders(t, r, "<region-id-2>")
+		checkRegionHeaders(t, r, "region-id-2")
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == bucketsPath:
 			sawPost = true
@@ -200,7 +200,7 @@ func TestCreateBucketIsNotRetriedAfter502(t *testing.T) {
 func TestDeleteBucketRequest(t *testing.T) {
 	var sawDelete bool
 	h := serve(t, func(w http.ResponseWriter, r *http.Request) {
-		checkRegionHeaders(t, r, "<region-id-2>")
+		checkRegionHeaders(t, r, "region-id-2")
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == detailsPath:
 			_, _ = w.Write([]byte(`{"code":200,"success":true,"data":{"name":"my-bucket","count":0}}`))

@@ -21,7 +21,7 @@ func TestCreateBucketEncryptionSequence(t *testing.T) {
 			var calls []string
 			h := serve(t, func(w http.ResponseWriter, r *http.Request) {
 				calls = append(calls, r.Method+" "+r.URL.Path)
-				checkRegionHeaders(t, r, "<region-id-2>")
+				checkRegionHeaders(t, r, "region-id-2")
 				if r.Method == "DELETE" {
 					t.Error("unexpected delete")
 				}

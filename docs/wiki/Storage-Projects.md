@@ -62,9 +62,10 @@ Prices are VND totals that include VAT, with no API VAT breakdown; see
 `ListProjectTypes` reads the regional catalog, monthly purchase type, and
 quota configuration. It quotes each active monthly offer at its minimum
 quota. Each call reads fresh prices and configuration.
-Both pricing methods validate both regions before authentication or requests,
-even with endpoint overrides. Config must use `hcm-3` or `han-1`; explicit
-vStorage names must match `HCM04` or `HAN02`, ignoring case. Price requests
+With no explicit region, config `hcm-3` maps to `HCM04` and `han-1` to
+`HAN02`; any other config region is refused before requests. An explicit
+vStorage region must match exactly one region in the caller's catalog by name
+or UUID, or it is refused before any pricing request. Price requests
 refuse redirects and retain retries for transient failures.
 
 ```go

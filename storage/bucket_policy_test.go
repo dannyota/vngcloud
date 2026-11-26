@@ -171,7 +171,7 @@ func TestBucketPolicyRegion(t *testing.T) {
 	if _, err := c.DeleteBucketPolicy(ctx, &DeleteBucketPolicyInput{Region: "han02", ProjectID: "proj-1", Bucket: "my-bucket"}); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"<region-id-1>", "<region-id-1>", "<region-id-1>", "<region-id-1>", "<region-id-1>", "<region-id-1>"}
+	want := []string{"region-id-1", "region-id-1", "region-id-1", "region-id-1", "region-id-1", "region-id-1"}
 	if !reflect.DeepEqual(headers, want) {
 		t.Fatalf("region headers = %v, want %v", headers, want)
 	}

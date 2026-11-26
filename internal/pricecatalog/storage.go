@@ -173,10 +173,10 @@ func StorageRegionIDs(op string, regions []StorageRegion) (map[string]string, er
 			return nil, Invalid(op, 200)
 		}
 	}
-	return StorageRegionAliases(op, regions)
+	return storageRegionAliases(op, regions)
 }
 
-func StorageRegionAliases(op string, regions []StorageRegion) (map[string]string, error) {
+func storageRegionAliases(op string, regions []StorageRegion) (map[string]string, error) {
 	ids := map[string]string{}
 	seen := map[string]bool{}
 	for _, r := range regions {

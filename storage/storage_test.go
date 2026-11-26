@@ -223,7 +223,7 @@ func TestListRegionsDecodesFixture(t *testing.T) {
 		t.Fatalf("items = %d, want 2", len(out.Items))
 	}
 	r := out.Items[1]
-	if r.ID != "<region-id-2>" || r.Name != "HCM04" || r.BackendType != "ceph" ||
+	if r.ID != "region-id-2" || r.Name != "HCM04" || r.BackendType != "ceph" ||
 		r.S3Host != "https://hcm04.vstorage.vngcloud.vn" || r.Status != 1 || r.AccountURL == "" || r.AuthHost == "" || r.VOSAPIHost == "" {
 		t.Fatalf("unexpected region: %+v", r)
 	}
@@ -234,7 +234,7 @@ func TestListProjectsSendsBothRegionHeaders(t *testing.T) {
 		if r.URL.Path != "/internal/v1/projects" {
 			t.Errorf("path = %s", r.URL.Path)
 		}
-		checkRegionHeaders(t, r, "<region-id-2>")
+		checkRegionHeaders(t, r, "region-id-2")
 		testutil.WriteFixture(t, w, fixtures+"list_projects.json")
 	}))
 	out, err := c.ListProjects(context.Background(), nil)
@@ -245,7 +245,7 @@ func TestListProjectsSendsBothRegionHeaders(t *testing.T) {
 		t.Fatalf("items = %d, want 1", len(out.Items))
 	}
 	p := out.Items[0]
-	if p.ID != "00000000000000000000000000000000" || p.Name != "<project-name>" || p.RegionID != "<region-id-2>" ||
+	if p.ID != "00000000000000000000000000000000" || p.Name != "<project-name>" || p.RegionID != "region-id-2" ||
 		p.RegionName != "HCM04" || p.Status != 1 || p.TotalQuota != 30 || p.Period != 0 ||
 		p.StartTime != "2026-10-09T14:23:05.933+00:00" || p.EndTime != p.StartTime {
 		t.Fatalf("unexpected project: %+v", p)
@@ -265,7 +265,7 @@ func checkRegionHeaders(t *testing.T, r *http.Request, want string) {
 func TestStorageReadsSendBothRegionHeaders(t *testing.T) {
 	seen := map[string]bool{}
 	c := newTestClient(t, serve(t, func(w http.ResponseWriter, r *http.Request) {
-		checkRegionHeaders(t, r, "<region-id-2>")
+		checkRegionHeaders(t, r, "region-id-2")
 		seen[r.URL.Path] = true
 		file := "list_projects_empty.json"
 		switch r.URL.Path {
@@ -328,9 +328,9 @@ func TestRegionMapping(t *testing.T) {
 	tests := []struct {
 		name, region, want string
 	}{
-		{"explicit han", "HAN02", "<region-id-1>"},
-		{"explicit lower case", "hcm04", "<region-id-2>"},
-		{"default hcm-3", "", "<region-id-2>"},
+		{"explicit han", "HAN02", "region-id-1"},
+		{"explicit lower case", "hcm04", "region-id-2"},
+		{"default hcm-3", "", "region-id-2"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -442,7 +442,7 @@ func TestPermissionArray(t *testing.T) {
 func TestDefaultRegionHan1(t *testing.T) {
 	var got string
 	h := serve(t, func(w http.ResponseWriter, r *http.Request) {
-		checkRegionHeaders(t, r, "<region-id-1>")
+		checkRegionHeaders(t, r, "region-id-1")
 		got = r.Header.Get("region_id")
 		testutil.WriteFixture(t, w, fixtures+"list_projects_empty.json")
 	})
@@ -456,7 +456,7 @@ func TestDefaultRegionHan1(t *testing.T) {
 	if _, err := New(cfg).ListProjects(context.Background(), nil); err != nil {
 		t.Fatal(err)
 	}
-	if got != "<region-id-1>" {
+	if got != "region-id-1" {
 		t.Fatalf("region_id = %q, want HAN02's id", got)
 	}
 }
