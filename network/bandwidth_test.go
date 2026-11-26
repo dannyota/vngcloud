@@ -14,6 +14,47 @@ import (
 	"danny.vn/vngcloud/internal/transport"
 )
 
+type bandwidthEmptyCredentials struct{}
+
+func (bandwidthEmptyCredentials) Token(context.Context) (vngcloud.Token, error) {
+	return vngcloud.Token{}, nil
+}
+
+func (bandwidthEmptyCredentials) Invalidate(string) {}
+
+func TestBandwidthEmptyCredentials(t *testing.T) {
+	calls := 0
+	rt := natRoundTripper(func(*http.Request) (*http.Response, error) {
+		calls++
+		return nil, errors.New("unexpected request")
+	})
+	cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("han-1"), vngcloud.WithProjectID("project-1"), vngcloud.WithCredentialsProvider(bandwidthEmptyCredentials{}), vngcloud.WithTransport(rt))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = New(cfg).ListBandwidthPackages(context.Background(), nil)
+	var api *vngcloud.APIError
+	if !errors.As(err, &api) || api.StatusCode != http.StatusUnauthorized || api.Code != "Unauthorized" || !errors.Is(err, vngcloud.ErrAuth) || calls != 0 {
+		t.Fatalf("error %#v calls %d", err, calls)
+	}
+}
+
+func TestBandwidthIncompleteProjectInventory(t *testing.T) {
+	calls := 0
+	rt := natRoundTripper(func(r *http.Request) (*http.Response, error) {
+		calls++
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"projects":[{"projectId":"project-1"}],"totalItem":2}`)), Request: r}, nil
+	})
+	cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("han-1"), vngcloud.WithStaticToken("test-token"), vngcloud.WithTransport(rt))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = New(cfg).ListBandwidthPackages(context.Background(), nil)
+	if vngcloud.ErrorCode(err) != "InvalidResponse" || calls != 1 {
+		t.Fatalf("error %v calls %d", err, calls)
+	}
+}
+
 func TestBandwidthCatalog(t *testing.T) {
 	calls := 0
 	rt := natRoundTripper(func(r *http.Request) (*http.Response, error) {

@@ -95,7 +95,7 @@ func (c *Client) bandwidthProject(ctx context.Context, op, origin string) (strin
 			Region string `json:"region"`
 		} `json:"projects"`
 	}
-	if decodeNATEnvelope(raw, &wire, reflect.TypeFor[struct{}]()) != nil || wire.Projects == nil || checkNATNulls(raw, reflect.TypeOf(wire)) != nil || core.ProjectInventoryPaginated(raw) {
+	if decodeNATEnvelope(raw, &wire, reflect.TypeFor[struct{}]()) != nil || wire.Projects == nil || checkNATNulls(raw, reflect.TypeOf(wire)) != nil || bandwidthIncomplete(raw, len(wire.Projects)) {
 		return "", bandwidthInvalid(op, status)
 	}
 	for _, p := range wire.Projects {
@@ -136,6 +136,9 @@ func (c *Client) ListBandwidthPackages(ctx context.Context, _ *ListBandwidthPack
 		}
 		if status == 200 {
 			return nil, bandwidthInvalid(op, status)
+		}
+		if status == 0 {
+			return nil, err
 		}
 		var api *core.APIError
 		if errors.As(err, &api) {
