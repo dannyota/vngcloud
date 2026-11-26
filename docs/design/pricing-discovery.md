@@ -150,7 +150,9 @@ data disk, network, login, or order-only fields.
 Apply the
 [reference rule](pricing-discovery-api.md#deterministic-reference-selection).
 Filter candidates by flavor image support before quoting under that rule. Read
-images once per enabled zone, reuse catalogs, and record `Reference`. Never
+images once per enabled or explicitly selected zone, reuse catalogs, and
+record `Reference`. A flavor whose required root size exceeds the chosen
+root type's maximum is `inapplicable` with a reason; the others are quoted. Never
 escalate to other candidates, OS types, or disk tiers after a refused quote.
 
 No eligible pair produces `Status=unknown`, nil price and reference, and a

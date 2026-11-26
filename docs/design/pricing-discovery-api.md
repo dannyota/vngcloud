@@ -298,7 +298,8 @@ can be parsed from a name.
 
 ### Deterministic reference selection
 
-This selection rule is not an API promise. Read images once per enabled zone
+This selection rule is not an API promise. Read images once per enabled or
+explicitly selected zone
 and reuse the volume catalog path above. Select returned IDs only:
 
 1. Parse the flavor's JSON-string `metaData` as an object. Require nonempty

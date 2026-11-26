@@ -141,7 +141,7 @@ out-of-range sizes are invalid input after catalogs, before quotes. Server and
 volume lines always name a zone, so a zone the catalog marks disabled is still
 quoted; a refusal produces a failed line.
 
-For each enabled server zone, read images once. Require the exact image ID,
+For each server zone that is enabled or explicitly selected, read images once. Require the exact image ID,
 explicit `licence:false`, Ubuntu ignoring ASCII case, and a present positive
 minimum root size. A requested root below that minimum is invalid input;
 an absent or unusable minimum yields unknown. Other image types or
