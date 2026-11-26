@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"strings"
 
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/transport"
@@ -42,6 +43,28 @@ func bandwidthInvalid(op string, status int) error {
 	return &core.APIError{Operation: op, StatusCode: status, Code: "InvalidResponse", Message: "invalid bandwidth response; body withheld"}
 }
 
+func bandwidthIncomplete(raw json.RawMessage, count int) bool {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil {
+		return true
+	}
+	for key, value := range fields {
+		switch strings.ToLower(key) {
+		case "total", "totalitem", "totalitems":
+			if key != "total" && key != "totalItem" && key != "totalItems" {
+				return true
+			}
+			var total *int64
+			if json.Unmarshal(value, &total) != nil || total == nil || *total < 0 || *total > int64(count) {
+				return true
+			}
+		case "page", "pagesize", "paging", "pagination", "totalpage", "totalpages", "next", "nextpage", "isnext", "hasmore", "continuationtoken", "nexttoken", "cursor", "offset", "limit":
+			return true
+		}
+	}
+	return false
+}
+
 func bandwidthOrigin(region string) string {
 	switch region {
 	case "han-1":
@@ -62,7 +85,7 @@ func (c *Client) bandwidthProject(ctx context.Context, op, origin string) (strin
 		return id, nil
 	}
 	var raw json.RawMessage
-	status, err := c.c.DoProjectDiscoveryJSONStatus(ctx, transport.Request{Operation: op, Method: http.MethodGet, URL: origin + "/vserver/iam-vserver-gateway/v1/projects", OK: []int{200}, MaxBody: 4 << 20}, &raw)
+	status, err := c.c.DoProjectDiscoveryJSONStatus(ctx, transport.Request{Operation: op, Method: http.MethodGet, URL: origin + "/vserver/iam-vserver-gateway/v1/projects", OK: []int{200}, MaxBody: 4 << 20, BodyLimitOverridesStatus: true, WithholdMessage: "bandwidth response withheld"}, &raw)
 	if err != nil {
 		return "", err
 	}
@@ -106,13 +129,21 @@ func (c *Client) ListBandwidthPackages(ctx context.Context, _ *ListBandwidthPack
 		return nil, err
 	}
 	var raw json.RawMessage
-	status, err := c.c.DoDiscoveryJSONStatus(ctx, transport.Request{Operation: op, Method: http.MethodGet, URL: origin + "/vserver/bandwidth-api/v1/projects/" + project + "/bandwidth/package-config", OK: []int{200}, MaxBody: 4 << 20}, &raw, nil)
+	status, err := c.c.DoDiscoveryJSONStatus(ctx, transport.Request{Operation: op, Method: http.MethodGet, URL: origin + "/vserver/bandwidth-api/v1/projects/" + project + "/bandwidth/package-config", OK: []int{200}, MaxBody: 4 << 20, BodyLimitOverridesStatus: true, WithholdMessage: "bandwidth response withheld"}, &raw, nil)
 	if err != nil {
 		if errors.Is(err, transport.ErrBodyTooLarge) {
 			return nil, &core.APIError{Operation: op, StatusCode: status, Message: "bandwidth response withheld", Err: transport.ErrBodyTooLarge}
 		}
 		if status == 200 {
 			return nil, bandwidthInvalid(op, status)
+		}
+		var api *core.APIError
+		if errors.As(err, &api) {
+			code := core.ResolvedCode(status, "")
+			if api.Code == "InvalidResponse" && api.Message == "invalid discovery response; body withheld" {
+				code = "InvalidResponse"
+			}
+			return nil, &core.APIError{Operation: op, StatusCode: status, Code: code, Message: "bandwidth response withheld", Retryable: api.Retryable, Err: api.Err}
 		}
 		return nil, err
 	}
@@ -138,11 +169,8 @@ func (c *Client) ListBandwidthPackages(ctx context.Context, _ *ListBandwidthPack
 			return nil, bandwidthInvalid(op, status)
 		}
 	}
-	if core.ProjectInventoryPaginated(raw) {
-		return nil, bandwidthInvalid(op, status)
-	}
 	rows, err := natDecodeRows[BandwidthPackage](op, env.Data, "uuid", "name", "type", "description", "bandwidth")
-	if err != nil {
+	if err != nil || bandwidthIncomplete(raw, len(rows)) {
 		return nil, bandwidthInvalid(op, status)
 	}
 	seen := make(map[string]bool)

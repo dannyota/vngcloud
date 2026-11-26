@@ -57,6 +57,13 @@ func TestBandwidthStrictResponses(t *testing.T) {
 		{"null row field", strings.Replace(good, `"bandwidth":100`, `"bandwidth":null`, 1), false},
 		{"fractional bandwidth", strings.Replace(good, `"bandwidth":100`, `"bandwidth":1.5`, 1), false},
 		{"trailing", good + ` {}`, false}, {"paging", `{"data":[],"hasMore":true}`, false},
+		{"paging alias", `{"data":[],"HasMore":true}`, false},
+		{"total item exceeds rows", `{"data":[],"totalItem":1}`, false},
+		{"total exceeds rows", `{"data":[],"total":1}`, false},
+		{"total items exceeds rows", `{"data":[],"totalItems":1}`, false},
+		{"total alias", `{"data":[],"TotalItems":0}`, false},
+		{"invalid total", `{"data":[],"total":null}`, false},
+		{"complete total", `{"data":[],"total":0}`, true},
 		{"duplicate id", `{"data":[{"uuid":"x","name":"n","type":"t","description":"d","bandwidth":1},{"uuid":"x","name":"n","type":"t","description":"d","bandwidth":1}]}`, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -144,22 +151,39 @@ func TestBandwidthUnsupportedRegion(t *testing.T) {
 
 func TestBandwidthBodyLimit(t *testing.T) {
 	for _, project := range []bool{false, true} {
-		t.Run(strconv.FormatBool(project), func(t *testing.T) {
-			rt := natRoundTripper(func(r *http.Request) (*http.Response, error) {
-				return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"extra":"` + strings.Repeat("a", 4<<20) + `"}`)), Request: r}, nil
+		for _, status := range []int{200, 403, 500} {
+			t.Run(strconv.FormatBool(project)+"/"+strconv.Itoa(status), func(t *testing.T) {
+				rt := natRoundTripper(func(r *http.Request) (*http.Response, error) {
+					return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"extra":"` + strings.Repeat("a", 4<<20) + `"}`)), Request: r}, nil
+				})
+				id := "project-1"
+				if project {
+					id = ""
+				}
+				cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("han-1"), vngcloud.WithProjectID(id), vngcloud.WithStaticToken("test-token"), vngcloud.WithTransport(rt))
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, err = New(cfg).ListBandwidthPackages(context.Background(), nil)
+				if !errors.Is(err, transport.ErrBodyTooLarge) {
+					t.Fatalf("error %v", err)
+				}
 			})
-			id := "project-1"
-			if project {
-				id = ""
-			}
-			cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("han-1"), vngcloud.WithProjectID(id), vngcloud.WithStaticToken("test-token"), vngcloud.WithTransport(rt))
-			if err != nil {
-				t.Fatal(err)
-			}
-			_, err = New(cfg).ListBandwidthPackages(context.Background(), nil)
-			if !errors.Is(err, transport.ErrBodyTooLarge) {
-				t.Fatalf("error %v", err)
-			}
-		})
+		}
+	}
+}
+
+func TestBandwidthCatalogErrorWithholdsPeerText(t *testing.T) {
+	rt := natRoundTripper(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 403, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"code":"peer-code-canary","message":"peer-message-canary"}`)), Request: r}, nil
+	})
+	cfg, err := vngcloud.NewConfig(vngcloud.WithRegion("han-1"), vngcloud.WithProjectID("project-1"), vngcloud.WithStaticToken("test-token"), vngcloud.WithTransport(rt))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = New(cfg).ListBandwidthPackages(context.Background(), nil)
+	var api *vngcloud.APIError
+	if !errors.As(err, &api) || api.StatusCode != 403 || !errors.Is(err, vngcloud.ErrPermission) || strings.Contains(err.Error(), "peer-") || strings.Contains(api.Code, "peer-") {
+		t.Fatalf("error %v", err)
 	}
 }

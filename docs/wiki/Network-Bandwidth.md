@@ -25,9 +25,9 @@ Each `BandwidthPackage` has `ID`, `Name`, `Type`, `Description`, and
 `International`. `Bandwidth` is the provider's whole-number value, which the
 console shows in Mbps; the SDK does not convert it.
 
-The catalog carries no price. Use [Billing and Pricing](Billing-and-Pricing.md)
-for quotes. The read never buys, attaches, or changes bandwidth.
+The catalog carries no price, and the SDK has no bandwidth quote. The read
+never buys, attaches, or changes bandwidth.
 
 A response that is not a complete, successful catalog returns
-`InvalidResponse` with no output. An oversized body returns an error that
-matches `vngcloud.ErrBodyTooLarge`.
+`InvalidResponse` with no output. A body over 4 MiB is refused with no
+output.
