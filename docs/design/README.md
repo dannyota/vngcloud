@@ -53,6 +53,7 @@ code starts. Decisions with lasting trade-offs also get an
 | [Private endpoint lifecycle](network-endpoints.md) | Proposed; API, billing, DNS, and ownership gates remain open |
 | [Database inventory](database-services.md) | Draft |
 | [Pricing and options discovery](pricing-discovery.md) | Accepted |
+| [vServer bandwidth packages](bandwidth-packages.md) | Proposed, pending catalog probes |
 | [Setup cost estimate](cost-estimate.md) | Accepted and implemented for SDK and CLI |
 | [Service-account authentication](service-account-auth.md) | Accepted and implemented for SDK login, configuration, cache, and CLI |
 
