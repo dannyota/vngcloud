@@ -1,16 +1,15 @@
 # Synthetic quota create, delete, and ensure
 
 This extends [quota coverage](monitor-quota-coverage.md) with class packages,
-free create, active delete, and cron renewal/recovery. These paths remain
-unimplemented and require independent design review. No live write, cleanup,
-purchase, or schedule activation is authorized.
+free create, active delete, and cron renewal/recovery. The caller's catalog
+replaces fixed free-quota class and capacity checks in the proposed change.
+Independent design review precedes code. Live runs need separate approval.
 
 Use `danny.vn/vngcloud/monitor`, standard library only, via public SDK calls.
-Preserve imports/fields and notification behavior; copy Inputs before I/O.
-Add no dependency/transport change. Explicit selection avoids unstable defaults;
-additive packages preserve callers. Ensure reuses guards; the delete alias
-avoids a type break. Server transactions and durable cross-process ledgers
-remain stronger alternatives outside scope.
+Preserve public types, flags, and notification behavior. Copy Inputs before
+I/O. Existing create flags select one offer explicitly. Selecting by class
+name would depend on catalog labels, and adding selectors to renewal would
+repeat identities already in the quota detail.
 
 ## Wire evidence and fixtures
 
@@ -39,8 +38,10 @@ was used. These are observations, not published API guarantees. Paths are under
   permanent deletion but omits checks. Recreating the quota does not restore
   checks or their IDs.
 
-Errors, create success body, disabled/paid packages, and conditional writes
-remain unverified. Error handling is policy.
+Live create covers Basic, 10 API tests, one location, one API test per
+package unit, and one month. Other free class and capacity combinations
+are unverified. The create body on success, disabled/paid package behavior,
+and conditional writes also remain unverified.
 
 | Source | Permitted use |
 |-|-|
@@ -53,21 +54,19 @@ remain unverified. Error handling is policy.
 | `GetCheckAfterQuotaDelete.error.json` | Summary of check reads, not raw error evidence |
 | `GetSyntheticQuotaCreated.json` | Sanitized quota-shaped read; establish raw origin before using as a raw fixture, since the notes describe CLI read-back |
 
-Require manager-supplied raw class config/settings and created quota/detail with
-consistent synthetic IDs before dependent decode tests. Decode every raw fixture
-through the public SDK; never relabel decoded CLI output as raw. Keep private
-paths/times and account data out. Label mock create responses, non-Basic
-classes, and errors; no mock closes the missing-body gate.
+Use the [catalog and detail fixtures](monitor-quotas-api.md#fixtures) for
+identity joins. Decode raw fixtures through the public SDK and label mock
+create responses, other free classes, and errors. The create response body
+remains unverified.
 
 ## Class packages
 
 Extend `SyntheticQuotaClass` additively with `Packages []SyntheticClassPackage`.
 The new type has `ID, Name, TierName string`, `TierID, API, Location int`, and
 `Price *float64` (monthly VND per unit). API and Location are units, not the
-quota's purchased capacity. Keep top-level v1 Packages and class Options
-unchanged, including their price/eligibility semantics. Added fields preserve
-keyed callers and imports; unkeyed literals and exact JSON snapshots need the
-normal compatibility note.
+quota's purchased capacity. Keep top-level v1 Packages separate. The shared
+[free terms resolver](#free-terms-from-the-caller-catalog) supplies class
+option eligibility without changing the public types.
 
 After the base catalog's three reads, fetch each returned class's packages in
 sorted class order, including disabled classes; attach by the requested class
@@ -82,23 +81,72 @@ Require nonempty IDs, unique package IDs within each class, valid integral
 positive API/Location, nonnegative integral TierID, and finite nonnegative
 prices when present. Preserve missing/null Price as unknown. Reject malformed
 arrays or fields with safe InvalidResponse. Sort packages by Name/ID. Allow an
-ID in different classes without merging. Join Options to these packages only by
-exact PackageID inside that class; an unmatched option stays visible but cannot
-authorize create. Never join either source to v1 by resemblance. Tables add a
-class-package section showing units, unit price, tier, and class status.
-JSON/text/query retain all three views. No true auto-renew eligibility is
-inferred from a price. Future paid entries remain visible but unsupported.
+ID in different classes without merging. Tables show class package units,
+unit price, tier, and class status. JSON/text/query retain all three views.
+
+## Free terms from the caller catalog
+
+Use one private resolver for create, renewal, recovery, and their quotes.
+Reuse its eligibility rules for catalog and status. Read the caller's classes,
+the matched class's packages, and settings through the existing sensitive
+read path. Keep the 64-class, 1 MiB component, and 8 MiB retained-body caps.
+Keep resolver reads within the caller's account and exclude the v1 package list.
+
+1. For create, use input ClassID, PackageID, and Quantity (API test capacity).
+   For an existing quota, read detail at `v2/synthetic/{quota.ID}/quota-detail`.
+   Require `detail.resourceId == quota.ID` and `detail.packageId == quota.PackageID`.
+   Use `detail.classId`, the quota's PackageID, and `detail.api` as selectors.
+   Validate path IDs before use. Keep class ID private to the SDK.
+2. Resolve exactly one class by ID with status ACTIVE, exactly one package by
+   ID in that class, and exactly one option by package ID and package Location.
+   If the option reports a status, require ACTIVE. Match existing detail
+   location to the option's location. Names and priority are display fields.
+3. Require positive integral units and capacity. Capacity must fit the option's
+   min/max API and step from min, and be divisible by package API. Expected
+   location capacity is the option's Location, independent of API quantity.
+   Compute unit count as API capacity divided by package API, and ListPrice
+   as unit price times unit count, with finite checked arithmetic. The wire
+   quantity and SDK Quantity use API capacity for the verified unit mapping.
+4. Validate distinct positive `monthPeriods` and a positive free maximum.
+   Select exactly one listed period at or below `maxMonthPeriodForFreeQuota`.
+   Apply the wire limits below. Freeze the period for quote output, mutation,
+   and retained terms. Compare periods as a set and keep the payment-method
+   check across rereads.
+5. Require explicit zero package unit price and exactly zero `optimumPrice`.
+   Existing quotas also require explicit zero detail price. Check exact zero
+   on the JSON number so a nonzero value rounded to zero fails closed.
+   Preserve the existing Unpriced and MaxPrice classifications. A budget
+   that covers a positive price still refuses. Paid Synthetic remains class B.
+
+Refuse a missing match, unavailable class/option, invalid capacity, or zero or
+multiple eligible periods with ErrInvalidInput. Duplicate or malformed catalog
+values, missing/null prices, and mismatched detail identity use body-free
+InvalidResponse. A valid eligibility change on the final reread returns
+ErrQuotaChanged. Compare the frozen IDs, option bounds, units, capacity, zero
+prices, and period settings. Reconcile open attempts from frozen read-back
+terms before a new derivation. The final reads narrow the race before Once;
+the server supplies neither a conditional write nor a price lock.
+
+In `monitor/quotas_synthetic_create.go`, replace the Basic, API, location,
+and quantity literals in preparation with resolved terms. Confirm the frozen
+class ID and capacities in read-back. Use the resolved period in place of the
+fixed order, quote-output, and retained-attempt period.
+
+Create and renewal quotes omit monthPeriod. The wire mapping for packages with
+more than one API test per unit and zero-price orders for a term other than
+one month need separate evidence. Refuse those shapes until that evidence
+exists. Other class names and total API and location capacities use the same
+catalog and read-back checks.
 
 ## Create
 
 `CreateSyntheticQuotaInput` has required `ClassID, PackageID string` and
 `Quantity int`, optional `MaxPrice float64` (zero default) and `NoWait bool`.
-Callers select class/package/quantity; expose no BuyWith/period/pay/redirect.
+Callers select class/package/API-count Quantity using the existing flags.
 `QuoteCreateSyntheticQuota` takes that Input, ignores MaxPrice/NoWait, and
-returns `QuoteCreateSyntheticQuotaOutput`, an alias of the parent's QuotaQuote.
-Quantity is selected, MonthPeriod 1, ResourceID empty, ExpectedEndTime nil,
-Currency VND. Quotes require absence/eligibility, never order/open records,
-and return nil Output on error.
+returns `QuoteCreateSyntheticQuotaOutput`, an alias of QuotaQuote. Quantity and
+MonthPeriod come from the resolved terms, ResourceID is empty, ExpectedEndTime
+is nil, and Currency is VND. Quotes require absence and eligibility.
 
 `CreateSyntheticQuotaOutput` embeds QuotaMutationOutcome and has `Quota *Quota`,
 `Created bool`, `OrderID string`, `PaymentPending bool`, and `SentAt
@@ -120,39 +168,28 @@ Validate and execute in this order:
    exact captured message after bounded decoding. Other 404s, including
    auth/proxy or detail failures, are errors. Any existing quota, regardless of
    status, refuses with ErrInvalidInput before catalog or quote calls.
-4. Read classes, the selected class's packages, and settings with the same
-   validation/bounds as catalog; do not fetch v1 packages or notifications.
-   Resolve unique ClassID, PackageID, and matching location option. Refuse
-   missing/ambiguous choices or a class not ACTIVE. Quantity must satisfy option
-   min <= Quantity <= max and (Quantity - min) modulo step == 0. Require
-   package.API 1, package.Location equal to option.Location, Basic class,
-   location 1, quantity 10, and an evidenced free package. These are the free
-   release's eligibility constraints, not general API limits. Require period 1
-   in settings and free maximum at least 1.
-5. Freeze class/option/package identity, units, bounds, price, quantity, period
-   1, empty buyWith, pay true, and fixed redirect. ListPrice is package unit
-   price times Quantity, never detail price or v1 price. Reject missing price
-   and nonfinite multiplication. Use one term builder for the exact evidenced
-   quote and order bodies. Decode required finite nonnegative optimumPrice.
-   Apply ErrUnpriced before the budget comparison; GuardPrice is max(ListPrice,
-   OptimumPrice). Above MaxPrice is ErrPriceAboveMax. Any positive price remains
-   unsupported even if covered; quotes also refuse paid classes until their own
-   evidence exists.
-6. Immediately before send, reread absence and the selected class/packages/
-   settings; require identical frozen eligibility and price inputs. A quota
-   appearing or changed terms returns ErrQuotaChanged; malformed peer data
-   returns safe APIError. Never requote or change the chosen package.
+4. Resolve the free terms from the caller catalog. Freeze IDs, option bounds,
+   unit price, capacity, and period. A single builder maps those terms to the
+   evidenced quote and order bodies, including empty buyWith, pay true, and
+   the fixed redirect. Quotes never open records and return nil Output on error.
+5. Apply the free price requirements. Keep the existing budget and error
+   order: Unpriced, then ErrPriceAboveMax if max(ListPrice, OptimumPrice)
+   exceeds the write budget, then refusal of any remaining positive price.
+6. Immediately before send, reread absence and resolve the same terms again.
+   A quota appearing or changed terms returns ErrQuotaChanged. Malformed
+   peer data returns safe APIError. Use the original quote and terms.
 7. Capture SentAt immediately before the single Once order. Use the [tolerant
    response policy][response-policy] with observed status 200. NoWait returns
    accepted/unconfirmed and retains the record. Otherwise poll every 2 s with
    the shared hard 120 s child deadline and caller cancellation. Preparation
    uses caller context and normal request limits.
 
-Confirm only a valid quota/detail read with ACTIVE, expected PackageID, matching
-Basic capacity, StartTime >= SentAt, and EndTime > StartTime. No prior quota ID
-exists; freeze the confirmed ID. Require neither exact calendar-month arithmetic
-nor a server order ID. 404/CREATING, an older start, or another package cannot
-confirm; other read errors return NotSettled. Clock skew or coarser server
+Confirm only an ACTIVE quota with expected PackageID, StartTime >= SentAt, and
+EndTime > StartTime. Read detail at that quota's exact ID and match its resource
+and package IDs, frozen class ID, and API and location capacities. Freeze the
+confirmed ID. Confirmation uses state and identity. 404/CREATING, an older
+start, or mismatched detail cannot confirm. Other read errors return
+NotSettled. Clock skew or coarser server
 timestamp precision can prevent confirmation; never round SentAt backwards or
 resend to fix it. A concurrent matching create can still satisfy the read
 predicate: no server idempotency key or order-to-quota proof exists. State that
@@ -214,8 +251,8 @@ confirmation boolean.
 
 Acquire the same lock, reconcile retained intent first, then read fresh
 quota/detail. Check optional ExpectedQuotaID before a skip. Validate identity,
-times, free Basic eligibility, POC/auto-renew off using shared preparation. 404
-is NotFound, never permission to create. Choose exactly once:
+times, catalog-derived free eligibility, and POC/auto-renew off using shared
+preparation. A missing quota returns NotFound. Choose exactly once:
 
 - ACTIVE, EndTime > now: if positive MaxDaysLeft and expiry is further away,
   return Sent no, Stage not-due, Action none, baseline expiry, nil Quota/error.
@@ -368,11 +405,14 @@ retain existing quota/notification/transport/cache regressions. Require:
 
 - Catalog: joins, disabled/unknown classes, empty/malformed arrays, duplicates,
   units/tier/price, fan-out, cancellation, nil failures, and retry body budget.
-- Create tests for required fields, existing/unknown absence, exact bodies with
-  buyWith {}, no resourceId, quantity bounds/step, total list price,
-  Unpriced/price/paid refusal, changed final terms, and all tolerant response
-  cases. Clock skew, old start, delayed ACTIVE, wrong package/detail,
-  cancellation/slow-read deadline, NoWait, and repeated calls never reorder.
+  Mock a free class with a different name, API capacity, and location count.
+  Check no match and ambiguous matches, missing prices, capacity bounds/step,
+  indivisible units, and zero/multiple/unverified periods.
+- Create: exact absence and required inputs, frozen quote/order bodies with
+  buyWith {}, no resourceId, computed total and price refusal, final changes
+  in class/package/option/settings, and tolerant responses. Check clock skew,
+  delayed ACTIVE, wrong detail class ID with the same name, cancellation or
+  slow-read deadline, NoWait, and repeated calls without a second order.
 - Delete tests for required ID/yes, Purge/read-only zero requests, all
   ineligible states, initial versus final absence, replacement race, empty 204,
   every stage/error row, 60 s hard bound, reconciliation, and warning text in
@@ -380,8 +420,8 @@ retain existing quota/notification/transport/cache regressions. Require:
 - Ensure tests for each state and exact boundary, threshold defaults/zero/
   overflow, stale optional ID before skip, replacement with equal expiry, time
   crossing while quoting, permission refusal at read/quote/mutation, both
-  delegates, outer operation identity, repeated/different intent, and zero
-  create/delete/notification/catalog/settings calls. Test no deadlock.
+  delegates, outer operation identity, repeated/different intent, and no
+  create/delete/notification/v1 package calls. Test no deadlock.
 - Real SDK transport and actual CLI through public SDK: positive retries, each
   outcome row, 400/401/403/404/409/429, 500/502/503/504, every redirect, one
   failed dial, disconnect after body receipt, cancellation before/after send,

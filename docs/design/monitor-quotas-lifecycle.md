@@ -61,18 +61,20 @@ auto-renew response says nothing about the quote that precedes an enable.
 |-|-|-|-|
 | Quota read | live | live | live |
 | Usage read | live | console; refused until evidenced | live |
-| Create quote and order | live (free) | live (paid) | free Basic: live quote, 200 order and read-back; response body unretained |
+| Create quote and order | live (free) | live (paid) | Basic with 10 API tests and one location: live quote, 200 order and read-back; response body unretained |
 | Enable auto-renew | deferred (decision 12); free-quota 400 expected | live response; deferred (decision 12) | live refusal (400 on the free quota) |
 | Disable auto-renew | covered by SMS evidence (decision 11) | live | console; the free quota cannot enable |
 | Delete, active quota | covered by SMS evidence (decision 11) | live | live 204 and absence; permanently deletes every synthetic check |
-| Renew | deferred | deferred | build now; quote and early 409 live, success unverified |
-| Recover, expired IN-TRASH | deferred | deferred | build now; live 200 and read-back, body unverified |
+| Renew | deferred | deferred | same free shape: live quote and early 409; success unverified |
+| Recover, expired IN-TRASH | deferred | deferred | same free shape: live 200 and read-back; response body unretained |
 | Purge, expired quota | console | console | console |
 | Ensure | out of scope | out of scope | composes renewal/recovery; never create/delete |
 
 The [coverage contracts](monitor-quota-coverage.md) define renewal/recovery;
 [synthetic lifecycle](monitor-synthetic-lifecycle.md) defines free create,
-active delete, and ensure. None needs a trash item lookup. Other
+active delete, and ensure. Its [free terms][free-terms] apply to create,
+renewal and recovery. Other free catalog shapes remain unverified live.
+None needs a trash item lookup. Other
 "live" and "covered" rows ship; a "live refusal" ships as a documented
 definite refusal with no state change; "console" rows have console code
 only and are not implementable; a refused or deferred row returns
@@ -245,9 +247,9 @@ live renewal quote.
    semantics for a quota are unverified. This is the chosen behavior over a
    guarded correction to period 1.
 3. For enable, quote the renewal from the frozen terms through the
-   parent's renewal quote mapping and apply the price guard: the higher of
-   quote and ListPrice must not exceed `MaxPrice` (synthetic uses detail
-   price under the parent contract, not a v1 package join). A zero quote for a
+   parent's renewal quote mapping and apply the price guard. The higher of
+   quote and ListPrice must stay within `MaxPrice`. Synthetic auto-renew
+   uses its existing detail price. A zero quote for a
    priced package is `ErrUnpriced`. A free quota quotes 0 and passes at the
    default 0. Disable needs no quote and works during a pricing outage.
    No live notification renewal quote exists, which is why enable is
@@ -404,14 +406,10 @@ record; a completed delete followed by an uncertain purge leaving `Stage`
 
 ## Release order
 
-The code implements the live and covered rows: SMS create (with the SMS
-quota read and quote in the parent), Email and SMS auto-renew disable,
-Email and SMS delete of an active quota, and the synthetic auto-renew
-refusal; the SMS usage read and both notification enables stay refused.
-Synthetic recovery and renewal follow the
-[coverage sequence](monitor-quotas.md#scope-and-release-order), with an
-unverified response policy. Free create/class packages, active delete, then
-ensure follow under the focused contract. Notification renewal/recovery,
-notification enable, expired deletion, and purge keep their evidence gates.
+Free Synthetic create, renewal, recovery, active delete, and ensure ship
+within the support matrix above. The [caller catalog change][free-terms]
+applies to free pricing and eligibility in one slice. Notification usage,
+auto-renew, deletion, and renewal/recovery retain their row-specific gates.
 
 [synthetic-wire]: monitor-synthetic-lifecycle.md#wire-evidence-and-fixtures
+[free-terms]: monitor-synthetic-lifecycle.md#free-terms-from-the-caller-catalog

@@ -5,8 +5,9 @@ read contracts, recovery, the policy for unverified synthetic write responses,
 and machine outcomes. The parent owns threat analysis, renewal inputs, shared
 pricing, locks, attempts, errors, and waits. [API evidence and
 checks](monitor-quotas-api.md) owns wire evidence and fixture provenance;
-[lifecycle](monitor-quotas-lifecycle.md) owns auto-renew and deletion. These
-additions are unimplemented. No live run is authorized here.
+[lifecycle](monitor-quotas-lifecycle.md) owns auto-renew and deletion.
+[Free terms](monitor-synthetic-lifecycle.md#free-terms-from-the-caller-catalog)
+owns the proposed catalog-derived eligibility checks.
 
 ## Read contracts
 
@@ -85,13 +86,14 @@ Cap periods for v1 zero-price entries by that maximum; missing/null price
 leaves periods empty. Negative/nonfinite prices fail. Array size uses the
 response cap; there is no inferred provider maximum or pagination.
 
-V1 Price comes only from its entry; its AutoRenewEligible stays nil because
-no refusal identifies that v1 ID. Class-option Price stays nil: the class
-response supplies no price. The evidenced Basic ACTIVE option (location 1,
-min/max API 10, step 1) has AutoRenewEligible false and settings periods
-capped as free, from the quota/detail and refusal evidence, not a v1 join.
-Other options have nil eligibility and empty periods until priced/evidenced;
-show the global settings periods separately. Never infer true eligibility.
+V1 Price comes only from its entry and AutoRenewEligible stays nil. Class
+option Price stays nil and the class package array carries unit prices.
+In `monitor/quotas_catalog.go`, replace the Basic/name/location/API/step
+predicate with the exact class package and option join in [free terms][free-terms].
+For a unique ACTIVE offer with a zero unit price, show settings periods at
+or below the free maximum and AutoRenewEligible false under the free policy.
+Other options keep empty periods and unknown auto-renew eligibility. These
+advertised periods can include terms whose order wire behavior is unverified.
 
 The table has separate class-option and v1-package sections, labeled with
 ID source, class status/description, limits, price, periods, and eligibility.
@@ -118,16 +120,17 @@ AsOf from the injected clock before reads. The result is a sequential
 snapshot, not an atomic account view or authorization to write.
 
 Compose the existing synthetic quota/detail and Email/SMS quota reads.
-For present notification quotas, use their existing package lists to join
-PackageID to list price and name; this is not a historical billed price.
-Synthetic price/class come only from its identity-checked detail;
-PackageName stays empty (unknown), and Quota.PackageID retains the quota ID
-space. Do not fetch or join the synthetic v1 package list. Reject ambiguous
-notification joins; unmatched packages have unknown price/name. Do not call
-usage endpoints, trash, quotes, or writes. A source quota GET's NotFound
-produces Status `none` with Quota,
-prices, times, and booleans nil. A detail or package-list 404 fails the
-row; never hide it as a missing quota.
+For present notification quotas, join their package lists by PackageID to
+show catalog price and name. Reject ambiguous notification joins; unmatched
+packages have unknown price/name. Synthetic display price/class come from
+identity-checked detail, and PackageName stays empty. For a present synthetic
+quota with explicit zero detail price, resolve [free terms][free-terms] with
+the matched class and settings reads. Skip those reads for absent, paid,
+or unpriced quota detail. Use the existing composite budget across rows;
+filtered synthetic calls only the synthetic sources. Do not call the
+synthetic v1 package list, usage endpoints, trash, quotes, or writes.
+Only the source quota GET's NotFound produces Status `none` with nil quota,
+prices, times, and booleans. Any later 404 fails the row.
 
 On a failed row set Status `unavailable`, Error to fixed safe metadata, and all
 unavailable values nil/empty. Continue other rows unless cancellation or the
@@ -136,20 +139,19 @@ RequestFailed. Return nonnil Output with Complete false and an error wrapping
 new `monitor.ErrQuotaStatusIncomplete` plus safe component causes, preserving
 errors.Is/errors.As. Error code QuotaStatusIncomplete and exit 1 take precedence
 over component auth/404/cancellation. All rows succeeding or missing gives
-Complete true, nil error, exit 0. Do not invent quota data. Filtered synthetic
-calls only its existing quota/detail reads; never call Email, SMS, packages,
-classes, settings, trash, or quotes for this view.
+Complete true, nil error, exit 0. A well-formed catalog with no eligible
+match still yields a quota row with the read hint and an unknown window.
+Malformed data, denied reads, and exhausted budgets use the failed-row path.
 
 For present quotas, preserve raw Status (including IN-TRASH), render times
 in UTC, and compute signed whole seconds EndTime minus AsOf without
 `time.Duration` overflow. Negative means expired; the table says expired
 and its elapsed time, zero says expires now. Keep null distinct from zero
-and false. RenewWindowOpen is known only for the evidenced free synthetic
-package: true if ACTIVE and 0 < time left <= 7 days, false otherwise;
-it is nil for absent, paid, or notification quotas. It describes the time
-window, not full write eligibility. Identify free synthetic by the parent's
-Basic/detail price and capacity predicate, never a v1 ID or name match.
-POC or auto-renew still prevents renewal.
+and false. In `monitor/quotas_status.go`, replace the Basic/API/location
+predicate with the catalog and detail eligibility checks. For an eligible
+free quota, RenewWindowOpen is true if ACTIVE and 0 < time left <= 7 days,
+false otherwise. It is nil when free eligibility is unavailable. The window
+reports timing. POC or auto-renew still prevents a write hint.
 
 NextSafeCommand is a fixed command name, never peer text or an executed
 shell command. Choose `monitor recover-synthetic-quota` only for expired
@@ -213,17 +215,13 @@ false. Unknown status wraps ErrUnexpectedStatus; known ineligible state wraps
 ErrInvalidInput; a stale expected ID wraps ErrQuotaChanged. A quota 404 is
 NotFound, never permission to create. No trash item or count is a precondition.
 
-Freeze kind, quota ID, package, previous EndTime, status, flags, detail
-class/location/price, API quantity, and monthPeriod 1. Use the parent's
-synthetic price/identity
-contract: quota/detail package equality, Basic capacity, detail price as
-ListPrice, and the quota PackageID in the quote. Never fetch a v1 list to
-resolve it. Check ErrUnpriced first, then max(quote, ListPrice) against
-MaxPrice; both prices must be zero. A positive price stays unsupported even
-with a larger budget. Missing prices fail closed. Immediately
-before send reread quota/detail and repeat the entire predicate with the
-same ID, package, expiry, flags, quantity, and zero detail price. Any
-change aborts with ErrQuotaChanged; do not requote or rebuild terms.
+Freeze kind, quota ID, package, previous EndTime, status, flags, and the
+resolved [free terms][free-terms]. The quote uses the frozen quota ID and
+package with the confirmed API capacity. Apply the parent's price guard.
+Immediately before send reread quota/detail and the relevant class package,
+option, and settings. Repeat the entire predicate against the frozen terms,
+including quota ID, package, expiry, and flags. A change returns
+ErrQuotaChanged without another quote.
 
 Send the evidenced `POST v2/trash/synthetic/quota` body through Once.
 The route names no ID: ExpectedQuotaID narrows a race but cannot bind the
@@ -363,16 +361,12 @@ Tables and text show the same outcome fields as JSON. Positive budgets
 retain the parent's cost warning. The [CI contract](cli.md#unattended-ci)
 owns environment auth, pinned installation, and wiki example obligations.
 
-Update Monitor-Quotas and linked Monitor/Monitor-Alerts guidance in the
-same implementation slice. Explain separate catalog ID spaces, unknown
-option prices and v1 eligibility, status's unknown package name, and detail
-price as the renewal/recovery guard source. Explain disabled classes,
-nullable limits, recovery's new term, renewal's visible 409, required
-consent/identity guards, NoWait, residual races, and read-only recovery
-from uncertainty. Extend examples with reads only. Generate CLI-Monitor
-and CLI from their source notes with `make gen-docs`; check generation
-idempotence, wiki preview, links, and json/table/text goldens. No hand edits
-to generated pages. Additions keep existing imports and field semantics.
+Update Monitor-Quotas, Monitor-Synthetic-Quota, and CLI help with the
+catalog and detail guards in the implementation slice. Preserve existing
+flags, JSON fields, and outcome semantics. Explain the separate catalog
+ID spaces, class option periods, identity guards, and evidence limits.
+Generate CLI-Monitor and CLI from source notes with `make gen-docs`.
+Check generation idempotence, wiki preview, links, and output goldens.
 
 ## Threat analysis
 
@@ -390,18 +384,17 @@ required, including existing create, lifecycle, transport, and cache tests.
 
 - Catalog: disabled classes without config; deterministic ordering;
   separate ID spaces and arrays; duplicate IDs within each source refused;
-  equal limits never assign identity, price, or eligibility across sources;
-  null prices; periods; unknown eligibility; future paid packages never
-  enabling writes. Status: all-present/all-none/mixed, intermediate and
-  unknown states, source versus detail 404, one fixed AsOf, UTC offsets,
-  large/negative time differences, 7-day boundary, no usage/write requests,
-  safe next commands, and partial rows on component failure.
+  matching values across v1 and class sources never establish identity.
+  Cover zero, positive and null prices, joined and unmatched options, and
+  free period filtering. Status: present/absent/mixed, non-Basic free
+  eligibility, paid or unmatched read hints, one AsOf, 7-day boundary, no
+  quote or write, and partial rows on detail or catalog read failure.
 - Detail: explicit 0 versus null for every channel, legacy integer
   compatibility, and no Telegram prerequisite inferred from either view.
 - Recovery: expired IN-TRASH only; exact-now refused; expected ID required;
-  quota/detail package equality and capacity; same terms at final read;
-  v1 ID never in quote/read-back; no catalog calls; zero mutation
-  counts for every refusal. A delayed same-ID ACTIVE with later expiry
+  exact detail identity and catalog capacity; same terms at final read;
+  no v1 ID or list calls; zero mutation counts for every refusal. A delayed
+  same-ID ACTIVE with later expiry
   confirms; a new ID/package, unchanged expiry, trash exit, or empty trash
   cannot. Neither recover nor renew falls back to the other or to create.
 - Both writes: tolerant-response cases above, nullable OrderID, payment
@@ -419,3 +412,5 @@ required, including existing create, lifecycle, transport, and cache tests.
   precedence; pre-network read-only refusal; nil versus false/zero output;
   all outcome fields/error identities/exits; no secrets in partial outputs
   or generated examples. Reject --query before send; NoWait stays explicit.
+
+[free-terms]: monitor-synthetic-lifecycle.md#free-terms-from-the-caller-catalog

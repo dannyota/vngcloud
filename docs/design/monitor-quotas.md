@@ -16,20 +16,12 @@ standard-library only; the CLI calls only public SDK operations.
 
 ## Scope and release order
 
-The code has check and quota reads, notification create/quote, notification
-auto-renew disable and active delete, and the synthetic auto-renew refusal.
-The next independently landable slices are:
-
-1. [Catalog and nullable limits](monitor-quota-coverage.md#read-contracts).
-2. [Quota status](monitor-quota-coverage.md#getquotastatus).
-3. [Synthetic recovery](monitor-quota-coverage.md#synthetic-recovery).
-4. Synthetic renewal and quote under the contract below.
-5. [Class packages and create](monitor-synthetic-lifecycle.md).
-6. Synthetic active delete, then ensure, under that same focused contract.
-
-Renewal implementation precedes its first in-window manager live check,
-which verifies success and arithmetic. Email/SMS renewal and recovery stay
-deferred under the [support gates](monitor-quotas-lifecycle.md#support-matrix).
+The SDK has check and quota reads, notification create/quote, auto-renew
+and deletion within the [support matrix](monitor-quotas-lifecycle.md#support-matrix),
+and Synthetic create, renew, recover, active delete, and ensure. Review
+and implement the [free terms change][free-terms] across quote, writes, and
+status in one slice. In-window Synthetic renewal and term arithmetic still
+need a live check. Email/SMS renewal and recovery remain deferred.
 
 Out of scope: metric quotas, log quota renewal/resize, paid Synthetic
 orders, bundles, `pay: false`, checkout URLs, introspection, public settings,
@@ -184,34 +176,30 @@ Notification creates resolve a package once: an omitted PackageID selects
 the single zero-price entry; unknown, duplicate, unpriced, or ambiguous
 candidates refuse. Synthetic writes never resolve through the v1 list.
 
-**Order terms and quote mapping:** every write freezes one immutable set
-of order terms before any quote: kind, package ID, `monthPeriod` 1, and
-for a renewal the quota ID, package, and frozen expiry. One builder per
-write maps those terms to its quote request and mutation body (ADR 0002
-rule 8 asks for shared construction; no quote accepts a mutation body).
+**Order terms and quote mapping:** freeze kind, package ID, period, and
+for renewal the quota ID and expiry. Notifications use one month. Free
+Synthetic derives terms from the [caller catalog][free-terms]. One builder
+per write maps the terms to the quote request and mutation body (ADR 0002).
 
 | Write | Quote request (from the terms) | Mutation body |
 |-|-|-|
 | Email or SMS create | `POST v2/{kind}/prices/created-price` `{redirectUrl:"", packageId, quantity:1}`; live for free and paid email | `POST v1/{kind}/quota` `{monthPeriod:1, packageId, redirectUrl, pay:true}` |
 | Email or SMS extension | The same v2 call plus `resourceId:<quota>`; console only | `POST v1/{kind}/quota/extend-time` `{monthPeriod:1, redirectUrl, pay:true}` |
-| Synthetic extension or recovery | `POST v2/synthetic/prices/created-price` `{redirectUrl:"", packageId, quantity:<detail API>, resourceId}`; live, 0 | `POST v2/synthetic/quota/extend-time` or `POST v2/trash/synthetic/quota` `{redirectUrl, monthPeriod:1, pay:true}` |
+| Synthetic extension or recovery | `POST v2/synthetic/prices/created-price` `{redirectUrl:"", packageId, quantity:<confirmed API capacity>, resourceId}` | `POST v2/synthetic/quota/extend-time` or `POST v2/trash/synthetic/quota` `{redirectUrl, monthPeriod:<resolved period>, pay:true}` |
 
-The v2 quote ignores the period; the v1 query quote
-(`?package_id=&month_period=`) prices paid packages per month but 500s on
-free ones. At period 1 both agree on a paid package, so v2 is the price
-source (owner decision 10). Never add a quote-only field to a mutation
-body, drop a field to make a quote pass, or send any period but 1.
+The v2 quote omits the period. The v1 query quote
+(`?package_id=&month_period=`) failed on free packages. Use v2 as the
+quote source with the evidenced period and keep the wire bodies above.
 
-Missing/null/negative/nonfinite prices fail closed as body-free API errors.
-A zero quote for a positive list price is `monitor.ErrUnpriced`, an alias
-of `vngcloud.ErrUnpriced`. Otherwise compare MaxPrice with the higher of
-quote and list price and return `ErrPriceAboveMax` if exceeded. List and
-quote must cover the same quantity and one-month term. For synthetic,
-renewal/recovery ListPrice is the identity-checked detail price, not a v1
-catalog price. Create uses the focused lifecycle page's unit-price rule.
-Renew/recover require Basic, API 10, location 1, and zero prices; freeze the
-quota PackageID and require detail equality. Quotes and read-back use that
-ID, never a v1 list ID. No package/class/settings read is needed.
+Missing/null/negative/nonfinite prices fail with body-free API errors.
+A zero quote against a positive list price is `monitor.ErrUnpriced`.
+Otherwise compare MaxPrice with the higher of quote and ListPrice and
+return `ErrPriceAboveMax` if exceeded. Synthetic requires the catalog
+unit price and quote exactly zero, plus detail price zero for an existing
+quota. For refusal classification, compare against the higher of catalog
+ListPrice and detail price when present. In `monitor/quotas_renew.go`,
+replace the Basic/API/location predicate and fixed period with resolved
+terms shared by quote, mutation, and retained attempts.
 Email quotes are inferred pre-VAT in the API sibling, so the actual debit
 can exceed the quote; a paid package is allowed whenever MaxPrice covers.
 
@@ -224,10 +212,10 @@ attempt from retained terms. While unresolved, a guard mismatch preserves
 Sent and Stage unconfirmed, with NotSettled wrapping ErrQuotaChanged.
 With no unresolved attempt, compare EndTime to ExpectedEndTime as instants;
 a mismatch is ErrQuotaChanged with no quote or write. After eligibility
-checks, positive MaxDaysLeft skips a
-further-away expiry with `Renewed: false`, PreviousEndTime set, and Quota
-nil after the reads; OrderID is empty and PaymentPending false. Zero
-allows early renewal. A free synthetic quota's extension outside its last
+checks, including zero catalog and detail prices for Synthetic, positive
+MaxDaysLeft skips a further-away expiry with `Renewed: false`, PreviousEndTime
+set, and Quota nil. OrderID is empty and PaymentPending false. Zero allows
+early renewal. A free synthetic quota's extension outside its last
 7 days gets 409 (live), a definite refusal with
 no state change, returned as the status-classified `Conflict` `*APIError`:
 visible, never retried; a job avoids it with `MaxDaysLeft` 7, not by
@@ -240,18 +228,15 @@ switches to recovery. Recovery has a separate
 [expected-ID contract](monitor-quota-coverage.md#synthetic-recovery) and
 uses the quota read, not an inferred trash item.
 
-Immediately before send, reread and repeat the complete eligibility predicate on
-the fresh snapshot: quota identity, package, expiry equal to the frozen terms,
-status, `POC` false, `AutoRenew` false; for synthetic, repeat detail class,
-location, price, and quantity checks. Create verifies absence again. Any change,
-including a newly
-enabled auto-renew or expiry crossing the recovery boundary, aborts without
-send. Synthetic orders/renewal/recovery use ErrQuotaChanged; malformed peer
-data is an APIError. Notification create keeps its errors. Never rebuild or
-requote in a loop. No server precondition or price lock removes the race.
+Immediately before send, repeat the complete eligibility predicate. Require
+the frozen quota identity, package, expiry, status, POC, and auto-renew
+state. Synthetic also repeats its exact detail and [catalog checks][free-terms].
+Create verifies absence again. A change aborts before send, with
+ErrQuotaChanged for Synthetic. Malformed peer data is an APIError.
+Use the original quote and terms.
 
-Send the evidenced body with `pay: true`, one month, and the fixed console
-redirect value, with `Once: true` on every order, extension, and recovery:
+Send the evidenced body with `pay: true`, the frozen period, and the fixed
+console redirect, with `Once: true` on every order, extension, and recovery:
 no retry on any status or error, no token-refresh resend, no redirect, and
 no outer SDK or CLI retry.
 
@@ -345,9 +330,7 @@ needs a list read; only locally invalid inputs promise zero requests.
 
 ## Threat analysis
 
-These are design constraints for independent review, not review findings
-or claims that the new paths are tested. Each model covers both recover
-and renew; their mutations are unimplemented.
+These constraints guide independent review of recovery and renewal.
 
 - **Leaked tokens, high.** An error or optional order string could echo
   credentials into logs or partial Output. Existing suppression/redaction
@@ -448,3 +431,4 @@ evidence; unverified response bodies retain that label.
 
 [quota-outcomes]: monitor-quota-coverage.md#machine-readable-write-outcomes
 [quota-consent]: monitor-quota-coverage.md#cli-and-documentation
+[free-terms]: monitor-synthetic-lifecycle.md#free-terms-from-the-caller-catalog

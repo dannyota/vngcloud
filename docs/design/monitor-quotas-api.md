@@ -158,9 +158,9 @@ Basic config.packages and config.locations[].packageId in
 the class-side packageId; detail.classId identifies Basic. No v1 ID join is
 evidenced. `GET v2/synthetic/packages` returns 404, not a fallback catalog.
 Basic is ACTIVE, priority 1, location amount 1, min/maxApi 10, step 1.
-Pro and Enterprise `(Coming soon)` are DISABLED, description `Coming soon.`,
-no config. Class packages now provide a separate unit-price source under
-[synthetic lifecycle evidence][synthetic-evidence]; v1 price is not its price.
+Pro and Enterprise `(Coming soon)` are DISABLED with no config. The
+[class package capture][synthetic-evidence] supplies the unit price.
+Other free classes, capacities, and unit sizes have no live write evidence.
 
 **Live settings:** `GET v1/settings` returns paymentMethod PRE-PAID,
 monthPeriods [1,3,6,12,24,36], maxMonthPeriodForFreeQuota 1,
@@ -316,13 +316,11 @@ Evidence inventory uses basenames only; no private paths or real resource IDs:
 | `recover-request.json` | Mutation request only; body assertion, never a success fixture |
 | `synthetic-quota-after-cli.json` | Decoded CLI projection; timing evidence only, not raw fixture input |
 
-The manager reports raw ListSyntheticQuotaClasses.json; supply it and raw
-settings/post-recovery responses before dependent decoding. The class fixture
-is absent in this worktree; ListSyntheticPackages.json matches the reread.
-Preserve distinct catalog IDs and class/quota/detail/quote equality through
-consistent substitutions. The CLI projection omits ID/package; same-ID is
-manager evidence only. Mock success bodies stay unverified; no recovery or
-in-window renewal success body fixture exists.
+Use `ListSyntheticQuotaClasses.json`, `ListSyntheticClassPackages.json`,
+`GetQuotaSettings.json`, and exact-ID quota/detail fixtures for the catalog
+joins. Preserve distinct v1 and class IDs and matching class/quota/detail/quote
+IDs through consistent substitutions. Use the CLI projection for timing
+only. Recovery and in-window renewal still lack raw mutation success bodies.
 
 Required fixture families, all decoded through the public SDK:
 
@@ -370,15 +368,14 @@ create/delete/ensure evidence and checks live in the focused sibling.
   `updatedAt` null decoding, unknown usage kinds reported without raw JSON,
   the SMS usage read refused with zero requests. Detail failures return nil
   Output. Check quota/detail identities and absence versus other 404s.
-- Pricing: distinct synthetic ID spaces, detail price as ListPrice, no v1
-  ID substitution or catalog calls; notification duplicate/unknown packages,
-  ambiguous free default; invalid/missing prices and MaxPrice; zero requests
-  on invalid input, synthetic quantity from detail. Freeze one set of
-  terms: quote request and mutation body both derive from it, `monthPeriod`
-  is always 1, no later catalog read changes either, and no quote-only
-  field reaches a mutation body. The v2 decoder fails closed on a missing
-  total. Compare 100000 quote/110000 list at both budgets; free zero passes
-  and zero quote on a priced package is Unpriced; a quote never orders.
+- Pricing: preserve distinct Synthetic ID spaces. Use class unit price,
+  exact-ID detail, and settings. Check zero, positive, null, and missing
+  catalog/detail/quote prices, including nonzero values rounded to zero.
+  Verify the reread preserves frozen quantity and period. Keep quote-only
+  fields out of mutations, and count zero mutations on refusal.
+  Notifications retain duplicate/unknown package, ambiguous default, and
+  budget cases, including 100000 quote against 110000 list and Unpriced.
+  Require an explicit v2 total. Quotes never order.
 - Writes: every supported mutation body and success status, 400/401/403/404/
   409/429, 500/502/503/504, dial failure, disconnect after send, cancellation,
   malformed/oversized 2xx, and every redirect including 307/308; at most one
@@ -438,9 +435,10 @@ The lifecycle sibling owns notification action budgets and row gates;
    use the renew-only service account and environment-only CLI for one
    approved renewal: fresh ExpectedEndTime, MaxDaysLeft 7, MaxPrice 0, and
    NoWait false. Read quota-status --kind synthetic before and after, with
-   no Email/SMS grants. Privately retain quote, baseline ID/package/expiry,
-   request, response status/body if available, Sent/Stage/Error, exit code,
-   read-back timing, new identity/expiry, and term arithmetic.
+   no Email/SMS grants. Verify that the same principal can read class,
+   class packages, settings, and exact-ID detail. Privately retain quote,
+   baseline identity/expiry, request, response if available, outcome,
+   exit code, read-back identity/expiry, and term arithmetic.
 3. A definite early 409 ends the run without retry. After uncertainty use
    reads and inspect billing; never resend, create, recover, or delete.
    A 404 or unchanged expiry proves nothing. Renewed requires read-back;
