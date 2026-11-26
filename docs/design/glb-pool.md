@@ -204,20 +204,24 @@ Remove the `c.c.Region() != "hcm-3"` check from
 [`childProvenance`][child-run]. Use the caller's guarded catalog result from
 [`run.region(ctx, parent.Package)`][child-guard] before each child mutation.
 
-1. `GET /regions` must return exactly one eligible match for the configured
-   vServer region, with a nonempty GLB `id`. Keep `regionMatches`: compare the
-   name case-insensitively, accept empty or `ACTIVE` status, and require the
-   expected `vserverEndpoint` string for that region. Use the catalog endpoint
-   only for this comparison. Backend reads use the SDK's built-in regional
-   IAM gateway.
-2. `GET /packages` must return exactly one row for the exact parent's
-   package ID with `enabled: true`. Require a `vlbPackages` entry whose
-   `region` matches the configured region or the resolved GLB `id`, using
-   the existing case-insensitive match. Missing, ambiguous or inconsistent
-   catalog data stops the write.
-3. Use the resolved GLB `id` for the pool group's `region` in the POST and
-   its read-back. Require the exact group to report the same ID before the
-   listener POST and before either child DELETE.
+1. `GET /regions` must match the configured vServer region by name. Across
+   the full catalog, the selected name and nonempty GLB `id` must each identify
+   one row, including rows with ineligible status or endpoints. Compare them
+   case-insensitively. Decode `wireRegion.Status` as `*string`. Accept explicit
+   `"status":""` as observed in `hcm-3`, or `ACTIVE` case-insensitively. Missing
+   or null status is `InvalidResponse`. Compare the catalog `vserverEndpoint`
+   to the expected string. Backend reads use the built-in regional IAM gateway.
+2. `GET /packages` must return one exact parent package row with `enabled: true`.
+   Require a `vlbPackages[].region` matching the configured name or GLB `id`.
+   Any value used for this match must identify only the selected row across
+   both name and ID columns of the full region catalog, case-insensitively.
+   In `packageSupports`, check all links in the selected package. A supplied
+   `glb_package_id` must equal the parent package ID. Reject conflicting
+   `vlb_package_id` values for the same region, including across name and ID
+   aliases. Missing, ambiguous or inconsistent eligibility stops the write.
+3. Use the resolved GLB `id` for the group `region` in the pool POST and
+   read-back. Require that ID on the exact group before the listener POST or
+   either child DELETE.
 
 On both creates, prove server placement in that vServer region and project.
 
@@ -353,8 +357,8 @@ and the laptop's `/32` on listener port 2222.
 
 - **Pool create:** accepted and, after about 147 seconds, read back with
   pool and health `ACTIVE`, health `TCP 3,3,30,5`, group `PRIVATE`, region
-  `hcm` (the `ListRegions` ID whose name is `HCM-3`; regions report an empty
-  `Status`), dial `100`, row weight `1`, port and monitor port equal.
+  `hcm` (the `ListRegions` ID for `HCM-3`, with `"status":""` on the wire),
+  dial `100`, row weight `1`, port and monitor port equal.
 - **Member status is health:** `OFFLINE` before a listener, then
   `UNHEALTHY`; it never gates provisioning.
 - **Listener create:** `ACTIVE` in 11 seconds with the CIDR set and
@@ -406,18 +410,20 @@ Manager-only live plan under the [live-data rules][live]:
    child. Reconcile any holds, new billable resources and delayed usage;
    publish only synthetic fixtures and sanitized contract findings.
 
-Loopback checks: exact methods, path, body and omission; both success statuses;
-invalid CIDR, ID, port, profile, project, region, topology and backend rejected
-before mutation; private-IP and ownership joins, duplicate/hostile JSON, missing
-and wrong IDs, impossible state, bounded waits, ambiguous outcomes, no resend,
-redirect/capture/credential canaries, and preflight/confirmation 404 versus 403
-and parent loss. Exercise all four writes in a synthetic non-HCM region with
-an eligible account package. Assert no mutation for missing or ambiguous
-region/package matches, disabled packages, and mismatched group regions on
-both deletes. Test dependency order and survivors, CLI help, flag/JSON
-precedence, read-only, `--yes`, query, partial output and exit codes.
-Run regression checks for shipped bare GLB and reads. Land SDK, CLI and
-updated generated wiki together after `make check` and adversarial review.
+Loopback tests cover the exact wire, both success statuses, input and scope
+refusals, private-IP and ownership joins, duplicate or hostile JSON, missing or
+wrong IDs, impossible states, bounded waits, ambiguous outcomes, no resend,
+redirects, capture and credential canaries, and 404, 403 and parent loss.
+Exercise all four writes in a synthetic non-HCM region with eligible catalogs
+and explicit empty status. Assert zero writes for missing or null status,
+ambiguous names or package aliases, ineligible packages, foreign
+`glb_package_id`, conflicting `vlb_package_id` values across aliases, and
+mismatched group regions.
+`TestChildDeletesRefuseSharedGLBRegionID` gives `HAN-1` and `HCM-3` the same
+GLB ID and proves neither delete sends a DELETE even if the group echoes it.
+Cover dependency order, survivors, CLI help, flag/JSON precedence, read-only,
+`--yes`, query, partial output, exit codes, and bare GLB and read regressions.
+Land SDK, CLI and generated wiki after `make check` and adversarial review.
 
 [parent]: glb-create.md#owner-decisions
 [writes]: ../adr/0002-write-api-conventions.md
