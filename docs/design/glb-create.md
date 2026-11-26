@@ -15,10 +15,9 @@ runs the live create and delete on disposable resources before landing.
    `--yes` without a quote. Help states the prepaid three-day credit hold,
    later usage charges, and that delete does not promise a refund. Add a
    quote command if the live run finds a price endpoint.
-5. First release: `Name`, `PackageID`, and Layer 4 type only, which the live
-   run verified. Listener and pool creation follows in a later slice with
-   its own live evidence for backend scope, listener CIDR, and child
-   read-back.
+5. Bare create takes `Name` and `PackageID` and creates a Layer 4 GLB.
+   The [TCP child design][children] governs listener and pool writes on an
+   existing GLB, including region and package eligibility per account.
 6. Delete reads the exact ID first and sends only for a Layer 4 load
    balancer in a stable state. The create response's ID is attributable to
    the caller and may be cleaned up.
@@ -32,8 +31,9 @@ runs the live create and delete on disposable resources before landing.
 
 ## Scope and alternatives
 
-Ship one usable Network GLB (Layer 4): one TCP listener, one TCP pool, one TCP
-health check, and one existing private vServer backend in one verified region.
+The bundled proposal covers one Network GLB (Layer 4) with one TCP listener,
+one TCP pool, one TCP health check, and one existing private vServer backend
+in one verified region.
 Require an explicit restricted listener CIDR. Use prepaid GreenNode credits
 only. A usable create returns a confirmed GLB ID, not just an accepted order.
 Ship quote, create, and delete together so users can price and remove what
@@ -328,6 +328,7 @@ restricted CIDR, the first verified region, the quote's unit, and whether a
 local-only price guard suffices. A design approval does not authorize a live
 probe, spend, or cleanup.
 
+[children]: glb-pool.md#scope-guards
 [writes]: ../adr/0002-write-api-conventions.md
 [sdk]: ../../internal/endpoints/endpoints.go
 [reads]: cli-reads.md#globalloadbalancer

@@ -8,8 +8,8 @@ record before landing.
 
 1. Add one TCP pool with one private member group containing one vServer
    backend, then one TCP listener bound to that pool, on an existing Layer 4
-   Global Load Balancer (GLB). Start with `hcm-3` only. Keep the shipped bare
-   GLB create/delete and all existing reads unchanged.
+   Global Load Balancer (GLB). Each child write checks the caller's own GLB
+   region and package catalogs before mutation. See [scope guards](#scope-guards).
 2. Require explicit canonical IPv4 listener prefixes of `/8` or longer.
    Resolve the backend address from an exact server, project, VPC and subnet.
    Do not accept a raw address or relax either guard when evidence is missing.
@@ -75,9 +75,9 @@ without a listener can still run health checks but does not expose a listener.
   command.** Neither configures an arbitrary existing bare GLB with separate
   consent and recovery at each step. Leave the shipped parent contract alone.
 
-No other backend regions, multiple listeners or pools on one GLB, public
-backends, Layer 7, UDP, TLS, PROXY, update, bulk mutation, auto-cleanup, or
-writes to payment, DNS, compute, VPCs, subnets or firewalls in this feature.
+The scope excludes multiple listeners or pools on one GLB, public backends,
+Layer 7, UDP, TLS, PROXY, update, bulk mutation, auto-cleanup, and writes to
+payment, DNS, compute, VPCs, subnets or firewalls.
 Separately approved probe setup and teardown may use existing commands.
 
 ## SDK and CLI
@@ -200,16 +200,31 @@ follows owner decision 5: the exact GLB detail under the SDK-owned IAM-user
 token, and a backend project equal to the client's resolved project. Do not
 compare GLB `userId` to the IAM principal's `UserID`.
 
-On both creates prove backend placement under the explicit project ID:
+Remove the `c.c.Region() != "hcm-3"` check from
+[`childProvenance`][child-run]. Use the caller's guarded catalog result from
+[`run.region(ctx, parent.Package)`][child-guard] before each child mutation.
 
-1. Match the configured `hcm-3` to one enabled, package-eligible GLB region
-   using the guarded `ListRegions` and `ListPackages` routes. Verify the
-   region code sent to GLB and package support. Do not assume the GLB region
-   ID is the SDK configuration string or use a displayed region name as ID.
-2. Require `BackendProjectID` to equal the client's resolved project. Do not
+1. `GET /regions` must return exactly one eligible match for the configured
+   vServer region, with a nonempty GLB `id`. Keep `regionMatches`: compare the
+   name case-insensitively, accept empty or `ACTIVE` status, and require the
+   expected `vserverEndpoint` string for that region. Use the catalog endpoint
+   only for this comparison. Backend reads use the SDK's built-in regional
+   IAM gateway.
+2. `GET /packages` must return exactly one row for the exact parent's
+   package ID with `enabled: true`. Require a `vlbPackages` entry whose
+   `region` matches the configured region or the resolved GLB `id`, using
+   the existing case-insensitive match. Missing, ambiguous or inconsistent
+   catalog data stops the write.
+3. Use the resolved GLB `id` for the pool group's `region` in the POST and
+   its read-back. Require the exact group to report the same ID before the
+   listener POST and before either child DELETE.
+
+On both creates, prove server placement in that vServer region and project.
+
+1. Require `BackendProjectID` to equal the client's resolved project. Do not
    fall back to a default or synthesize region evidence from `ListProjects`'
    missing-region fill.
-3. Reuse the routes behind [compute.GetServer][compute] and
+2. Reuse the routes behind [compute.GetServer][compute] and
    [network.GetVPC/GetSubnet][network] with strict private projections:
    `GET /v2/{project}/servers/{server}`, `GET /v2/{project}/networks/{vpc}`,
    and `GET /v2/{project}/networks/{vpc}/subnets/{subnet}` on the pinned
@@ -221,7 +236,7 @@ On both creates prove backend placement under the explicit project ID:
    subnet CIDR. Never select `floatingIp` or an external interface. Require
    evidenced eligible server/network state. Missing, ambiguous, or changed
    scope authorizes no POST.
-4. `CreatePool` requires empty listener and pool inventories, and its
+3. `CreatePool` requires empty listener and pool inventories, and its
    confirmation requires the complete pool list to hold exactly one pool,
    whose ID equals the accepted ID; otherwise `ErrNotSettled` with that ID. For
    `CreateListener`, read the sole pool and sole group by ID, take their
@@ -311,12 +326,15 @@ owned Layer 4 parent and target, cross-check parent links and complete
 relevant inventories, and require the pool `ACTIVE` with health `ACTIVE`.
 Member health (`ONLINE`, `OFFLINE`, `HEALTHY`, `UNHEALTHY`) is reported,
 never required. Require matching IDs, known TCP/private types and no extra
-affected children. In particular:
+affected children. In `deletePrelude`, pass `parent.Package` from the exact
+parent read to `run.region` and return the resolved GLB ID. On both paths
+read the sole group's exact detail, verify its GLB and pool links, and
+require `group.Region` to equal that ID.
 
 - Listener: verify its sole pool binding and report which listener will
-  stop receiving traffic. The operation must not delete its pool.
+  stop receiving traffic. The pool and group survive.
 - Pool: require no listener and exactly the one expected private group with
-  its one row. The pool DELETE removes both; the vServer stays.
+  its one row. The pool DELETE removes both. The vServer survives.
 
 Never send after a preflight 404, ambiguous inventory or scope mismatch.
 `Deleted=true` requires the complete collection under the still-present
@@ -329,9 +347,9 @@ with the ID and `Deleted=false`. Do not change parent delete.
 
 ## Probe record
 
-One `hcm-3` run under decision 7: a fresh GNLB_4000 GLB, a private
-s2-general-1x2 vServer with only SSH listening, backend port 22, and the
-laptop's `/32` on listener port 2222.
+Only `hcm-3` is live-verified. The run under decision 7 used a fresh GNLB_4000
+GLB, a private s2-general-1x2 vServer with only SSH listening, backend port 22,
+and the laptop's `/32` on listener port 2222.
 
 - **Pool create:** accepted and, after about 147 seconds, read back with
   pool and health `ACTIVE`, health `TCP 3,3,30,5`, group `PRIVATE`, region
@@ -355,14 +373,14 @@ laptop's `/32` on listener port 2222.
 [GreenNode pricing][pricing] describes a GLB-level forecast hold for three
 prepaid days and later connection and data charges. [Managing NGLB][manage]
 shows a listener and pool as parts of a GLB and lets users add them later.
-The API documents no child quote route and the child requests have no price,
-SKU or payment fields. None of this establishes that child writes create no
-additional charges, regional components or credit holds, or that deleting a
-child earns a refund. Treat separate child billing and funding as unknown.
-A package catalog price, missing payment field, or flat account balance is
-not proof. Owner decision 4 records the exception: child creates ship with
-`--yes` consent and no quote; balance records stay private, and help and
-wiki name only attributable child charges.
+The child POSTs carry only configuration. The documented paid path is the
+parent GLB hold and usage billing. Separate child charges, holds and funding
+remain undetermined. Owner decision 4 requires `--yes` for child creates.
+Under that exception, regions that pass discovery need no quote. If a
+separately paid child create is established, require a side-effect-free quote
+for that exact normalized child request, parent package, region and account,
+covering the incremental initial debit or hold before enabling that paid
+path. Keep balance evidence private and report only attributable child charges.
 
 Manager-only live plan under the [live-data rules][live]:
 
@@ -393,15 +411,19 @@ invalid CIDR, ID, port, profile, project, region, topology and backend rejected
 before mutation; private-IP and ownership joins, duplicate/hostile JSON, missing
 and wrong IDs, impossible state, bounded waits, ambiguous outcomes, no resend,
 redirect/capture/credential canaries, and preflight/confirmation 404 versus 403
-and parent loss. Test deletion order, survivors and no cascade; CLI help,
-flag/JSON precedence, read-only, `--yes`, query, partial output and exit codes.
+and parent loss. Exercise all four writes in a synthetic non-HCM region with
+an eligible account package. Assert no mutation for missing or ambiguous
+region/package matches, disabled packages, and mismatched group regions on
+both deletes. Test dependency order and survivors, CLI help, flag/JSON
+precedence, read-only, `--yes`, query, partial output and exit codes.
 Run regression checks for shipped bare GLB and reads. Land SDK, CLI and
-updated generated wiki together after the probe record, `make check` and
-adversarial review.
+updated generated wiki together after `make check` and adversarial review.
 
 [parent]: glb-create.md#owner-decisions
 [writes]: ../adr/0002-write-api-conventions.md
 [write-code]: ../../globalloadbalancer/write.go
+[child-run]: ../../globalloadbalancer/child_run.go
+[child-guard]: ../../globalloadbalancer/child_guard.go
 [compute]: ../../compute/compute.go
 [network]: ../../network/vpcs.go
 [cli]: cli.md#errors-and-exit-codes
