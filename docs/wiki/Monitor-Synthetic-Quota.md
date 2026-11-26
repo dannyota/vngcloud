@@ -24,8 +24,9 @@ method switches to another operation or creates a missing quota.
 
 Both writes require the free capacity derived from your catalog for that
 quota's class and package, with POC and auto-renew off.
-The identity-checked detail price supplies `ListPrice`; no v1 catalog ID or
-price is substituted. The budget guards the higher of quote and detail prices.
+`ListPrice` is the higher of the identity-checked detail price and the
+matching catalog price; no v1 catalog ID or price is substituted. The budget
+guards the higher of that list price and the quote.
 Missing prices fail closed, a zero quote against a positive list price is
 `Unpriced`, and positive prices remain unsupported even with a larger budget.
 SDK `MaxPrice` defaults to zero. CLI writes require explicit `--max-price` or
