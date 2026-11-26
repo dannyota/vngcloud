@@ -148,8 +148,12 @@ branches remain gated on matching fixtures. Conflicting legacy zone IDs fail
 rather than being reassigned. `ExcludedGroups` remains nil when the product
 catalog was not read.
 
-`Reference` records a supported unlicensed Ubuntu image and a bounded 3000 IOPS
-root disk. Image support must match the flavor's metadata exactly. Missing or
+`Reference` records a supported unlicensed Ubuntu image and a bounded root
+disk: a 3000 IOPS type by default, or the type named by `RootDiskTypeID`
+(`--root-disk-type-id`) from the region's volume type catalog. Root size is the
+larger of the image and type minimums and must not exceed the type maximum.
+The quote's root line is not checked against the chosen type beyond the
+request. Image support must match the flavor's metadata exactly. Missing or
 unusable support, licence, or package limits cannot justify a reference. Eligible
 pairs sort by root size, then bytewise image version, image ID, and disk type ID.
 Image-zone metadata does not prove compatibility; the quote validates the pair.

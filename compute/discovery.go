@@ -14,12 +14,15 @@ import (
 	"danny.vn/vngcloud/internal/routes"
 	"danny.vn/vngcloud/internal/transport"
 	"danny.vn/vngcloud/pricing"
+	"danny.vn/vngcloud/volume"
 )
 
 // ListFlavorPricesInput selects parameters for ListFlavorPrices.
 type ListFlavorPricesInput struct {
 	// ZoneID selects one returned zone; empty selects all zones in the configured region.
 	ZoneID string
+	// RootDiskTypeID selects a returned root volume type; empty selects a 3000 IOPS type.
+	RootDiskTypeID string
 	// Family filters by exact, case-sensitive family key when nonempty.
 	Family string
 	// Platform filters by exact, case-sensitive platform key when nonempty.
@@ -79,6 +82,7 @@ type flavorDiscovery struct {
 	out        *ListFlavorPricesOutput
 	errs       []error
 	partial    bool
+	customDisk bool
 	identities map[string]Flavor
 	tuples     map[string]Flavor
 }
@@ -97,7 +101,7 @@ func (c *Client) ListFlavorPrices(ctx context.Context, in *ListFlavorPricesInput
 		return nil, fmt.Errorf("%w: %w", core.ErrInvalidInput, err)
 	}
 	defer s.Close()
-	d := flavorDiscovery{client: c, session: s, partial: in.AllowPartial, identities: map[string]Flavor{}, tuples: map[string]Flavor{}, out: &ListFlavorPricesOutput{Items: []FlavorPrice{}, Metadata: pricing.DiscoveryMetadata{Region: c.c.Region(), Complete: true, Failures: []pricing.DiscoveryFailure{}, Notes: pricing.DiscoveryNotes()}}}
+	d := flavorDiscovery{client: c, session: s, partial: in.AllowPartial, customDisk: in.RootDiskTypeID != "", identities: map[string]Flavor{}, tuples: map[string]Flavor{}, out: &ListFlavorPricesOutput{Items: []FlavorPrice{}, Metadata: pricing.DiscoveryMetadata{Region: c.c.Region(), Complete: true, Failures: []pricing.DiscoveryFailure{}, Notes: pricing.DiscoveryNotes()}}}
 	d.out.Metadata.Notes = slices.DeleteFunc(d.out.Metadata.Notes, func(n pricing.PricingNote) bool {
 		return n.Scope == "storage" || n.Scope == "object-storage" || n.Scope == "network"
 	})
@@ -141,7 +145,8 @@ func (c *Client) ListFlavorPrices(ctx context.Context, in *ListFlavorPricesInput
 	if len(d.out.Items) == 0 && len(d.errs) == 0 {
 		d.note("unmatched-scope", "compute", "No supported flavor matches the requested catalog scope and exact filters.")
 	}
-	if !slices.ContainsFunc(d.out.Items, func(row FlavorPrice) bool { return row.Price.Status != "inapplicable" }) {
+	hasRows := slices.ContainsFunc(d.out.Items, func(row FlavorPrice) bool { return row.Price.Status != "inapplicable" })
+	if !hasRows && in.RootDiskTypeID == "" {
 		return d.finish()
 	}
 	types, err := d.volumeCatalog(project)
@@ -149,6 +154,21 @@ func (c *Client) ListFlavorPrices(ctx context.Context, in *ListFlavorPricesInput
 		if !d.record("volume.ListVolumeTypes", "reference-disks", err) {
 			return nil, err
 		}
+		return d.finish()
+	}
+	if in.RootDiskTypeID != "" {
+		types = slices.DeleteFunc(types, func(v volume.VolumeType) bool {
+			id := v.VolumeTypeID
+			if id == "" {
+				id = v.ID
+			}
+			return id != in.RootDiskTypeID
+		})
+		if len(types) == 0 {
+			return nil, fmt.Errorf("%w: unknown RootDiskTypeID", core.ErrInvalidInput)
+		}
+	}
+	if !hasRows {
 		return d.finish()
 	}
 	for _, zone := range zones {
@@ -170,15 +190,23 @@ func (c *Client) ListFlavorPrices(ctx context.Context, in *ListFlavorPricesInput
 			if row.ZoneID != zone.ID {
 				continue
 			}
-			row.Reference, e = selectFlavorReference(s.Context(), row.Flavor, images, types)
+			if in.RootDiskTypeID == "" {
+				row.Reference, e = selectFlavorReference(s.Context(), row.Flavor, images, types)
+			} else {
+				row.Reference, e = selectFlavorReferenceWithDisk(s.Context(), row.Flavor, images, types, true)
+			}
 			if e != nil {
-				if !d.record("compute.ListFlavorPrices", flavorDiscoveryKey(*row), e) {
+				if errors.Is(e, core.ErrInvalidInput) || !d.record("compute.ListFlavorPrices", flavorDiscoveryKey(*row), e) {
 					return nil, e
 				}
 				return d.finish()
 			}
 			if row.Reference == nil {
-				d.note("reference-unavailable", flavorDiscoveryKey(*row), "No supported unlicensed Ubuntu image and bounded 3000 IOPS root pair is available.")
+				text := "No supported unlicensed Ubuntu image and bounded 3000 IOPS root pair is available."
+				if in.RootDiskTypeID != "" {
+					text = "No supported unlicensed Ubuntu image and bounded root disk pair is available."
+				}
+				d.note("reference-unavailable", flavorDiscoveryKey(*row), text)
 			}
 		}
 	}
@@ -192,7 +220,7 @@ func validateFlavorDiscovery(in *ListFlavorPricesInput) error {
 	if in.MinRAM < 0 || in.MaxRAM < 0 || (in.MaxRAM > 0 && in.MinRAM > in.MaxRAM) {
 		return fmt.Errorf("%w: invalid raw RAM bounds", core.ErrInvalidInput)
 	}
-	for name, value := range map[string]string{"ZoneID": in.ZoneID, "Family": in.Family, "Platform": in.Platform} {
+	for name, value := range map[string]string{"ZoneID": in.ZoneID, "Family": in.Family, "Platform": in.Platform, "RootDiskTypeID": in.RootDiskTypeID} {
 		if value != "" {
 			if err := core.CheckPathID("compute.ListFlavorPrices", name, value); err != nil {
 				return err
@@ -241,7 +269,10 @@ func (d *flavorDiscovery) quotes() error {
 		_, err := d.session.DoJSON(d.client.c, transport.Request{Operation: "pricing.GetQuote", Method: http.MethodPost, URL: d.client.c.RouteURL(routes.Route{Product: routes.ProductPortal, Version: "v1", Parts: []string{"price"}}), Body: group.body, OK: []int{200}}, nil, func(status int, raw json.RawMessage) error {
 			var e error
 			price, e = decodeFlavorDiscoveryPrice("pricing.GetQuote", status, raw)
-			return e
+			if e != nil || !d.customDisk {
+				return e
+			}
+			return validateFlavorRootQuote(status, raw)
 		})
 		for _, index := range group.rows {
 			row := &d.out.Items[index]

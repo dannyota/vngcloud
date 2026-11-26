@@ -4,8 +4,10 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"fmt"
 	"slices"
 
+	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/pricecatalog"
 	"danny.vn/vngcloud/volume"
 )
@@ -30,12 +32,17 @@ func flavorImageSupport(metadata string) []string {
 }
 
 func selectFlavorReference(ctx context.Context, flavor Flavor, images []flavorReferenceImage, types []volume.VolumeType) (*FlavorPriceReference, error) {
+	return selectFlavorReferenceWithDisk(ctx, flavor, images, types, false)
+}
+
+func selectFlavorReferenceWithDisk(ctx context.Context, flavor Flavor, images []flavorReferenceImage, types []volume.VolumeType, custom bool) (*FlavorPriceReference, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	support := flavorImageSupport(flavor.Metadata)
 	var best FlavorPriceReference
 	found := false
+	outOfBounds := false
 	for _, image := range images {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -48,11 +55,12 @@ func selectFlavorReference(ctx context.Context, flavor Flavor, images []flavorRe
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
-			if disk.IOPS != 3000 || disk.MinSize <= 0 || disk.MaxSize < disk.MinSize {
+			if (!custom && disk.IOPS != 3000) || disk.MinSize <= 0 || disk.MaxSize < disk.MinSize {
 				continue
 			}
 			size := max(disk.MinSize, *limits.DiskSize)
 			if size > disk.MaxSize {
+				outOfBounds = true
 				continue
 			}
 			id := disk.VolumeTypeID
@@ -69,9 +77,31 @@ func selectFlavorReference(ctx context.Context, flavor Flavor, images []flavorRe
 		return nil, err
 	}
 	if !found {
+		if custom && outOfBounds {
+			return nil, fmt.Errorf("%w: root disk size outside type bounds", core.ErrInvalidInput)
+		}
 		return nil, nil
 	}
 	return &best, nil
+}
+
+func validateFlavorRootQuote(status int, raw json.RawMessage) error {
+	var result struct {
+		Properties []struct {
+			Name string `json:"name"`
+		} `json:"propertiesPrice"`
+	}
+	if json.Unmarshal(raw, &result) != nil || len(result.Properties) != 2 {
+		return invalidFlavorDiscovery("pricing.GetQuote", status)
+	}
+	counts := map[string]int{}
+	for _, line := range result.Properties {
+		counts[line.Name]++
+	}
+	if counts["INSTANCE TYPE"] != 1 || counts["ROOT DISK"] != 1 {
+		return invalidFlavorDiscovery("pricing.GetQuote", status)
+	}
+	return nil
 }
 
 func compareFlavorReferences(a, b FlavorPriceReference) int {

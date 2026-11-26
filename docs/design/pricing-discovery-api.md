@@ -311,7 +311,8 @@ and reuse the volume catalog path above. Select returned IDs only:
    `zoneId` and `flavorZoneIds`. Require present integer package limits:
    nonnegative CPU/memory no greater than the flavor and positive disk size.
    Only the quote validates the selected pair.
-2. Use a region-wide 3000 IOPS volume type with positive minimum and
+2. Use a region-wide 3000 IOPS volume type, or the caller's
+   `RootDiskTypeID` from the same catalog, with positive minimum and
    consistent maximum size. Root size is the greater of that minimum and
    `packageLimit.diskSize`; reject pairs exceeding the disk maximum.
 3. Sort by root size, then bytewise image version, image ID, and disk type ID,

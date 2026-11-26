@@ -23,8 +23,11 @@ const storageDiscoveryNote = discoveryOutputNote + " QuotaGB 0 uses the monthly 
 const computeDiscoveryNote = discoveryOutputNote + " Family, platform, and name are exact matches. " +
 	"RAM bounds compare raw catalog memory with unknown units. Use --sort-by ram for raw RAM " +
 	"or unit-price for the raw RAM rate. GiB values remain unknown. Each quote reports only " +
-	"the INSTANCE TYPE component of its recorded supported unlicensed Ubuntu reference and " +
-	"3000 IOPS root configuration. Root disks, data disks, CES, licensing, IPs, bandwidth, " +
+	"the INSTANCE TYPE component of its recorded supported unlicensed Ubuntu reference. " +
+	"The default root type has 3000 IOPS; --root-disk-type-id selects a returned type. " +
+	"Root size is the greater of the image and type minima and must fit the type maximum. " +
+	"The quote's root line is not verified against the selected type. " +
+	"Root disks, data disks, CES, licensing, IPs, bandwidth, " +
 	"traffic, snapshots, backups, and NAT are excluded. Without --zone-id, catalog-disabled zones " +
 	"remain inapplicable. An explicitly selected catalog zone is eligible for quotes regardless of its flag. " +
 	"Sold-out flavors remain visible unless --available-only. Missing reference support " +

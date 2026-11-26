@@ -32,7 +32,7 @@ library only; the CLI uses only public SDK methods.
 
 | Method | Input fields beyond common fields | `Items` element |
 |-|-|-|
-| `compute.ListFlavorPrices` | `ZoneID`, `Family`, `Platform`, `Name` string; `MinRAM`, `MaxRAM` int64; `IncludeNonPublic`, `AvailableOnly` bool | `FlavorPrice` |
+| `compute.ListFlavorPrices` | `ZoneID`, `Family`, `Platform`, `Name`, `RootDiskTypeID` string; `MinRAM`, `MaxRAM` int64; `IncludeNonPublic`, `AvailableOnly` bool | `FlavorPrice` |
 | `volume.ListVolumePrices` | `ZoneID`, `VolumeTypeID` string; `IOPS`, `Size` int; `Encryption` string | `VolumePrice` |
 | `storage.ListStoragePrices` | `Region`, `Type` string; `QuotaGB` int64 | `StoragePrice` |
 | `network.ListNetworkPrices` | None | `NetworkPrice` |
@@ -391,7 +391,8 @@ fixtures. Implementation updates wiki and generated CLI pages. The manager runs
 2. Recommend all-zone catalogs with disabled-zone quotes skipped, console-family
    defaults, explicit non-public scope, and unchanged flavor names. No derived
    Class or claim of public purchase eligibility.
-3. Recommend deterministic flavor-supported Ubuntu/3000 IOPS references and
+3. Recommend deterministic flavor-supported Ubuntu references with a 3000
+   IOPS root by default or the caller's `RootDiskTypeID`, and
    only the instance component as compute price. Exclude root-disk charges,
    disclose reference inputs, and gate compute on sanitized selector fixtures.
    Keep GiB and universal image-independence claims gated.
