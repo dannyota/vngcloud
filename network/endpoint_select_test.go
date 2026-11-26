@@ -96,6 +96,16 @@ func TestEndpointSelectionRefusals(t *testing.T) {
 	}
 }
 
+func TestEndpointRefusesIncompletePackagePagesBeforeQuote(t *testing.T) {
+	f := newEPFake()
+	f.packages = strings.Replace(f.packages, `"success":true`, `"success":true,"page":1,"size":1,"total":2,"totalPage":2`, 1)
+	h := newEPHarness(t, f)
+	_, err := h.c.QuoteCreateEndpoint(context.Background(), epCreateInput())
+	if err == nil || f.count(http.MethodPost, "/price") != 0 {
+		t.Fatalf("err=%v, quoted=%d", err, f.count(http.MethodPost, "/price"))
+	}
+}
+
 func TestEndpointConfiguredProjectNarrowsButNeedsMembership(t *testing.T) {
 	f := newEPFake()
 	f.projects = `{"projects":[{"projectId":"` + epProject + `","region":"hcm-3"},{"projectId":"pro-00000000-0000-0000-0000-0000000000ff","region":"hcm-3"},{"projectId":"pro-00000000-0000-0000-0000-0000000000ee","region":"han-1"}]}`

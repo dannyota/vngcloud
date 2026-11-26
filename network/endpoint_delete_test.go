@@ -57,6 +57,33 @@ func TestEndpointDeleteHappyPath(t *testing.T) {
 	}
 }
 
+func TestEndpointDeleteAlternativeOfferWithoutCatalog(t *testing.T) {
+	row := strings.NewReplacer(epService, "00000000-0000-0000-0000-0000000000a2", epPackage, "00000000-0000-0000-0000-0000000000b2", "vstorage.hcm03", "alternate", "HCM03-1C", "HCM03-1B").Replace(epRow(epID, "demo", "ACTIVE", epSubnet))
+	f := epDeleteFake(row)
+	f.zones = `{"success":false}`
+	out, err := newEPHarness(t, f).c.DeleteEndpoint(context.Background(), epDeleteInput())
+	if err != nil || out == nil || !out.Deleted {
+		t.Fatalf("out=%v err=%v", out, err)
+	}
+	if f.count(http.MethodGet, "/zones") != 0 || f.count(http.MethodDelete, "/"+epID) != 1 {
+		t.Fatal("unexpected catalog or delete calls")
+	}
+	if req := f.find(http.MethodDelete, "/"+epID); !strings.Contains(req.Body, `"endpointServiceUuid":"00000000-0000-0000-0000-0000000000a2"`) {
+		t.Fatalf("body %s", req.Body)
+	}
+}
+
+func TestEndpointDeleteDoesNotRequireOfferFields(t *testing.T) {
+	row := epRow(epID, "demo", "ACTIVE", epSubnet)
+	row = strings.Replace(row, `,"packageId":{"uuid":"`+epPackage+`","monthlyPrice":712400,"currencyUnit":"VND"}`, ``, 1)
+	row = strings.Replace(row, `,"zoneUuid":"HCM03-1C"`, ``, 1)
+	f := epDeleteFake(row)
+	out, err := newEPHarness(t, f).c.DeleteEndpoint(context.Background(), epDeleteInput())
+	if err != nil || out == nil || !out.Deleted {
+		t.Fatalf("out=%v err=%v", out, err)
+	}
+}
+
 func TestEndpointDeletePreflightRefusals(t *testing.T) {
 	r := strings.NewReplacer
 	base := epRow(epID, "demo", "ACTIVE", epSubnet)
@@ -68,9 +95,9 @@ func TestEndpointDeletePreflightRefusals(t *testing.T) {
 		{"absent", nil, core.ErrNotFound},
 		{"other id only", []string{epRow(epOtherID, "x", "ACTIVE", epSubnet)}, core.ErrNotFound},
 		{"other vpc", []string{r(`"vpcId":"`+epVPC, `"vpcId":"net-00000000-0000-0000-0000-0000000000ff`).Replace(base)}, core.ErrInvalidInput},
-		{"other service", []string{r(`"service":{"uuid":"`+epService, `"service":{"uuid":"00000000-0000-0000-0000-0000000000a2`).Replace(base)}, core.ErrInvalidInput},
-		{"other package", []string{r(`"packageId":{"uuid":"`+epPackage, `"packageId":{"uuid":"00000000-0000-0000-0000-0000000000b2`).Replace(base)}, core.ErrInvalidInput},
-		{"other zone", []string{r(`"zoneUuid":"HCM03-1C"`, `"zoneUuid":"HCM03-1B"`).Replace(base)}, core.ErrInvalidInput},
+		{"other project", []string{r(`"VServerProjectId":"`+epProject, `"VServerProjectId":"pro-00000000-0000-0000-0000-0000000000ff`).Replace(base)}, nil},
+		{"other type", []string{strings.Replace(base, `"endpointType":"Gateway"`, `"endpointType":"Interface"`, 1)}, core.ErrInvalidInput},
+		{"dns enabled", []string{strings.Replace(base, `"enableDnsName":false`, `"enableDnsName":true`, 1)}, core.ErrInvalidInput},
 		{"provisioning", []string{r(`"status":"ACTIVE"`, `"status":"PROVISIONING"`).Replace(base)}, core.ErrInvalidInput},
 		{"deleting", []string{r(`"status":"ACTIVE"`, `"status":"DELETING"`).Replace(base)}, core.ErrInvalidInput},
 		{"resource set", []string{r(`"endpointResource":null`, `"endpointResource":{"id":"x"}`).Replace(base)}, errInUse},
@@ -273,8 +300,8 @@ func TestEndpointServiceIdentityComesFromServiceObject(t *testing.T) {
 		want bool
 	}{
 		"endpointServiceId is not compared": {strings.Replace(base, `"endpointServiceId":"`+epServiceID24, `"endpointServiceId":"66b5000000000000000000aa`, 1), true},
-		"endpointServiceId not 24 hex":      {strings.Replace(base, `"endpointServiceId":"`+epServiceID24, `"endpointServiceId":"`+epService, 1), false},
-		"service name differs":              {strings.Replace(base, `"name":"vstorage.hcm03"`, `"name":"vstorage.han01"`, 1), false},
+		"endpointServiceId not 24 hex":      {strings.Replace(base, `"endpointServiceId":"`+epServiceID24, `"endpointServiceId":"`+epService, 1), true},
+		"service name differs":              {strings.Replace(base, `"name":"vstorage.hcm03"`, `"name":"vstorage.han01"`, 1), true},
 		"service object missing":            {strings.Replace(base, `"service":{`, `"servicex":{`, 1), false},
 	} {
 		t.Run(name, func(t *testing.T) {

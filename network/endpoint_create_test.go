@@ -359,6 +359,9 @@ func TestEndpointCreateWaitOutcomes(t *testing.T) {
 		{"wrong zone", func(int) string {
 			return strings.Replace(epRow(epID, "demo", "ACTIVE", epSubnet), `"zoneUuid":"HCM03-1C"`, `"zoneUuid":"HCM03-1B"`, 1)
 		}, false},
+		{"wrong endpoint type", func(int) string {
+			return strings.Replace(epRow(epID, "demo", "ACTIVE", epSubnet), `"endpointType":"Gateway"`, `"endpointType":"Interface"`, 1)
+		}, false},
 		{"dns on", func(int) string {
 			return strings.Replace(epRow(epID, "demo", "ACTIVE", epSubnet), `"enableDnsName":false`, `"enableDnsName":true`, 1)
 		}, false},

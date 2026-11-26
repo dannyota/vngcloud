@@ -1,7 +1,9 @@
 # Private endpoints
 
-`network.Client` quotes, creates, and deletes one vStorage Standard private
-endpoint in `hcm-3`. Other offers, zones, and regions are not supported.
+`network.Client` quotes, creates, and deletes monthly Gateway private
+endpoints in `hcm-3`, using the offers your own catalog lists. Live runs have
+verified the `vstorage.hcm03` Standard offer in `HCM03-1C`; other offers and
+zones have not been live-verified. Other regions are not supported.
 `ListEndpoints`, `GetEndpoint`, and `ListEndpointTags` read inventory; see
 [CLI Network](CLI-Network.md). An endpoint changes network reachability. It
 does not grant bucket access and does not prove S3 connectivity.
@@ -11,14 +13,19 @@ does not grant bucket access and does not prove S3 connectivity.
 - Region `hcm-3`, SDK IAM-user login, and default auth, VServer, and
   vNetwork endpoints. Any override returns `vngcloud.ErrInvalidConfig`
   before a request.
-- An existing ACTIVE VPC (`net-<uuid>`) and subnet (`sub-<uuid>`) in
-  availability zone `HCM03-1C`. The SDK never creates either.
+- An existing ACTIVE VPC (`net-<uuid>`) and a subnet (`sub-<uuid>`) usable
+  for endpoints in the chosen availability zone. The SDK never creates either.
 - The project is confirmed through the VServer project list; a configured
   project ID only narrows that list.
 
-The SDK resolves the category, the `vstorage.hcm03` Gateway service, and the
-`Standard` package from the catalog and refuses a missing, repeated, or
-conflicting row.
+`AvailabilityZoneID`, `CategoryID`, `ServiceID`, and `PackageID`
+(`--availability-zone-id`, `--category-id`, `--service-id`, `--package-id`)
+select the offer. Each defaults to the verified value (`HCM03-1C`, the default
+category, `vstorage.hcm03`, and `Standard`). The SDK reads every catalog page
+and requires each selection to match exactly one enabled row, the package to
+be priced in VND, and the quote to have one matching price line within
+`MaxPrice`; a missing, repeated, or conflicting row is refused before any
+quote.
 
 ## Quote, create, delete
 
@@ -40,8 +47,9 @@ del, err := client.DeleteEndpoint(ctx, &network.DeleteEndpointInput{EndpointID: 
   setting, and `billing list-resources` reported a created endpoint's
   `RenewType` as `AUTO-RENEW` despite the request. Check `billing
   list-resources` after create. Use a fresh, unique name for every create.
-- `DeleteEndpoint` requires exactly one ACTIVE endpoint of the named VPC and
-  offer with no attached resource and no domain, sends one DELETE, and
+- `DeleteEndpoint` requires exactly one ACTIVE Gateway endpoint with the
+  named ID in the confirmed project and VPC, with no attached resource and no
+  domain, sends one DELETE, and
   waits up to 10 minutes for the ID to leave a complete list. `Deleted` is
   true only then. Deleting an endpoint a cluster uses breaks that cluster's
   private access; the checks cannot detect that. Deletion promises no refund,

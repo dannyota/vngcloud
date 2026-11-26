@@ -42,8 +42,8 @@ func (o *endpointOp) waitCreate(ctx context.Context, s *endpointSpec, baseline m
 				continue
 			}
 			if baseline[row.UUID] || row.EndpointName != s.info.EndpointName || row.VPCID != s.info.VPCUUID || row.Subnet.UUID != s.info.SubnetUUID ||
-				row.Service.UUID != s.info.ServiceUUID || row.Service.Name != endpointService || row.PackageID.UUID != s.info.PackageUUID || row.Project.VServerProjectID != s.info.ProjectUUID ||
-				row.ZoneUUID != endpointZone || row.EnableDNSName {
+				row.Service.UUID != s.info.ServiceUUID || row.Service.Name != s.offer.serviceName || row.PackageID.UUID != s.info.PackageUUID || row.Project.VServerProjectID != s.info.ProjectUUID ||
+				row.ZoneUUID != s.offer.zone || row.EndpointType != "Gateway" || row.EnableDNSName {
 				return endpointUnsettled(o.op)
 			}
 			out.Status = row.Status
@@ -66,7 +66,7 @@ func (o *endpointOp) waitDelete(ctx context.Context, id string, deadline time.Ti
 		if err := o.expired(ctx, deadline); err != nil {
 			return err
 		}
-		rows, err := o.inventory(ctx)
+		rows, err := o.deleteInventory(ctx)
 		if err != nil {
 			return endpointUnsettled(o.op, err)
 		}

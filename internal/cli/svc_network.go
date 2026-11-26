@@ -219,6 +219,9 @@ func newNetworkCmd(e *env) *cobra.Command {
 		case "list-nat-zones", "list-nat-packages", "quote-create-nat-instance", "create-nat-instance", "delete-nat-instance",
 			"quote-create-endpoint", "create-endpoint", "delete-endpoint":
 			child.Long = docOpNotes["network "+child.Name()]
+			if child.Name() == "quote-create-endpoint" || child.Name() == "create-endpoint" {
+				child.RunE = endpointSelectorFlags(child.RunE)
+			}
 			switch child.Name() {
 			case "create-nat-instance", "delete-nat-instance", "create-endpoint", "delete-endpoint":
 				child.RunE = natReadOnlyUsage(child.RunE)

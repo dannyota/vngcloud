@@ -1,7 +1,6 @@
 package network
 
-// CreateEndpointInput names the vStorage Standard endpoint to buy in hcm-3.
-// The VPC and subnet must already exist in availability zone HCM03-1C.
+// CreateEndpointInput names the Gateway endpoint to buy in hcm-3.
 type CreateEndpointInput struct {
 	// Name is required and must not be blank or hold control characters.
 	Name string `vngcloud:"required"`
@@ -9,6 +8,14 @@ type CreateEndpointInput struct {
 	VPCID string `vngcloud:"required"`
 	// SubnetID is required and has the form sub-<uuid>.
 	SubnetID string `vngcloud:"required"`
+	// AvailabilityZoneID selects an enabled availability zone, default HCM03-1C.
+	AvailabilityZoneID string
+	// CategoryID selects a catalog category, default the sole default category.
+	CategoryID string
+	// ServiceID selects a Gateway service, default vstorage.hcm03.
+	ServiceID string
+	// PackageID selects a VND package, default Standard.
+	PackageID string
 	// MaxPrice caps the fresh monthly quote in VND; QuoteCreateEndpoint
 	// ignores it. Zero blocks every purchase.
 	MaxPrice float64

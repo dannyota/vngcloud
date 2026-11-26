@@ -48,6 +48,14 @@ func TestNetworkEndpointWriteMapping(t *testing.T) {
 				raw, _ := json.Marshal(in)
 				var got map[string]any
 				_ = json.Unmarshal(raw, &got)
+				if tc.name != "delete-endpoint" {
+					for _, key := range []string{"AvailabilityZoneID", "CategoryID", "ServiceID", "PackageID"} {
+						if got[key] != "" {
+							t.Errorf("default %s=%v", key, got[key])
+						}
+						delete(got, key)
+					}
+				}
 				if !reflect.DeepEqual(got, tc.want) {
 					t.Errorf("input=%s want=%v", raw, tc.want)
 				}
@@ -57,6 +65,74 @@ func TestNetworkEndpointWriteMapping(t *testing.T) {
 			root.AddCommand(Service(h.e, "network", "test", network.New, op))
 			if err := execCmd(t, root, append([]string{"network", tc.name}, tc.args...)); err != nil || calls != 1 {
 				t.Fatalf("error=%v calls=%d", err, calls)
+			}
+		})
+	}
+}
+
+func TestNetworkEndpointSelectorFlags(t *testing.T) {
+	for _, name := range []string{"quote-create-endpoint", "create-endpoint"} {
+		t.Run(name, func(t *testing.T) {
+			h := newFakeHarness(t)
+			op := natWriteOp(t, name)
+			called := false
+			op.call = func(_ *cobra.Command, _ *network.Client, _ context.Context, in any) (any, error) {
+				called = true
+				raw, _ := json.Marshal(in)
+				var got map[string]any
+				_ = json.Unmarshal(raw, &got)
+				for key, value := range map[string]string{"AvailabilityZoneID": "HCM03-1B", "CategoryID": "66b500000000000000000009", "ServiceID": "00000000-0000-0000-0000-0000000000a1", "PackageID": "00000000-0000-0000-0000-0000000000b1"} {
+					if got[key] != value {
+						t.Errorf("%s=%v", key, got[key])
+					}
+				}
+				return op.newOutput(), nil
+			}
+			root := newTestRoot(h.e)
+			root.AddCommand(Service(h.e, "network", "test", network.New, op))
+			args := append(epCreateArgs(name), "--availability-zone-id", "HCM03-1B", "--category-id", "66b500000000000000000009", "--service-id", "00000000-0000-0000-0000-0000000000a1", "--package-id", "00000000-0000-0000-0000-0000000000b1")
+			if name == "create-endpoint" {
+				args = append(args, "--yes", "--max-price", "1")
+			}
+			if err := execCmd(t, root, args); err != nil || !called {
+				t.Fatalf("err=%v called=%v", err, called)
+			}
+		})
+	}
+}
+
+func TestNetworkEndpointEmptySelectorBeforeRequests(t *testing.T) {
+	for _, name := range []string{"quote-create-endpoint", "create-endpoint"} {
+		for _, flag := range []string{"availability-zone-id", "category-id", "service-id", "package-id"} {
+			t.Run(name+"/"+flag, func(t *testing.T) {
+				calls := 0
+				run := natCLI(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls++ }))
+				args := append(epCreateArgs(name), "--"+flag+"=")
+				if name == "create-endpoint" {
+					args = append(args, "--yes", "--max-price", "1")
+				}
+				code, _, stderr := run(args...)
+				if code != 2 || calls != 0 || !strings.Contains(stderr, "--"+flag) {
+					t.Fatalf("exit=%d calls=%d stderr=%s", code, calls, stderr)
+				}
+			})
+		}
+	}
+}
+
+func TestNetworkEndpointMalformedSelectorBeforeRequests(t *testing.T) {
+	for _, name := range []string{"quote-create-endpoint", "create-endpoint"} {
+		t.Run(name, func(t *testing.T) {
+			calls := 0
+			run := natCLI(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls++ }))
+			args := append([]string{"--region", "hcm-3"}, epCreateArgs(name)...)
+			args = append(args, "--service-id", "unknown")
+			if name == "create-endpoint" {
+				args = append(args, "--yes", "--max-price", "1")
+			}
+			code, _, stderr := run(args...)
+			if code != 2 || calls != 0 || !strings.Contains(stderr, "ServiceID") {
+				t.Fatalf("exit=%d calls=%d stderr=%s", code, calls, stderr)
 			}
 		})
 	}
@@ -109,8 +185,8 @@ func TestNetworkEndpointQuoteRunsOnReadOnlyProfile(t *testing.T) {
 
 func TestNetworkEndpointForbiddenFlags(t *testing.T) {
 	for name, flags := range map[string][]string{
-		"quote-create-endpoint": {"no-wait", "force", "category-id", "service-id", "package-id", "dns", "auto-renew", "max-price"},
-		"create-endpoint":       {"no-wait", "force", "category-id", "service-id", "package-id", "dns", "auto-renew", "zone-id"},
+		"quote-create-endpoint": {"no-wait", "force", "dns", "auto-renew", "max-price", "unknown-selector"},
+		"create-endpoint":       {"no-wait", "force", "dns", "auto-renew", "zone-id", "unknown-selector"},
 		"delete-endpoint":       {"no-wait", "force", "cascade", "zone-id"},
 	} {
 		for _, flag := range flags {
@@ -128,7 +204,7 @@ func TestNetworkEndpointForbiddenFlags(t *testing.T) {
 func TestNetworkEndpointWriteHelp(t *testing.T) {
 	run := natCLI(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("help sent request") }))
 	for name, want := range map[string][]string{
-		"quote-create-endpoint": {"VND per month", "vStorage", "HCM03-1C", "Read-only profiles can run this command"},
+		"quote-create-endpoint": {"VND per month", "vstorage.hcm03", "HCM03-1C", "Read-only profiles can run this command"},
 		"create-endpoint":       {"VND per month", "request auto-renew off", "--yes", "--max-price", "not a server price lock", "Do not repeat", "network list-endpoints", "no --no-wait", "Quote and debit can differ", "does not grant bucket access"},
 		"delete-endpoint":       {"--yes", "breaks", "cluster", "promises no refund", "refund can stay pending", "billing list-transactions", "network list-endpoints", "attached resource"},
 	} {

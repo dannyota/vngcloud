@@ -6,13 +6,15 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strings"
+	"time"
 
 	"danny.vn/vngcloud/internal/core"
 	"danny.vn/vngcloud/internal/transport"
 )
 
-type endpointOffer struct{ category, service, pkg string }
+type endpointOffer struct{ zone, category, service, serviceName, pkg, packageName string }
 
 type endpointRow struct {
 	UUID              string `json:"uuid"`
@@ -20,6 +22,7 @@ type endpointRow struct {
 	EndpointServiceID string `json:"endpointServiceId"`
 	VPCID             string `json:"vpcId"`
 	Status            string `json:"status"`
+	EndpointType      string `json:"endpointType"`
 	ZoneUUID          string `json:"zoneUuid"`
 	EnableDNSName     bool   `json:"enableDnsName"`
 	Service           struct {
@@ -47,14 +50,96 @@ func endpointRows[T any](o *endpointOp, env *natEnvelope, required ...string) ([
 }
 
 func (o *endpointOp) catalogRead(ctx context.Context, parts []string, search []endpointFilter, extra url.Values) (*natEnvelope, error) {
-	query := endpointParams(1, search)
-	for key, values := range extra {
-		query[key] = values
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	var all []json.RawMessage
+	seen := map[string]bool{}
+	total, pages, size := -1, -1, -1
+	for page := 1; page <= 50; page++ {
+		query := endpointParams(page, search)
+		for key, values := range extra {
+			query[key] = values
+		}
+		raw, _, err := o.raw(ctx, transport.Request{Method: http.MethodGet, URL: o.route("vnetwork/v1", append([]string{"endpoints"}, parts...), query), OK: []int{http.StatusOK}})
+		if err != nil {
+			return nil, err
+		}
+		var env natEnvelope
+		var fields map[string]json.RawMessage
+		if decodeNATEnvelope(raw, &env, reflect.TypeFor[map[string]json.RawMessage]()) != nil || env.Success == nil || !*env.Success || json.Unmarshal(raw, &fields) != nil {
+			return nil, endpointInvalid(o.op)
+		}
+		for _, name := range []string{"nextPage", "next", "hasMore", "nextToken", "nextMarker", "pagination"} {
+			if _, ok := fields[name]; ok {
+				return nil, endpointInvalid(o.op)
+			}
+		}
+		_, hasPage := fields["page"]
+		_, hasSize := fields["size"]
+		_, hasTotal := fields["total"]
+		_, hasPages := fields["totalPage"]
+		if page == 1 && !hasPage && !hasSize && !hasTotal && !hasPages {
+			return &env, nil
+		}
+		if env.Page == nil || *env.Page != page || env.Size == nil || *env.Size <= 0 || env.Total == nil || *env.Total < 0 || env.TotalPage == nil || *env.TotalPage < 0 || *env.TotalPage > 50 {
+			return nil, endpointInvalid(o.op)
+		}
+		if page == 1 {
+			total, pages, size = *env.Total, *env.TotalPage, *env.Size
+			count := total / size
+			if total%size != 0 {
+				count++
+			}
+			if count != pages {
+				return nil, endpointInvalid(o.op)
+			}
+		} else if total != *env.Total || pages != *env.TotalPage || size != *env.Size {
+			return nil, endpointInvalid(o.op)
+		}
+		var rows []json.RawMessage
+		if len(env.Data) == 0 && total == 0 && pages == 0 {
+			rows = []json.RawMessage{}
+		} else if json.Unmarshal(env.Data, &rows) != nil || rows == nil {
+			return nil, endpointInvalid(o.op)
+		}
+		expected := size
+		if page == pages {
+			expected = total - size*(pages-1)
+		}
+		if total == 0 {
+			expected = 0
+		}
+		if len(rows) != expected {
+			return nil, endpointInvalid(o.op)
+		}
+		for _, row := range rows {
+			var id struct {
+				UUID string `json:"uuid"`
+			}
+			if json.Unmarshal(row, &id) != nil || core.CheckPathID(o.op, "catalog ID", id.UUID) != nil || seen[id.UUID] {
+				return nil, endpointInvalid(o.op)
+			}
+			seen[id.UUID] = true
+			all = append(all, row)
+		}
+		if page >= pages {
+			if len(all) != total {
+				return nil, endpointInvalid(o.op)
+			}
+			if all == nil {
+				all = []json.RawMessage{}
+			}
+			env.Data, err = json.Marshal(all)
+			if err != nil {
+				return nil, endpointInvalid(o.op)
+			}
+			return &env, nil
+		}
 	}
-	return o.envelope(ctx, transport.Request{Method: http.MethodGet, URL: o.route("vnetwork/v1", append([]string{"endpoints"}, parts...), query), OK: []int{http.StatusOK}}, nil)
+	return nil, endpointInvalid(o.op)
 }
 
-func (o *endpointOp) resolveOffer(ctx context.Context) (endpointOffer, error) {
+func (o *endpointOp) resolveOffer(ctx context.Context, in *CreateEndpointInput) (endpointOffer, error) {
 	refuse := func(what string) (endpointOffer, error) {
 		return endpointOffer{}, fmt.Errorf("%w: %s: %s", core.ErrInvalidInput, o.op, what)
 	}
@@ -64,22 +149,30 @@ func (o *endpointOp) resolveOffer(ctx context.Context) (endpointOffer, error) {
 	}
 	zones, err := endpointRows[struct {
 		UUID      string `json:"uuid"`
+		ZoneType  string `json:"zoneType"`
 		IsEnabled bool   `json:"isEnabled"`
-	}](o, env, "uuid", "isEnabled")
+	}](o, env, "uuid", "zoneType", "isEnabled")
 	if err != nil {
 		return endpointOffer{}, err
 	}
+	zone := in.AvailabilityZoneID
+	if zone == "" {
+		zone = endpointZone
+	}
 	matches := 0
+	var selectedZone struct {
+		UUID      string `json:"uuid"`
+		ZoneType  string `json:"zoneType"`
+		IsEnabled bool   `json:"isEnabled"`
+	}
 	for _, z := range zones {
-		if z.UUID == endpointZone {
+		if z.UUID == zone {
 			matches++
-			if !z.IsEnabled {
-				return refuse("zone is not enabled")
-			}
+			selectedZone = z
 		}
 	}
-	if matches != 1 {
-		return refuse("zone is not offered exactly once")
+	if matches != 1 || core.CheckPathID(o.op, "availability zone", zone) != nil || !selectedZone.IsEnabled || selectedZone.ZoneType != "AVAILABILITY" {
+		return refuse("zone is not eligible exactly once")
 	}
 
 	if env, err = o.catalogRead(ctx, []string{"categories"}, nil, nil); err != nil {
@@ -92,12 +185,25 @@ func (o *endpointOp) resolveOffer(ctx context.Context) (endpointOffer, error) {
 	if err != nil {
 		return endpointOffer{}, err
 	}
-	if len(categories) != 1 || !categories[0].IsDefault || !hex24Pattern.MatchString(categories[0].UUID) {
-		return refuse("category is not the sole default")
+	offer := endpointOffer{zone: zone}
+	matches = 0
+	for _, category := range categories {
+		if (in.CategoryID != "" && category.UUID == in.CategoryID) || (in.CategoryID == "" && category.IsDefault) {
+			matches++
+			offer.category = category.UUID
+		}
 	}
-	offer := endpointOffer{category: categories[0].UUID}
+	categoryIDs := 0
+	for _, category := range categories {
+		if category.UUID == offer.category {
+			categoryIDs++
+		}
+	}
+	if matches != 1 || categoryIDs != 1 || (in.CategoryID == "" && len(categories) != 1) || !hex24Pattern.MatchString(offer.category) {
+		return refuse("category is not offered exactly once")
+	}
 
-	if env, err = o.catalogRead(ctx, []string{offer.category, "services"}, nil, url.Values{"zoneUuid": {endpointZone}}); err != nil {
+	if env, err = o.catalogRead(ctx, []string{offer.category, "services"}, nil, url.Values{"zoneUuid": {offer.zone}}); err != nil {
 		return endpointOffer{}, err
 	}
 	services, err := endpointRows[struct {
@@ -109,16 +215,20 @@ func (o *endpointOp) resolveOffer(ctx context.Context) (endpointOffer, error) {
 		return endpointOffer{}, err
 	}
 	matches = 0
+	var selectedServiceType string
 	for _, s := range services {
-		if s.Name == endpointService {
+		if (in.ServiceID != "" && s.UUID == in.ServiceID) || (in.ServiceID == "" && s.Name == endpointService) {
 			matches++
-			offer.service = s.UUID
-			if s.EndpointType != "Gateway" {
-				return refuse("service is not a Gateway")
-			}
+			offer.service, offer.serviceName, selectedServiceType = s.UUID, s.Name, s.EndpointType
 		}
 	}
-	if matches != 1 || !uuidPattern.MatchString(offer.service) {
+	idMatches := 0
+	for _, s := range services {
+		if s.UUID == offer.service {
+			idMatches++
+		}
+	}
+	if matches != 1 || idMatches != 1 || !uuidPattern.MatchString(offer.service) || strings.TrimSpace(offer.serviceName) == "" || selectedServiceType != "Gateway" {
 		return refuse("service is not offered exactly once")
 	}
 
@@ -135,19 +245,23 @@ func (o *endpointOp) resolveOffer(ctx context.Context) (endpointOffer, error) {
 		return endpointOffer{}, err
 	}
 	matches = 0
+	var selectedService, selectedCurrency string
 	for _, p := range packages {
-		if p.Name == endpointPackage {
+		if (in.PackageID != "" && p.UUID == in.PackageID) || (in.PackageID == "" && p.Name == endpointPackage) {
 			matches++
-			offer.pkg = p.UUID
-			if p.ServiceName != endpointService {
-				return refuse("package belongs to another service")
-			}
-			if p.CurrencyUnit != "VND" {
-				return refuse("package is not priced in VND")
-			}
+			offer.pkg, offer.packageName, selectedService, selectedCurrency = p.UUID, p.Name, p.ServiceName, p.CurrencyUnit
 		}
 	}
-	if matches != 1 || !uuidPattern.MatchString(offer.pkg) {
+	idMatches, nameMatches := 0, 0
+	for _, p := range packages {
+		if p.UUID == offer.pkg {
+			idMatches++
+		}
+		if p.Name == offer.packageName {
+			nameMatches++
+		}
+	}
+	if matches != 1 || idMatches != 1 || nameMatches != 1 || !uuidPattern.MatchString(offer.pkg) || strings.TrimSpace(offer.packageName) == "" || selectedService != offer.serviceName || selectedCurrency != "VND" {
 		return refuse("package is not offered exactly once")
 	}
 	return offer, nil
@@ -192,7 +306,7 @@ func (o *endpointOp) checkPlacement(ctx context.Context, offer endpointOffer, vp
 		return fmt.Errorf("%w: %s: VPC is not eligible for the endpoint offer", core.ErrNotFound, o.op)
 	}
 
-	env, err := o.catalogRead(ctx, []string{"vpcs", vpc, "subnets"}, []endpointFilter{{"isEndpointUsable", "true"}, {"zoneUuid", endpointZone}}, nil)
+	env, err := o.catalogRead(ctx, []string{"vpcs", vpc, "subnets"}, []endpointFilter{{"isEndpointUsable", "true"}, {"zoneUuid", offer.zone}}, nil)
 	if err != nil {
 		return err
 	}
@@ -214,7 +328,7 @@ func (o *endpointOp) checkPlacement(ctx context.Context, offer endpointOffer, vp
 		}
 		if s.UUID == subnet {
 			matches++
-			if s.Status != "ACTIVE" || s.VPCUUID != vpc || s.Zone.UUID != endpointZone {
+			if s.Status != "ACTIVE" || s.VPCUUID != vpc || s.Zone.UUID != offer.zone {
 				return refuse("subnet is not an active subnet of the VPC in the zone")
 			}
 		}
@@ -227,7 +341,7 @@ func (o *endpointOp) checkPlacement(ctx context.Context, offer endpointOffer, vp
 
 func (o *endpointOp) inventory(ctx context.Context) ([]endpointRow, error) {
 	return endpointScan(ctx, o, []string{"endpoints"}, nil, func(raw json.RawMessage) ([]endpointRow, error) {
-		rows, err := natDecodeRows[endpointRow](o.op, raw, "uuid", "endpointName", "endpointServiceId", "vpcId", "status", "zoneUuid", "enableDnsName", "subnet", "packageId", "project", "service")
+		rows, err := natDecodeRows[endpointRow](o.op, raw, "uuid", "endpointName", "endpointServiceId", "vpcId", "status", "endpointType", "zoneUuid", "enableDnsName", "subnet", "packageId", "project", "service")
 		if err != nil {
 			return nil, endpointSafeError(o.op, err)
 		}

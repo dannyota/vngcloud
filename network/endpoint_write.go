@@ -69,7 +69,25 @@ func checkEndpointCreateInput(op string, in *CreateEndpointInput) error {
 	if err := checkEndpointForm(op, "VPCID", in.VPCID, "net-<uuid>", vpcPattern); err != nil {
 		return err
 	}
-	return checkEndpointForm(op, "SubnetID", in.SubnetID, "sub-<uuid>", subnetPattern)
+	if err := checkEndpointForm(op, "SubnetID", in.SubnetID, "sub-<uuid>", subnetPattern); err != nil {
+		return err
+	}
+	for _, field := range []struct {
+		name, value string
+		pattern     *regexp.Regexp
+	}{
+		{"CategoryID", in.CategoryID, hex24Pattern}, {"ServiceID", in.ServiceID, uuidPattern}, {"PackageID", in.PackageID, uuidPattern},
+	} {
+		if field.value != "" {
+			if err := checkEndpointForm(op, field.name, field.value, "catalog ID", field.pattern); err != nil {
+				return err
+			}
+		}
+	}
+	if in.AvailabilityZoneID != "" {
+		return core.CheckPathID(op, "AvailabilityZoneID", in.AvailabilityZoneID)
+	}
+	return nil
 }
 
 func checkEndpointForm(op, name, value, form string, pattern *regexp.Regexp) error {
@@ -94,7 +112,7 @@ func (c *Client) resolveEndpointSpec(ctx context.Context, o *endpointOp, in *Cre
 	if err := o.discoverScope(ctx); err != nil {
 		return nil, err
 	}
-	offer, err := o.resolveOffer(ctx)
+	offer, err := o.resolveOffer(ctx, in)
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +143,7 @@ func (o *endpointOp) quote(ctx context.Context, s *endpointSpec) (float64, error
 		return 0, endpointInvalid(o.op)
 	}
 	amount, p := *price.OptimumPrice, price.Properties[0]
-	if math.IsNaN(amount) || math.IsInf(amount, 0) || amount < 0 || p.Name != endpointPackage || p.OptimumPrice == nil || p.MonthlyPrice == nil || *p.OptimumPrice != amount || *p.MonthlyPrice != amount {
+	if math.IsNaN(amount) || math.IsInf(amount, 0) || amount < 0 || p.Name != s.offer.packageName || p.OptimumPrice == nil || p.MonthlyPrice == nil || *p.OptimumPrice != amount || *p.MonthlyPrice != amount {
 		return 0, endpointInvalid(o.op)
 	}
 	if amount == 0 {
@@ -134,8 +152,8 @@ func (o *endpointOp) quote(ctx context.Context, s *endpointSpec) (float64, error
 	return amount, nil
 }
 
-// QuoteCreateEndpoint reads a fresh monthly VND quote for one vStorage
-// Standard endpoint. It creates nothing and ignores MaxPrice.
+// QuoteCreateEndpoint reads a fresh monthly VND quote for one Gateway
+// endpoint. It creates nothing and ignores MaxPrice.
 func (c *Client) QuoteCreateEndpoint(ctx context.Context, in *CreateEndpointInput) (*QuoteCreateEndpointOutput, error) {
 	const op = "network.QuoteCreateEndpoint"
 	if err := checkEndpointCreateInput(op, in); err != nil {
@@ -153,7 +171,7 @@ func (c *Client) QuoteCreateEndpoint(ctx context.Context, in *CreateEndpointInpu
 	return &QuoteCreateEndpointOutput{MonthlyPrice: amount, Currency: "VND"}, nil
 }
 
-// CreateEndpoint buys one vStorage Standard endpoint in hcm-3 with one POST
+// CreateEndpoint buys one Gateway endpoint in hcm-3 with one POST
 // and waits for ACTIVE. It requests auto-renew off but reads no billing state.
 // The quote cap is not a server price lock.
 func (c *Client) CreateEndpoint(ctx context.Context, in *CreateEndpointInput) (*CreateEndpointOutput, error) {
@@ -210,7 +228,7 @@ func (c *Client) CreateEndpoint(ctx context.Context, in *CreateEndpointInput) (*
 	return out, nil
 }
 
-func (o *endpointOp) preflightDelete(rows []endpointRow, in *DeleteEndpointInput, offer endpointOffer) (*endpointRow, error) {
+func (o *endpointOp) preflightDelete(rows []endpointRow, in *DeleteEndpointInput) (*endpointRow, error) {
 	var row *endpointRow
 	for i := range rows {
 		if rows[i].UUID == in.EndpointID {
@@ -220,8 +238,8 @@ func (o *endpointOp) preflightDelete(rows []endpointRow, in *DeleteEndpointInput
 	if row == nil {
 		return nil, fmt.Errorf("%w: %s", core.ErrNotFound, o.op)
 	}
-	if row.VPCID != in.VPCID || row.Service.UUID != offer.service || row.Service.Name != endpointService || row.PackageID.UUID != offer.pkg || row.ZoneUUID != endpointZone || row.Status != "ACTIVE" {
-		return nil, fmt.Errorf("%w: %s: endpoint is not an ACTIVE vStorage Standard endpoint of the named VPC", core.ErrInvalidInput, o.op)
+	if row.Project.VServerProjectID != o.scope.project || row.VPCID != in.VPCID || row.Status != "ACTIVE" || row.EndpointType != "Gateway" || row.EnableDNSName {
+		return nil, fmt.Errorf("%w: %s: endpoint is not an eligible ACTIVE Gateway endpoint of the named VPC", core.ErrInvalidInput, o.op)
 	}
 	if len(row.resource) == 0 || len(row.domains) == 0 || string(row.domains) == "null" {
 		return nil, endpointInvalid(o.op)
@@ -236,7 +254,7 @@ func (o *endpointOp) preflightDelete(rows []endpointRow, in *DeleteEndpointInput
 	return row, nil
 }
 
-// DeleteEndpoint deletes one unattached ACTIVE vStorage Standard endpoint
+// DeleteEndpoint deletes one unattached ACTIVE Gateway endpoint
 // with one DELETE and waits until a complete scoped list omits it. Deleting an
 // endpoint a cluster uses breaks that cluster's private access, and deletion
 // promises no refund.
@@ -258,15 +276,11 @@ func (c *Client) DeleteEndpoint(ctx context.Context, in *DeleteEndpointInput) (*
 	if err := o.discoverScope(ctx); err != nil {
 		return nil, err
 	}
-	offer, err := o.resolveOffer(ctx)
+	rows, err := o.deleteInventory(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := o.inventory(ctx)
-	if err != nil {
-		return nil, err
-	}
-	row, err := o.preflightDelete(rows, in, offer)
+	row, err := o.preflightDelete(rows, in)
 	if err != nil {
 		return nil, err
 	}
