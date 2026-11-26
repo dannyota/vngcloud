@@ -168,15 +168,31 @@ func StorageRegions(c *core.Client, s *discovery.Session) ([]StorageRegion, erro
 }
 
 func StorageRegionIDs(op string, regions []StorageRegion) (map[string]string, error) {
+	for _, r := range regions {
+		if core.CheckPathID(op, "RegionID", r.ID) != nil {
+			return nil, Invalid(op, 200)
+		}
+	}
+	return StorageRegionAliases(op, regions)
+}
+
+func StorageRegionAliases(op string, regions []StorageRegion) (map[string]string, error) {
 	ids := map[string]string{}
 	seen := map[string]bool{}
 	for _, r := range regions {
 		key := strings.ToUpper(r.Name)
-		if core.CheckPathID(op, "RegionID", r.ID) != nil || key == "" || ids[key] != "" || seen[r.ID] {
+		if r.ID == "" || key == "" || ids[key] != "" || seen[r.ID] {
 			return nil, Invalid(op, 200)
 		}
 		ids[key] = r.ID
 		seen[r.ID] = true
+	}
+	for _, r := range regions {
+		key := strings.ToUpper(r.ID)
+		if id := ids[key]; id != "" && id != r.ID {
+			return nil, Invalid(op, 200)
+		}
+		ids[key] = r.ID
 	}
 	return ids, nil
 }
@@ -204,7 +220,12 @@ func ResolveStorageRegion(op, configured, name string, regions []StorageRegion) 
 	if ids[name] == "" {
 		return "", "", fmt.Errorf("%w: unknown storage region", core.ErrInvalidInput)
 	}
-	return ids[name], name, nil
+	for _, region := range regions {
+		if region.ID == ids[name] {
+			return region.ID, strings.ToUpper(region.Name), nil
+		}
+	}
+	return "", "", fmt.Errorf("%w: unknown storage region", core.ErrInvalidInput)
 }
 
 type StorageResource struct {
@@ -477,11 +498,8 @@ func ReadStorage(c *core.Client, s *discovery.Session, op, id string) (*StorageC
 	return catalog, nil
 }
 func ValidateStorageRegion(op, configured, name string) error {
-	if region := configured; region != "hcm-3" && region != "han-1" {
+	if region := configured; name == "" && region != "hcm-3" && region != "han-1" {
 		return fmt.Errorf("%w: %s: unsupported config region %q", core.ErrInvalidInput, op, region)
-	}
-	if name != "" && !strings.EqualFold(name, "HCM04") && !strings.EqualFold(name, "HAN02") {
-		return fmt.Errorf("%w: %s: unknown vStorage region %q", core.ErrInvalidInput, op, name)
 	}
 	return nil
 }

@@ -202,16 +202,19 @@ func (c *Client) regionID(ctx context.Context, op, name string) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	c.regionMu.Lock()
-	if c.regionIDs == nil {
-		c.regionIDs = map[string]string{}
-	}
+	regions := make([]pricecatalog.StorageRegion, 0, len(out.Items))
 	for _, r := range out.Items {
 		if r.ID == "" || r.Name == "" {
-			continue
+			return "", fmt.Errorf("%w: %s: invalid vStorage region catalog", core.ErrInvalidInput, op)
 		}
-		c.regionIDs[strings.ToUpper(r.Name)] = r.ID
+		regions = append(regions, pricecatalog.StorageRegion{ID: r.ID, Name: r.Name})
 	}
+	ids, err := pricecatalog.StorageRegionAliases(op, regions)
+	if err != nil {
+		return "", err
+	}
+	c.regionMu.Lock()
+	c.regionIDs = ids
 	id, ok = c.regionIDs[strings.ToUpper(name)]
 	c.regionMu.Unlock()
 	if !ok {

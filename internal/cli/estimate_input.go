@@ -218,7 +218,7 @@ func validateEstimateInput(in *pricing.EstimateInput) error {
 		if err := check(storage.Key, storage.Quantity); err != nil {
 			return err
 		}
-		if storage.Type == "" || storage.QuotaGB <= 0 || (storage.Region != "" && !strings.EqualFold(storage.Region, "HCM04") && !strings.EqualFold(storage.Region, "HAN02")) {
+		if storage.Type == "" || storage.QuotaGB <= 0 {
 			return estimateInputError("Storage[]")
 		}
 	}

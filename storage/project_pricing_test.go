@@ -375,7 +375,7 @@ func (*pricingTokenSource) Invalidate(string) {}
 
 func TestProjectPricingRegionsBeforeAuthentication(t *testing.T) {
 	for _, method := range []string{"list", "quote"} {
-		for _, regions := range [][2]string{{"hcm-3", "unknown"}, {"unknown", "HCM04"}, {"unknown", ""}} {
+		for _, regions := range [][2]string{{"unknown", ""}} {
 			t.Run(method+"/"+regions[0]+"/"+regions[1], func(t *testing.T) {
 				requests := 0
 				source := &pricingTokenSource{}

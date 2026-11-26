@@ -3,7 +3,7 @@ package cli
 // storage's doc notes, keyed "storage <op-name>" in docOpNotes
 // (gendocs_notes.go).
 
-const storageRegionNote = "`Region` is a vStorage region name such as `HCM04`, set only through " +
+const storageRegionNote = "`Region` is a vStorage region name or UUID from `storage list-regions`, set only through " +
 	"`--cli-input-json`. Empty maps the global `--region`: `hcm-3` to `HCM04` and `han-1` to `HAN02`."
 
 const storageListProjectsNote = storageRegionNote + " A vStorage project is a paid package, so the " +

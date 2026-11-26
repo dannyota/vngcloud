@@ -232,7 +232,7 @@ func TestStorageRegionValidation(t *testing.T) {
 		valid            bool
 	}{
 		{"hcm-3", "", true}, {"han-1", "hcm04", true}, {"hcm-3", "HAN02", true},
-		{"unknown", "", false}, {"unknown", "HCM04", false}, {"hcm-3", "foreign", false},
+		{"unknown", "", false}, {"unknown", "HCM04", true}, {"hcm-3", "foreign", true},
 	} {
 		err := ValidateStorageRegion("quote", tc.configured, tc.name)
 		if (err == nil) != tc.valid || (err != nil && !errors.Is(err, core.ErrInvalidInput)) {

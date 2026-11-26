@@ -51,6 +51,10 @@ or `portal-user-id`. The client resolves a region name to its UUID with
 `ListRegions` once per `storage.Client` and caches the result. An empty `Region`
 maps `hcm-3` to `HCM04` and `han-1` to `HAN02`; any other config region with an
 empty `Region` is `ErrInvalidInput`, and nothing is sent.
+Project types, project quotes, storage prices, and estimate storage lines
+use the same resolver, so any region the caller's catalog lists by exact
+name or UUID is priced; an unknown or ambiguous region is refused before any
+pricing request.
 
 ## SDK
 

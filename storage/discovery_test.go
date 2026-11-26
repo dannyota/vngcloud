@@ -31,7 +31,7 @@ func discoveryTestContext() context.Context {
 
 func TestListStoragePricesValidationBeforeReads(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("unexpected request") }))
-	for _, in := range []ListStoragePricesInput{{QuotaGB: -1}, {Region: "bad"}, {MaxRequests: -1}, {MaxRequests: 2001}} {
+	for _, in := range []ListStoragePricesInput{{QuotaGB: -1}, {MaxRequests: -1}, {MaxRequests: 2001}} {
 		if out, err := c.ListStoragePrices(discoveryTestContext(), &in); out != nil || !errors.Is(err, vngcloud.ErrInvalidInput) {
 			t.Fatalf("input %+v: output %v error %v", in, out, err)
 		}
