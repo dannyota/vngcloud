@@ -58,20 +58,44 @@ func parentEligible(status string) bool {
 }
 
 func regionMatches(configured string, region wireRegion) bool {
-	return (region.Status == "" || strings.EqualFold(region.Status, "ACTIVE")) && strings.EqualFold(region.Name, configured) &&
+	return region.Status != nil && (*region.Status == "" || strings.EqualFold(*region.Status, "ACTIVE")) && strings.EqualFold(region.Name, configured) &&
 		region.VServerEndpoint == "https://"+configured+".api.vngcloud.vn/vserver/vserver-gateway"
 }
 
-func packageSupports(p wirePackage, configured, regionID string) bool {
+func packageSupports(p wirePackage, configured, regionID string, regions []wireRegion) bool {
 	if p.Enabled == nil || !*p.Enabled {
 		return false
 	}
+	matched := false
+	ids := make(map[int]string)
 	for _, v := range p.VLBPackages {
+		if v.GLBPackageID != "" && v.GLBPackageID != p.ID {
+			return false
+		}
+		index := -1
+		for i, region := range regions {
+			if v.Region != "" && (strings.EqualFold(v.Region, region.Name) || strings.EqualFold(v.Region, region.ID)) {
+				if index != -1 {
+					if strings.EqualFold(v.Region, configured) || strings.EqualFold(v.Region, regionID) {
+						return false
+					}
+					index = -2
+					break
+				}
+				index = i
+			}
+		}
+		if index >= 0 && v.VLBPackageID != "" {
+			if prior := ids[index]; prior != "" && prior != v.VLBPackageID {
+				return false
+			}
+			ids[index] = v.VLBPackageID
+		}
 		if strings.EqualFold(v.Region, configured) || strings.EqualFold(v.Region, regionID) {
-			return true
+			matched = index >= 0
 		}
 	}
-	return false
+	return matched
 }
 
 const (

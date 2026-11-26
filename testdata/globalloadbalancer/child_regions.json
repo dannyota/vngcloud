@@ -1,0 +1,4 @@
+[
+  {"id":"hcm","name":"HCM-3","status":"","vserverEndpoint":"https://hcm-3.api.vngcloud.vn/vserver/vserver-gateway"},
+  {"id":"han","name":"HAN-1","status":"","vserverEndpoint":"https://han-1.api.vngcloud.vn/vserver/vserver-gateway"}
+]

@@ -8,9 +8,9 @@ type wireGLB struct {
 }
 
 type wireRegion struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Status string `json:"status"`
+	ID     string  `json:"id"`
+	Name   string  `json:"name"`
+	Status *string `json:"status"`
 
 	VServerEndpoint string `json:"vserverEndpoint"`
 }
@@ -19,7 +19,9 @@ type wirePackage struct {
 	ID          string `json:"id"`
 	Enabled     *bool  `json:"enabled"`
 	VLBPackages []struct {
-		Region string `json:"region"`
+		Region       string `json:"region"`
+		GLBPackageID string `json:"glb_package_id"`
+		VLBPackageID string `json:"vlb_package_id"`
 	} `json:"vlbPackages"`
 }
 

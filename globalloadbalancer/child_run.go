@@ -31,9 +31,6 @@ type run struct {
 func (c *Client) newRun(op string) *run { return &run{c: c, op: op} }
 
 func (c *Client) childProvenance() error {
-	if c.c.Region() != "hcm-3" {
-		return fmt.Errorf("%w: GLB child writes support only hcm-3", core.ErrInvalidConfig)
-	}
 	if err := c.writeProvenance(); err != nil {
 		return err
 	}

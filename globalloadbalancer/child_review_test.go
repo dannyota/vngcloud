@@ -239,16 +239,6 @@ func TestExplicitGuardValues(t *testing.T) {
 	}
 }
 
-func TestChildWritesRequireHCM3(t *testing.T) {
-	f := newFixture(t)
-	c := newWriteTestClientOpts(t, f, vngcloud.WithRegion("han-1"), vngcloud.WithProjectID(fxProject))
-	_, e1 := c.CreatePool(bg(), poolInput())
-	_, e2 := c.DeletePool(bg(), &DeletePoolInput{LoadBalancerID: fxGLB, PoolID: fxPool})
-	if !errors.Is(e1, vngcloud.ErrInvalidConfig) || !errors.Is(e2, vngcloud.ErrInvalidConfig) || len(f.calls) != 0 {
-		t.Fatalf("e1=%v e2=%v calls=%v", e1, e2, f.calls)
-	}
-}
-
 func TestPartialOutputHoldsIDsOnly(t *testing.T) {
 	f := newFixture(t)
 	f.poolStatus = "CREATING"

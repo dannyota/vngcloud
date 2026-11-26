@@ -40,11 +40,12 @@ type fixture struct {
 	parentStatus                                       string
 	acceptStatus                                       int
 	poolName, groupName, rowAddr, listenerCIDRs        string
+	regionID                                           string
 	listenerPool                                       string
 }
 
 func newFixture(t *testing.T) *fixture {
-	return &fixture{t: t, bodies: map[string][]byte{}, override: map[string]http.HandlerFunc{}, poolStatus: "ACTIVE", groupStatus: "OFFLINE", parentStatus: "ACTIVE", listenerStatus: "ACTIVE", acceptStatus: 202, poolName: "tcp-pool", groupName: "tcp-backend", rowAddr: "10.1.2.3", listenerCIDRs: fxCIDRs, listenerPool: fxPool}
+	return &fixture{t: t, bodies: map[string][]byte{}, override: map[string]http.HandlerFunc{}, poolStatus: "ACTIVE", groupStatus: "OFFLINE", parentStatus: "ACTIVE", listenerStatus: "ACTIVE", acceptStatus: 202, poolName: "tcp-pool", groupName: "tcp-backend", rowAddr: "10.1.2.3", listenerCIDRs: fxCIDRs, listenerPool: fxPool, regionID: "hcm"}
 }
 
 func (f *fixture) withChildren() *fixture {
@@ -111,7 +112,7 @@ func (f *fixture) poolJSON() string {
 }
 
 func (f *fixture) groupJSON() string {
-	return fmt.Sprintf(`{"id":%q,"name":%q,"region":"hcm","globalPoolId":%q,"globalLoadBalancerId":%q,"trafficDial":100,"vpcId":%q,"type":"PRIVATE","status":%q,"members":[{"id":%q,"name":"tcp-backend","globalPoolMemberId":%q,"globalLoadBalancerId":%q,"subnetId":%q,"address":%q,"weight":1,"port":8080,"monitorPort":8080,"backupRole":false,"status":%q}]}`, fxGroup, f.groupName, fxPool, fxGLB, fxVPC, f.groupStatus, fxRow, fxGroup, fxGLB, fxSubnet, f.rowAddr, f.rowState())
+	return fmt.Sprintf(`{"id":%q,"name":%q,"region":%q,"globalPoolId":%q,"globalLoadBalancerId":%q,"trafficDial":100,"vpcId":%q,"type":"PRIVATE","status":%q,"members":[{"id":%q,"name":"tcp-backend","globalPoolMemberId":%q,"globalLoadBalancerId":%q,"subnetId":%q,"address":%q,"weight":1,"port":8080,"monitorPort":8080,"backupRole":false,"status":%q}]}`, fxGroup, f.groupName, f.regionID, fxPool, fxGLB, fxVPC, f.groupStatus, fxRow, fxGroup, fxGLB, fxSubnet, f.rowAddr, f.rowState())
 }
 
 func (f *fixture) listenerJSON() string {

@@ -1,0 +1,3 @@
+[
+  {"id":"pkg-1","enabled":true,"vlbPackages":[{"region":"hcm","glb_package_id":"pkg-1","vlb_package_id":"vlb-1"},{"region":"han","glb_package_id":"pkg-1","vlb_package_id":"vlb-2"}]}
+]

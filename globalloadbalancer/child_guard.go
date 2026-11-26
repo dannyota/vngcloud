@@ -66,12 +66,27 @@ func (r *run) region(ctx context.Context, packageID string) (string, error) {
 	configured := r.c.c.Region()
 	var match []wireRegion
 	for _, region := range regions {
-		if regionMatches(configured, region) {
+		if region.Status == nil {
+			return "", r.invalidResponse()
+		}
+		if strings.EqualFold(configured, region.Name) {
 			match = append(match, region)
 		}
 	}
 	if len(match) != 1 || match[0].ID == "" {
 		return "", refuse("the configured region does not match exactly one enabled GLB region")
+	}
+	if !regionMatches(configured, match[0]) {
+		return "", refuse("the configured region is not eligible")
+	}
+	count := 0
+	for _, region := range regions {
+		if strings.EqualFold(region.ID, match[0].ID) {
+			count++
+		}
+	}
+	if count != 1 {
+		return "", refuse("the GLB region ID is ambiguous")
 	}
 	var found []wirePackage
 	for _, p := range packages {
@@ -79,7 +94,7 @@ func (r *run) region(ctx context.Context, packageID string) (string, error) {
 			found = append(found, p)
 		}
 	}
-	if len(found) != 1 || !packageSupports(found[0], configured, match[0].ID) {
+	if len(found) != 1 || !packageSupports(found[0], configured, match[0].ID, regions) {
 		return "", refuse("the load balancer package is not enabled for the configured region")
 	}
 	return match[0].ID, nil

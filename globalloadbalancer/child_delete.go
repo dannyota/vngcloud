@@ -53,17 +53,20 @@ func (p deletePlan) execute(ctx context.Context) error {
 	}
 }
 
-func (c *Client) deletePrelude(ctx context.Context, r *run, glb string, ids map[string]string) error {
+func (c *Client) deletePrelude(ctx context.Context, r *run, glb string, ids map[string]string) (string, error) {
 	for field, value := range ids {
 		if err := validID(r.op, field, value); err != nil {
-			return err
+			return "", err
 		}
 	}
 	if err := c.childProvenance(); err != nil {
-		return err
+		return "", err
 	}
-	_, err := r.parent(ctx, glb)
-	return err
+	parent, err := r.parent(ctx, glb)
+	if err != nil {
+		return "", err
+	}
+	return r.region(ctx, parent.Package)
 }
 
 func (r *run) inPool(ctx context.Context, glb, poolID string) (wirePool, error) {
@@ -113,7 +116,7 @@ func (c *Client) delListener(ctx context.Context, r *run, in *DeleteListenerInpu
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
 	}
-	err := c.deletePrelude(ctx, r, in.LoadBalancerID, map[string]string{"LoadBalancerID": in.LoadBalancerID, "ListenerID": in.ListenerID})
+	regionID, err := c.deletePrelude(ctx, r, in.LoadBalancerID, map[string]string{"LoadBalancerID": in.LoadBalancerID, "ListenerID": in.ListenerID})
 	if err != nil {
 		return nil, err
 	}
@@ -143,6 +146,13 @@ func (c *Client) delListener(ctx context.Context, r *run, in *DeleteListenerInpu
 		return nil, refuse("the pool must hold exactly one member group")
 	}
 	groupID := groups[0].ID
+	g, err := r.group(ctx, in.LoadBalancerID, l.GlobalPoolID, groupID)
+	if err != nil {
+		return nil, err
+	}
+	if !checkGroup(g, in.LoadBalancerID, l.GlobalPoolID, groupID, nil) || g.Region != regionID {
+		return nil, refuse("the member group is not the expected private group in the configured region")
+	}
 	out := &DeleteListenerOutput{LoadBalancerID: in.LoadBalancerID, ListenerID: in.ListenerID}
 	plan := deletePlan{r: r, url: c.glbChildURL(in.LoadBalancerID, "global-listeners", in.ListenerID), id: in.ListenerID,
 		exact: func(ctx context.Context) (string, string, error) {
@@ -182,7 +192,7 @@ func (c *Client) delPool(ctx context.Context, r *run, in *DeletePoolInput) (*Del
 	if err := core.CheckRequired(op, in); err != nil {
 		return nil, err
 	}
-	err := c.deletePrelude(ctx, r, in.LoadBalancerID, map[string]string{"LoadBalancerID": in.LoadBalancerID, "PoolID": in.PoolID})
+	regionID, err := c.deletePrelude(ctx, r, in.LoadBalancerID, map[string]string{"LoadBalancerID": in.LoadBalancerID, "PoolID": in.PoolID})
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +221,7 @@ func (c *Client) delPool(ctx context.Context, r *run, in *DeletePoolInput) (*Del
 	if err != nil {
 		return nil, err
 	}
-	if !checkGroup(g, in.LoadBalancerID, in.PoolID, groups[0].ID, nil) {
+	if !checkGroup(g, in.LoadBalancerID, in.PoolID, groups[0].ID, nil) || g.Region != regionID {
 		return nil, refuse("the member group is not the expected private group with one backend")
 	}
 	if !memberHealth(g.Status) || !memberHealth(g.Members[0].Status) {
