@@ -35,37 +35,46 @@ build info. [Go linker][go-linker], [Go build-info code][go-build-info].
 
 ## Tag workflow
 
-Add `.github/workflows/release.yml` for new `v*` tag pushes in the canonical
-repository. Accept only stable `vMAJOR.MINOR.PATCH` tags. Keep the manager's
-[signed-tag and exact-commit release gates][release-gates]. Use [GitHub tag
-rulesets][tag-rules] for manager-only creation and a separate rule for updates
-and deletion without a routine bypass. Check out the event commit
-without persisted credentials. Check that the annotated tag resolves to
-that commit, that the commit belongs to `master`, and that the remote tag
-still points to the expected object immediately before publishing.
+Add `.github/workflows/release.yml` for `v*` tag pushes. Gate all jobs on a
+new tag (`push`, `created`, `!deleted`, and tag ref type) in
+`dannyota/vngcloud` with `github.ref_protected` true. Pass the ref name via
+an environment variable and validate stable SemVer (`vMAJOR.MINOR.PATCH`,
+no leading zeroes) before use. Keep the manager's
+[release gates][release-gates] and [tag rulesets][tag-rules] for manager-only
+creation and protection from updates and deletion.
 
-1. **Build and attest** with `contents: read`, `attestations: write`, and
-   `id-token: write` at job scope. Write `SHA256SUMS` from exactly the six
-   binary basenames in byte-sorted order, with standard `sha256sum` output.
-   Pass the six binaries and `SHA256SUMS` as seven explicit `subject-path`
-   entries to `actions/attest-build-provenance`. Each file is separately
-   verifiable by digest. Disable registry pushes and storage records.
-   Transfer the seven files via an Actions artifact from this run.
-   [GitHub attestation permissions][github-attest], [action metadata][action].
-2. **Publish** after the build and attestation job succeeds. Grant
-   `contents: write` to this job only. Download the artifact by ID from this
-   run and validate the exact inventory and SHA-256 digests. Use
-   `gh release create --draft --verify-tag` for the existing tag with the
-   seven files and the matching release notes. Check the uploaded names and
-   digests through the [release assets API][release-assets] before publishing
-   with `gh release edit --draft=false`. Serialize by tag. On failure,
-   leave the draft for the manager and fail the run. Stop on an existing
-   release without replacing assets. [GitHub CLI release docs][gh-release].
+Run three jobs on GitHub-hosted runners with job-scoped permissions.
+
+1. **Build** with `contents: read`. Check out the event commit with
+   credential persistence disabled. Require an annotated tag with an SSH
+   signature. Use `git verify-tag` with `gpg.minTrustLevel=fully` and an
+   [allowed signers file][git-ssh] containing only the pinned manager public
+   key from the reviewed workflow. Match the signed tag name to the ref name
+   and the peeled commit to the event and checkout SHA. Require the commit
+   to be on `master`. Build and check the version here, then upload the six
+   binaries and pass the artifact ID and verified tag object ID downstream.
+2. **Attest** with `id-token: write` and `attestations: write`. Download
+   the six files by artifact ID from this run. Treat them as data and
+   execute none. Check the expected filenames and write `SHA256SUMS` from
+   the six basenames in byte-sorted order using standard `sha256sum` output.
+   Pass the seven explicit paths to [`actions/attest` v4.2.2][action] at
+   `1e69f48acb82d1966a394da916b4c1698aa569d6` for build provenance. Disable
+   registry pushes and storage records. Upload the seven files as a new
+   artifact and output its ID and the SHA-256 digest of `SHA256SUMS`.
+3. **Publish** with `contents: write` after both jobs pass. Download the
+   attested artifact by ID from this run. Require the exact seven files,
+   match `SHA256SUMS` to the attest job's digest, and check each binary
+   against the manifest. Use `gh release create --draft --verify-tag` with
+   the seven files and matching release notes. Use the [release assets
+   API][release-assets] to check the exact names and all seven SHA-256 digests.
+   Recheck that the remote tag still points to the verified tag object before
+   `gh release edit --draft=false`. Serialize by tag. Fail on any mismatch
+   or existing release and leave any draft for the manager.
+   [GitHub CLI release docs][gh-release].
 
 Use only `GITHUB_TOKEN` and GitHub's short-lived OIDC identity. Expose
-`GH_TOKEN` only to the release CLI steps. The job split keeps release
-write authority out of build and attestation steps. A single job would
-avoid the artifact transfer and give every step both write permissions.
+`GH_TOKEN` only to the release CLI steps. A single job would avoid artifact
+transfers and grant both kinds of write access to the build.
 
 ## Verify before installing
 
@@ -81,7 +90,7 @@ gh release download "$tag" -R "$repo" -p "$asset" -p SHA256SUMS
 for file in SHA256SUMS "$asset"; do
   gh attestation verify "$file" -R "$repo" \
     --signer-workflow "$repo/.github/workflows/release.yml" \
-    --source-ref "refs/tags/$tag"
+    --source-ref "refs/tags/$tag" --deny-self-hosted-runners
 done
 checksum=$(sha256sum -- "$asset")
 grep -Fxq -- "$checksum" SHA256SUMS
@@ -93,11 +102,11 @@ A failed download, provenance check, or checksum stops installation. Use
 
 ## Before implementation
 
-Approve the release contract and verify the tag ruleset. Approve narrow
-[allowlist][security] entries for `actions/attest-build-provenance`, its
-nested `actions/attest` v4 dependency, and `actions/upload-artifact` and
-`actions/download-artifact` for the job handoff. Pin every `uses` to a full
-commit SHA with a version comment and check current releases at landing.
+Approve the release contract and manager public key pin. Verify the tag
+rulesets. Approve three narrow [allowlist][security] entries for
+`actions/attest`, `actions/upload-artifact`, and `actions/download-artifact`.
+Pin each `uses` to a full commit SHA with a version comment and check
+current releases at landing.
 Extend the reviewed workflow inventory and regressions in
 `scripts/check-workflow-pins.py` and `scripts/test-ci-workflows.py`. Record
 the tag-only publisher exception in the workflow credential and testing
@@ -108,8 +117,8 @@ rules. Follow [independent review and release gates][release-gates].
 [go-linker]: https://pkg.go.dev/cmd/link
 [go-build-info]: https://go.dev/src/cmd/go/internal/load/pkg.go
 [tag-rules]: https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets
-[github-attest]: https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations
-[action]: https://github.com/actions/attest-build-provenance/blob/4d101475d8b20a2381f78447822ac1eab6504dd8/action.yml
+[git-ssh]: https://raw.githubusercontent.com/git/git/master/Documentation/config/gpg.adoc
+[action]: https://github.com/actions/attest/blob/1e69f48acb82d1966a394da916b4c1698aa569d6/README.md
 [gh-release]: https://cli.github.com/manual/gh_release_create
 [release-assets]: https://docs.github.com/en/rest/releases/assets
 [gh-verify]: https://cli.github.com/manual/gh_attestation_verify
