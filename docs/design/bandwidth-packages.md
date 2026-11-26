@@ -9,21 +9,22 @@ and `vngcloud network list-bandwidth-packages --region <region>`. Bandwidth is
 under the console's Network menu, and its packages apply to public IPs across
 resource types, including load balancers. `network` owns this surface.
 
-Use an empty input and the configured project (`--project-id`), or discover
-one project with the guarded regional vServer read. Reject missing, ambiguous
-or unsafe project IDs. Support every account with access in each mapped region.
+Use an empty input and the configured project (`--project-id`). Support every
+account with access in each mapped region.
 
-| Region | Fixed bandwidth base |
+| Region | Fixed HTTPS origin |
 |-|-|
-| `han-1` | `https://han-1.console.greennode.ai/vserver/bandwidth-api` |
-| `hcm-3` | `https://hcm-3.console.greennode.ai/vserver/bandwidth-api` |
+| `han-1` | `https://han-1.console.greennode.ai` |
+| `hcm-3` | `https://hcm-3.console.greennode.ai` |
 
-Append `/v1/projects/{project}/bandwidth/package-config`. Send one logical
-GET with an empty query and no body or zone lookup. Select the base before
-project discovery or authentication. An unmapped region returns
-`ErrInvalidConfig`. Use literal regional bases, with no endpoint override,
-URL interpolation, or fallback. This proposal replaces the earlier routing
-sketch for this operation if approved. [Hanoi config][han-config] ·
+Select the literal origin before project discovery or authentication. Return
+`ErrInvalidConfig` for an unmapped region. If the project is unset, discover it
+with `GET /vserver/iam-vserver-gateway/v1/projects` on that same fixed origin.
+Reject missing, ambiguous or unsafe project IDs. Both requests use the fixed
+origin regardless of `EndpointOverrides.VServer`, with no fallback.
+
+GET `/vserver/bandwidth-api/v1/projects/{project}/bandwidth/package-config`
+uses an empty query, with no body or zone lookup. [Hanoi config][han-config] ·
 [HCM config][hcm-config] · [Earlier routing sketch][prior-route]
 
 `ListBandwidthPackagesOutput.Items` holds `[]BandwidthPackage` in response
@@ -63,27 +64,36 @@ bandwidth GET. Exclude purchased inventory, usage, purchase, resize and attach.
 
 ## Response handling and release gate
 
-Follow [NAT read handling][nat]. Keep TLS verification on. Refuse redirects
-and cookies, suppress captures, and cap each catalog and project-discovery
-response at 4 MiB, including error responses. On each attempt check raw bytes
-and decoded JSON strings for credentials sent during the operation before
-interpreting the response, retrying, caching scope, or returning output. Reject
-reflected scope before using it. Return safe status and sentinel errors with
-fixed text. A reflection or invalid success body yields `InvalidResponse` and
-no output or server text.
+Keep TLS verification on. Refuse redirects and cookies, suppress captures,
+and cap each response at 4 MiB, including errors. Use `DoDiscoveryJSONStatus`
+for the catalog and `DoProjectDiscoveryJSONStatus` for project discovery with
+one credential context. On every attempt, `guardDiscoveryResponse` checks raw
+bytes and decoded JSON strings for all bearers sent by the operation before
+status handling or retry. Reject reflected scope before use or caching.
+Reflection or invalid success returns `InvalidResponse` with safe status and
+fixed text. [Guard][guard]
 
-Require one HTTP 200 JSON object with a successful observed envelope and an
-explicit `data` array. Preserve `[]`. Reject missing, null or wrong-type
-required fields, duplicate keys or package IDs, case aliases of known keys,
-trailing JSON and evidence of more pages. Ignore unprojected keys after checks.
-Required keys and kinds follow the console code and the recorded HCM read.
+Require HTTP 200 and exactly one JSON object with a non-null `data` array.
+Accept `[]`. If present, `success` must be JSON `true` and `code` must be the
+JSON integer `200`. Require `error`, `errors`, `errorCode`, `errorMsg` and
+`errorMessage` to be absent or null. A conflicting marker invalidates the
+whole response even with `data`. These marker rules are provisional until the
+release probe. Reject missing, null or wrong-type required row fields,
+duplicate keys or IDs, case aliases, trailing JSON, and incomplete paging.
+Ignore other metadata after these checks.
 
-The shipped read is its own probe. Before release, the manager runs the built
-CLI read-only in `hcm-3` and `han-1` with the caller's IAM login and each
-region's project. Both pass when the command exits 0 with a nonempty list;
-a strict-decoding `InvalidResponse` means the contract needs revising before
-release, and its output shows no response values. Ship the SDK and wiki with
-synthetic fixtures and negative decoder, routing, reflection and CLI tests.
+Before release, the manager uses IAM and each region's project to run this
+command in both mapped regions. Each run must exit 0 and print a positive count.
+
+```sh
+vngcloud network list-bandwidth-packages --region "$region" \
+  --project-id "$project" --query 'length(Items)' --output json
+```
+
+Ship the SDK and wiki with decoder, routing, reflection and CLI tests. Include
+`data` with a conflicting error marker, an overridden vServer host receiving
+zero requests, and a reflected bearer in a 401 yielding `InvalidResponse`
+after exactly one send.
 
 [han]: https://han-1.console.greennode.ai/vserver/161.d6d061e98608e934.js
 [hcm]: https://hcm-3.console.greennode.ai/vserver/161.be4056dfe6576d1f.js
@@ -91,4 +101,4 @@ synthetic fixtures and negative decoder, routing, reflection and CLI tests.
 [hcm-config]: https://hcm-3.console.greennode.ai/vserver/assets/config/vserver-portal.json
 [prior-route]: pricing-discovery-api.md#bandwidth-endpoint-contract
 [prior-read]: pricing-discovery-api.md#storage-and-network-results
-[nat]: ../../network/nat_detail.go
+[guard]: ../../internal/transport/discovery.go
