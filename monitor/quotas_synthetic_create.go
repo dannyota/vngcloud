@@ -282,7 +282,8 @@ func (c *Client) quoteSyntheticCreate(ctx context.Context, op string, t syntheti
 	return &QuotaQuote{PackageID: t.pkg.ID, Quantity: t.quantity, MonthPeriod: 1, ListPrice: t.listPrice, OptimumPrice: price, GuardPrice: math.Max(t.listPrice, price), Currency: "VND"}, nil
 }
 
-// QuoteCreateSyntheticQuota estimates the selected free Basic capacity.
+// QuoteCreateSyntheticQuota estimates a free offer from the account's catalog.
+// Only Basic with 10 API tests and one location is live-verified.
 // MaxPrice and NoWait are ignored. The quote never sends an order.
 func (c *Client) QuoteCreateSyntheticQuota(ctx context.Context, in *CreateSyntheticQuotaInput) (*QuoteCreateSyntheticQuotaOutput, error) {
 	const op = "monitor.QuoteCreateSyntheticQuota"
@@ -333,8 +334,9 @@ func syntheticCreateRetained(a *quotaAttempt) *CreateSyntheticQuotaOutput {
 	return &CreateSyntheticQuotaOutput{QuotaMutationOutcome: QuotaMutationOutcome{Sent: sent, Stage: "unconfirmed"}, OrderID: a.result.orderID, PaymentPending: a.result.paymentPending, SentAt: copyQuotaTime(a.result.sentAt)}
 }
 
-// CreateSyntheticQuota orders the selected free Basic quota once. Only a
-// matching read-back confirms creation. Concurrent matching creates cannot be
+// CreateSyntheticQuota orders a free offer from the account's catalog once.
+// Only Basic with 10 API tests and one location is live-verified. A matching
+// read-back confirms creation. Concurrent matching creates cannot be
 // distinguished without a provider idempotency key or order-to-quota identity.
 func (c *Client) CreateSyntheticQuota(ctx context.Context, in *CreateSyntheticQuotaInput) (out *CreateSyntheticQuotaOutput, err error) {
 	const op = "monitor.CreateSyntheticQuota"

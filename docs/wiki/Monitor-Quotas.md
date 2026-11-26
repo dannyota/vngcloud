@@ -126,9 +126,11 @@ capacity 10. No join to v1 is implied. Package reads include disabled
 classes; a failed component returns no catalog. Fan-out is capped at 64
 classes as a client safety limit.
 
-Only the evidenced ACTIVE Basic option with one location and 10 API tests
-has `AutoRenewEligible: false` and known free periods capped by the settings
-maximum. Every v1 entry's eligibility stays unknown. Other options have
+A free option is one that matches exactly one ACTIVE, price-0 offer in your
+catalog; its free periods come from the catalog, capped by the settings
+maximum. `AutoRenewEligible` stays unknown (nil) without provider evidence;
+only Basic with one location and 10 API tests has been live-verified. Every
+v1 entry's eligibility stays unknown. Other options have
 unknown eligibility and empty periods; missing v1 prices also leave periods
 empty. Global settings periods do not imply that an option can be ordered.
 Catalog reads authorize no purchase.
@@ -160,7 +162,7 @@ Tables show days, hours, and minutes, such as `29d 23h 12m`, or `expired`
 with elapsed time. JSON keeps signed seconds. Rows without an error have
 a blank Error cell. Negative time means expired; zero means expires now.
 The renewal window is
-known only for the evidenced free Basic synthetic quota and is open when
+known for a free synthetic quota derived from your catalog and is open when
 ACTIVE with more than zero and at most seven days left. It describes timing
 only; POC and auto-renew still prevent renewal.
 

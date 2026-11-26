@@ -194,18 +194,44 @@ func fmtSyntheticCase(recovery bool, body string) string {
 func TestSyntheticMutationRefusesRedactedPackageID(t *testing.T) {
 	for _, recovery := range []bool{false, true} {
 		t.Run(fmtSyntheticCase(recovery, "redacted-id"), func(t *testing.T) {
-			s := &syntheticOrderServer{recovery: recovery, send: func(http.ResponseWriter, *http.Request) {}}
+			classes, _, _ := catalogBodies(t)
+			s := &syntheticOrderServer{recovery: recovery, classes: strings.ReplaceAll(classes, createPackageID, "offer-[redacted]"), packages: strings.ReplaceAll(testutil.FixtureBody(t, "../testdata/monitor/ListSyntheticClassPackages.json"), createPackageID, "offer-[redacted]"), send: func(http.ResponseWriter, *http.Request) {}}
 			s.quota = func(int32) string {
 				return strings.ReplaceAll(syntheticFixture(t, recovery), createPackageID, "offer-[redacted]")
 			}
 			s.detail = func(int32) string {
 				return strings.ReplaceAll(testutil.FixtureBody(t, "../testdata/monitor/GetSyntheticQuotaDetailNullable.json"), createPackageID, "offer-[redacted]")
 			}
-			out, err := syntheticCall(syntheticTestClient(t, s), recovery, false)
-			if err == nil || out.outcome.Sent != "no" || s.quotes.Load() != 0 || s.sends.Load() != 0 {
-				t.Fatalf("out=%+v err=%v", out, err)
+			var catalogReads atomic.Int32
+			base := s.handler(t)
+			c := New(testutil.NewRetryConfig(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/billing-api/v2/synthetic/quota-class" {
+					catalogReads.Add(1)
+				}
+				base(w, r)
+			})))
+			c.now = func() time.Time { return time.Date(2026, 11, 1, 6, 0, 0, 0, time.UTC) }
+			out, err := syntheticCall(c, recovery, false)
+			var api *core.APIError
+			if !errors.As(err, &api) || api.Code != "InvalidResponse" || out.outcome.Sent != "no" || catalogReads.Load() != 0 || s.quotes.Load() != 0 || s.sends.Load() != 0 {
+				t.Fatalf("out=%+v err=%v catalog=%d", out, err, catalogReads.Load())
 			}
 		})
+	}
+}
+
+func TestSyntheticCatalogRefusesRedactedPackageID(t *testing.T) {
+	classes, _, _ := catalogBodies(t)
+	s := &syntheticOrderServer{
+		classes:  strings.ReplaceAll(classes, createPackageID, "offer-[redacted]"),
+		packages: strings.ReplaceAll(testutil.FixtureBody(t, "../testdata/monitor/ListSyntheticClassPackages.json"), createPackageID, "offer-[redacted]"),
+	}
+	c := syntheticTestClient(t, s)
+	var credentials monitorReadCredentials
+	_, err := c.resolveSyntheticTerms(context.Background(), "monitor.RenewSyntheticQuota", createClassID, "offer-[redacted]", 10, &credentials)
+	var api *core.APIError
+	if !errors.As(err, &api) || api.Code != "InvalidResponse" || s.quotes.Load() != 0 || s.sends.Load() != 0 {
+		t.Fatalf("err=%v", err)
 	}
 }
 

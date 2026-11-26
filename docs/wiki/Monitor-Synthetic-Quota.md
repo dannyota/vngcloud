@@ -22,7 +22,8 @@ method switches to another operation or creates a missing quota.
 `QuoteRenewSyntheticQuota` takes the renewal input and ignores `MaxPrice`,
 `MaxDaysLeft`, and `NoWait`; the CLI hides those quote flags.
 
-Both writes require the evidenced Basic capacity, with POC and auto-renew off.
+Both writes require the free capacity derived from your catalog for that
+quota's class and package, with POC and auto-renew off.
 The identity-checked detail price supplies `ListPrice`; no v1 catalog ID or
 price is substituted. The budget guards the higher of quote and detail prices.
 Missing prices fail closed, a zero quote against a positive list price is
@@ -167,8 +168,9 @@ exit "$rc"
 
 `CreateSyntheticQuota` and `QuoteCreateSyntheticQuota` require ClassID,
 PackageID, and Quantity. Select them from `list-synthetic-packages` using class
-unit packages. Only the evidenced free Basic package with one location and
-quantity 10 is supported. A quota in any state refuses create; only the quota
+unit packages. The selection must match exactly one free (price 0), ACTIVE
+offer in your catalog; only Basic with one location and quantity 10 has been
+live-verified. A quota in any state refuses create; only the quota
 route's exact absence response permits it. Paid classes and bundled notification
 purchases remain unsupported.
 
@@ -183,7 +185,8 @@ server debit. Final rereads refuse changed terms.
 Every create result has Sent, Stage, Error, Quota, Created, OrderID,
 PaymentPending, and SentAt. The outcome and exit rules above apply. SentAt is
 the local UTC send boundary, not proof of transmission. Only ACTIVE quota/detail
-read-back with matching package, Basic capacity, StartTime >= SentAt, and
+read-back with matching class, package, and catalog capacity, price 0,
+StartTime >= SentAt, and
 EndTime > StartTime sets Created. Clock skew or coarse server timestamps can
 prevent confirmation. A concurrent matching create can satisfy this predicate
 without proof of order identity. No raw create success body was retained.
