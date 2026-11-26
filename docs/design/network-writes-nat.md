@@ -26,13 +26,12 @@ write scope. Inventory keeps its existing auth contract.
 
 **Owner decision.** Both writes are enabled in `han-1` and `hcm-3`. The
 tool serves many accounts, so each call checks the caller's own account
-before ordering: V3 eligibility, an enabled AZ that the VPC lists in the
-NAT picker, one exact VND offer, and a fresh quote within `MaxPrice`. An
-account that lacks any of them is refused before purchase. `han-1` is
-live-verified. `hcm-3` is not: the test account's VPCs list only the
-disabled HCM03-1A (see the
-[HCM live check](network-nat-hcm-checks.md#preflight-result)), so the
-[HCM run](network-nat-hcm-checks.md) stays open. Use the same SDK
+before ordering: V3 eligibility, an enabled AZ in the account's NAT
+catalog, a VPC in the caller's project and region, one exact VND offer,
+and a fresh quote within `MaxPrice`. An account that lacks any of them is
+refused before purchase. `han-1` is live-verified. In `hcm-3`, delete is
+live-verified and SDK create waits on the
+[HCM run](network-nat-hcm-checks.md). Use the same SDK
 and CLI surface, direct order, fresh quote and `MaxPrice`, renewal-off
 confirmation, VPC ownership guards, and send-once and cleanup rules.
 Reuse the [NAT routing](../../network/nat_routing.go): HCM pins
@@ -58,10 +57,14 @@ with `zoneType: AVAILABILITY` and `isEnabled: true`. Fetch packages with
 `isDefault` automatically or fetch packages without a zone. Validate all
 IDs before discovery. Quote and create use the same zone/package resolver.
 
-Use the NAT VPC picker to require that the named VPC's `zones` contains the
-selected availability-zone UUID, as well as the shared project and region
-guards. Reject missing, ambiguous, or inconsistent membership. Complete
-picker scans need the same page and total checks as inventory guards.
+Use the NAT VPC picker to require that the named VPC appears exactly once
+with the shared project and region guards. The picker's `zones` is the
+VPC's home zone, not an AZ allow-list: every HCM VPC reports HCM03-1A, and
+the console orders NATs in HCM03-1B and HCM03-1C for them (see the
+[HCM live check](network-nat-hcm-checks.md#console-evidence)). Validate
+`zones` IDs as data but never compare them with the selected AZ. Reject
+missing, ambiguous, or inconsistent membership. Complete picker scans need
+the same page and total checks as inventory guards.
 The order has no availability-zone field: the selected package implies it.
 Resolve once per call; quote immediately before the single order.
 
@@ -102,9 +105,8 @@ before pricing or ordering. Do not inspect, retain, or output
 No NAT `SubnetID` input or legacy subnet fallback exists. A known false
 flag is unsupported configuration; malformed replies are `InvalidResponse`.
 
-HCM uses the same V3 checks. Discover the HCM VPC's eligible AZ from the
-intersection of enabled `AVAILABILITY` rows and that VPC's picker `zones`.
-Resolve the selected VND offer UUID and billing SKU from the package catalog
+HCM uses the same V3 checks. The caller names an enabled `AVAILABILITY`
+row from the catalog; the VPC's picker `zones` plays no part. Resolve the selected VND offer UUID and billing SKU from the package catalog
 filtered to that AZ. Treat HCM eligibility, AZ, offer, and price as live
 prerequisites and stop before ordering if any cannot be confirmed.
 

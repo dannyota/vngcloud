@@ -11,11 +11,23 @@ Two preflights on the approved account stopped before any order. The
 catalog enables HCM03-1B and HCM03-1C, each offering Standard at 712,400
 VND, while HCM03-1A is the default AZ and disabled. The NAT VPC picker
 lists only HCM03-1A for both an existing VPC and the run's disposable VPC,
-so the SDK guard refuses 1B and 1C with "VPC does not list the
+so the SDK guard refused 1B and 1C with "VPC does not list the
 availability zone". The disposable VPC was removed and nothing was bought.
-The SDK still enables HCM writes for accounts whose VPCs list an enabled
-AZ (owner decision); this run stays open until the test account can
-complete it.
+That guard was wrong; see the console evidence below.
+
+## Console evidence
+
+The HCM console lists VPCs with the picker filter `zoneType=AVAILABILITY`,
+not by AZ, and every VPC, including ones whose subnets live in HCM03-1C,
+reports `zones: [HCM03-1A]`. It reads subnets per AZ with
+`vpcs/{vpcId}/subnets` and `zoneUuid`, but enables Create for an AZ in
+which the VPC has no subnet. A console order in HCM03-1C on a disposable
+VPC returned 201 with `resourceInfo` holding `isPoc`, `isEnableAutoRenew`
+(console default true), `isBuyMorePoc`, `natName`, `packageUuid`,
+`vpcUuid`, `regionUuid`, and `projectUuid`, plus `tagDetails`; no AZ or
+subnet. The NAT reached ACTIVE in HCM03-1C, and the SDK's
+`delete-nat-instance` removed it. The disposable VPC and subnet were then
+deleted. HAN orders succeeded earlier on a VPC with no subnet.
 
 ## Run
 
