@@ -84,8 +84,8 @@ if err != nil {
 ```
 
 Both use the same regions, login, project, and `ZoneID` discovery as
-`ListNATInstances`. Live responses have been observed only in `han-1`; in
-`hcm-3` a different shape fails closed. Statuses pass through unchanged.
+`ListNATInstances`. Live responses have been observed in `han-1` and
+`hcm-3`; HCM rule IDs contain `_`. Statuses pass through unchanged.
 Fields may be empty on a NAT that is not `ACTIVE`; an `ACTIVE` NAT must
 carry them all. A response for another NAT ID, a missing required field, a
 sent credential in any returned or discovered value, or rule paging with
@@ -162,8 +162,7 @@ Purchase and delete support `han-1` and `hcm-3` with the SDK's IAM-user
 login. Whether an account can buy depends on its own catalog: the chosen
 AZ must be an enabled availability zone in `list-nat-zones`, and the VPC
 must belong to the selected project and region. Live runs have verified
-`han-1` and HCM delete; HCM create through the SDK is not yet
-live-verified.
+create and delete in `han-1` and in `hcm-3` (HCM03-1C).
 Static bearer tokens and custom credentials providers cannot establish
 that login provenance. Paid-write provenance trusts the SDK token cache,
 protected by file mode 0600 in a 0700 directory. Unsupported auth or region

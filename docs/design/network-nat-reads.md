@@ -169,7 +169,16 @@ The URL pinned the scope; the response did not confirm it, and the probe
 did not check identity. The SDK therefore checks identity at run time.
 `zoneUuid` is not shown to be the region UUID. This evidence comes from
 `han-1` IAM only. It does not establish user rules, other statuses'
-fields, `hcm-3` shapes, failure envelopes, or paging.
+fields, failure envelopes, or paging.
+
+Paid HCM runs of the same test held an ACTIVE Standard NAT in HCM03-1C.
+`get-nat-instance` passed. The rules route returned 200, `success: true`
+and `code: 200`, plus `message`, with seven system ingress IPv4 rows
+(tcp, udp, icmp; integer ports, icmp 1-255). Row keys match `han-1` plus
+`id`, `ruleId`, `system`, `secGroupUuid`, `remoteIpPrefix`, `status`,
+`updatedAt`, and `deletedAt`. Each `uuid` is 41 characters, unique, and
+contains `_`, so the earlier path-ID check refused it. Only key kinds and
+value classes were recorded.
 
 ### Accepted surface
 
@@ -185,7 +194,8 @@ through unchanged, including `ERROR`, `DELETING`, and unknown values.
 `network.ListNATInboundRules` (`network list-nat-inbound-rules --nat-id`)
 returns `Items` of `ID`, `Protocol`, `EtherType`, `Direction`,
 `PortRangeMin`, `PortRangeMax`, `Description`, `CreatedAt`, and `System`.
-Required row keys: `uuid` (unique, path safe), `protocol`, `etherType`,
+Required row keys: `uuid` (unique, matching `^[A-Za-z0-9_-]+$`; rule IDs
+never enter a path), `protocol`, `etherType`,
 `direction`, `isSystem`, `portRangeMin`, and `portRangeMax`. Ports are
 `*int` for compatibility: JSON null becomes nil, an absent key or a
 non-integer is rejected, and strings are never coerced. The result holds
@@ -201,9 +211,9 @@ response, so the SDK does not compare one; scope rests on the pinned
 region and project path. Discovered IDs that contain a sent credential
 stop the read before its request.
 Owner decision: they support the same regions and auth as
-`ListNATInstances` (`hcm-3` and `han-1`). Only `han-1` IAM was observed:
-the NAT test runs there because NAT create is verified only in `han-1`. In `hcm-3` the reads use the
-same route family on that region's pinned gateway, and the fail-closed
+`ListNATInstances` (`hcm-3` and `han-1`), both observed with IAM login.
+In `hcm-3` the reads use the same route family on that region's pinned
+gateway, and the fail-closed
 checks turn any different shape into `InvalidResponse`, never partial or
 wrong output. A failure envelope, missing required key, wrong kind, duplicate
 key, identity mismatch, or reflected credential returns a fixed

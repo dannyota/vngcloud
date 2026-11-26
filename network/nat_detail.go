@@ -254,7 +254,7 @@ func (c *Client) ListNATInboundRules(ctx context.Context, in *ListNATInboundRule
 		}
 		_, minOK := fields["portRangeMin"]
 		_, maxOK := fields["portRangeMax"]
-		if r.ID == nil || core.CheckPathID(op, "ID", *r.ID) != nil || seen[*r.ID] || r.Protocol == nil || r.EtherType == nil || r.Direction == nil || r.System == nil || !minOK || !maxOK {
+		if r.ID == nil || core.CheckTypeID(op, "ID", *r.ID) != nil || seen[*r.ID] || r.Protocol == nil || r.EtherType == nil || r.Direction == nil || r.System == nil || !minOK || !maxOK {
 			return nil, natInvalidRead(op)
 		}
 		seen[*r.ID] = true

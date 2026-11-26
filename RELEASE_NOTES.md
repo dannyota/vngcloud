@@ -1,5 +1,12 @@
 # Release Notes
 
+## v1.8.2 - NAT inbound rules in HCM
+
+- `network list-nat-inbound-rules` now reads `hcm-3` NATs. HCM rule IDs
+  contain `_`, which the earlier ID check refused with `InvalidResponse`.
+  IDs must still be non-empty and hold only letters, digits, `-`, and `_`.
+- Public NAT create and delete are live-verified in `hcm-3` (HCM03-1C).
+
 ## v1.8.1 - NAT create in any enabled HCM zone
 
 - `network create-nat-instance` and `quote-create-nat-instance` no longer
