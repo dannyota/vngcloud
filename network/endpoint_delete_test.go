@@ -234,6 +234,27 @@ func TestEndpointDeleteConfirmation(t *testing.T) {
 	}
 }
 
+func TestEndpointDeleteRefusesHiddenLaterPage(t *testing.T) {
+	for _, marker := range []string{`"hasMore":true`, `"nextPage":2`, `"continuationToken":"more"`, `"TotalPages":2`} {
+		t.Run(marker, func(t *testing.T) {
+			row := epRow(epID, "demo", "ACTIVE", epSubnet)
+			f := newEPFake()
+			deleted := false
+			f.onDelete = func() { deleted = true }
+			f.list = func(n int) string {
+				if !deleted || n > 2 {
+					return epList(row)
+				}
+				return strings.Replace(epList(), `"success":true`, `"success":true,`+marker, 1)
+			}
+			out, err := newEPHarness(t, f).c.DeleteEndpoint(context.Background(), epDeleteInput())
+			if !errors.Is(err, ErrNotSettled) || out == nil || out.Deleted || f.count(http.MethodDelete, "/"+epID) != 1 {
+				t.Fatalf("out=%v err=%v", out, err)
+			}
+		})
+	}
+}
+
 func TestEndpointDeleteWaitBoundAndCancellation(t *testing.T) {
 	row := epRow(epID, "demo", "ACTIVE", epSubnet)
 	f := epDeleteFake(row)

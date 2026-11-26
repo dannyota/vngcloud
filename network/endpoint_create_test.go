@@ -116,6 +116,23 @@ func TestEndpointCreateHappyPath(t *testing.T) {
 	}
 }
 
+func TestEndpointCreateWithLegacyInventoryWithoutType(t *testing.T) {
+	f := newEPFake()
+	legacy := strings.Replace(epRow(epOtherID, "legacy", "ACTIVE", epSubnet), `,"endpointType":"Gateway"`, ``, 1)
+	created := false
+	f.onCreate = func() { created = true }
+	f.list = func(int) string {
+		if !created {
+			return epList(legacy)
+		}
+		return epList(legacy, epRow(epID, "demo", "ACTIVE", epSubnet))
+	}
+	out, err := newEPHarness(t, f).c.CreateEndpoint(context.Background(), epCreateInput())
+	if err != nil || out == nil || out.Status != "ACTIVE" {
+		t.Fatalf("out=%v err=%v", out, err)
+	}
+}
+
 func TestEndpointCreateOutputCarriesNoBillingClaim(t *testing.T) {
 	typ := reflect.TypeFor[CreateEndpointOutput]()
 	for i := range typ.NumField() {
@@ -142,6 +159,7 @@ func TestEndpointCreatePriceGuards(t *testing.T) {
 		{name: "negative quote", price: strings.ReplaceAll(epPrice(5), `"optimumPrice":5`, `"optimumPrice":-5`), max: 10, invalid: true},
 		{name: "property mismatch", price: strings.Replace(epPrice(5), `"monthlyPrice":5`, `"monthlyPrice":6`, 1), max: 10, invalid: true},
 		{name: "two properties", price: strings.Replace(epPrice(5), `"propertiesPrice":[`, `"propertiesPrice":[{"optimumPrice":5,"monthlyPrice":5,"currentPrice":null,"discountPercent":0,"name":"Standard","description":"x"},`, 1), max: 10, invalid: true},
+		{name: "extra different package property", price: strings.Replace(epPrice(5), `"propertiesPrice":[`, `"propertiesPrice":[{"optimumPrice":5,"monthlyPrice":5,"name":"Other"},`, 1), max: 10, invalid: true},
 		{name: "wrong property name", price: strings.Replace(epPrice(5), `"name":"Standard"`, `"name":"Premium"`, 1), max: 10, invalid: true},
 		{name: "missing top level", price: strings.Replace(epPrice(5), `"optimumPrice":5,"discountPercent"`, `"discountPercent"`, 1), max: 10, invalid: true},
 		{name: "code not zero", price: strings.Replace(epPrice(5), `"code":0`, `"code":1`, 1), max: 10, invalid: true},
@@ -361,6 +379,12 @@ func TestEndpointCreateWaitOutcomes(t *testing.T) {
 		}, false},
 		{"wrong endpoint type", func(int) string {
 			return strings.Replace(epRow(epID, "demo", "ACTIVE", epSubnet), `"endpointType":"Gateway"`, `"endpointType":"Interface"`, 1)
+		}, false},
+		{"missing endpoint type", func(int) string {
+			return strings.Replace(epRow(epID, "demo", "ACTIVE", epSubnet), `,"endpointType":"Gateway"`, ``, 1)
+		}, false},
+		{"null endpoint type", func(int) string {
+			return strings.Replace(epRow(epID, "demo", "ACTIVE", epSubnet), `"endpointType":"Gateway"`, `"endpointType":null`, 1)
 		}, false},
 		{"dns on", func(int) string {
 			return strings.Replace(epRow(epID, "demo", "ACTIVE", epSubnet), `"enableDnsName":false`, `"enableDnsName":true`, 1)

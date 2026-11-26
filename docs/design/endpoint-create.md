@@ -137,7 +137,10 @@ metadata is present, require complete, consistent metadata and read every
 page with the same filters before applying uniqueness checks across all
 rows. Apply the inventory walk bounds and checks below. Refuse before
 pricing if the response indicates more rows and a complete scan cannot
-be established.
+be established. Accept only the verified unpaged and paged envelope key sets;
+any other or contradictory paging marker is refused. Decode each page into
+the typed selection fields and cap the retained fields at 4 MiB across pages;
+a larger catalog is refused before pricing.
 
 ## Quote and create
 

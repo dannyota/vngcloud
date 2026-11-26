@@ -238,7 +238,7 @@ func (o *endpointOp) preflightDelete(rows []endpointRow, in *DeleteEndpointInput
 	if row == nil {
 		return nil, fmt.Errorf("%w: %s", core.ErrNotFound, o.op)
 	}
-	if row.Project.VServerProjectID != o.scope.project || row.VPCID != in.VPCID || row.Status != "ACTIVE" || row.EndpointType != "Gateway" || row.EnableDNSName {
+	if row.Project.VServerProjectID != o.scope.project || row.VPCID != in.VPCID || row.Status != "ACTIVE" || row.EndpointType == nil || *row.EndpointType != "Gateway" || row.EnableDNSName {
 		return nil, fmt.Errorf("%w: %s: endpoint is not an eligible ACTIVE Gateway endpoint of the named VPC", core.ErrInvalidInput, o.op)
 	}
 	if len(row.resource) == 0 || len(row.domains) == 0 || string(row.domains) == "null" {

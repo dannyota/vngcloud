@@ -41,7 +41,7 @@ func (o *endpointOp) deleteInventory(ctx context.Context) ([]endpointRow, error)
 			if !endpointIDForm.MatchString(r.UUID) || !vpcPattern.MatchString(r.VPCID) || !uuidPattern.MatchString(r.Service.UUID) || r.Project.VServerProjectID != o.scope.project || r.Status == "" {
 				return nil, endpointInvalid(o.op)
 			}
-			result[i].UUID, result[i].VPCID, result[i].Status, result[i].EndpointType, result[i].EnableDNSName = r.UUID, r.VPCID, r.Status, r.EndpointType, r.EnableDNSName
+			result[i].UUID, result[i].VPCID, result[i].Status, result[i].EndpointType, result[i].EnableDNSName = r.UUID, r.VPCID, r.Status, &r.EndpointType, r.EnableDNSName
 			result[i].Service.UUID = r.Service.UUID
 			result[i].Project.VServerProjectID = r.Project.VServerProjectID
 			result[i].resource, result[i].domains = fields[i]["endpointResource"], fields[i]["endpointDomains"]

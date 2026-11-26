@@ -10,6 +10,51 @@ import (
 	"testing"
 )
 
+func TestEndpointCatalogInvalidFirstPageStopsScan(t *testing.T) {
+	f := newEPFake()
+	f.rewrap = func(r *http.Request, resp *http.Response) {
+		if !strings.HasSuffix(r.URL.Path, "/packages") {
+			return
+		}
+		var params struct {
+			Page int `json:"page"`
+		}
+		_ = json.Unmarshal([]byte(r.URL.Query().Get("params")), &params)
+		row := `{"uuid":"` + epPackage + `","serviceName":"vstorage.hcm03","currencyUnit":"VND"}`
+		if params.Page == 2 {
+			row = `{"uuid":"00000000-0000-0000-0000-0000000000b2","name":"Other","serviceName":"vstorage.hcm03","currencyUnit":"VND"}`
+		}
+		body := fmt.Sprintf(`{"success":true,"page":%d,"size":1,"totalPage":2,"total":2,"data":[%s]}`, params.Page, row)
+		_ = resp.Body.Close()
+		resp.Body = io.NopCloser(strings.NewReader(body))
+	}
+	out, err := newEPHarness(t, f).c.CreateEndpoint(context.Background(), epCreateInput())
+	if err == nil || out != nil || f.count(http.MethodGet, "/packages") != 1 || f.count(http.MethodPost, "/price") != 0 {
+		t.Fatalf("out=%v err=%v package reads=%d", out, err, f.count(http.MethodGet, "/packages"))
+	}
+}
+
+func TestEndpointCatalogStopsWhenSelectedFieldsExceedBudget(t *testing.T) {
+	f := newEPFake()
+	large := strings.Repeat("x", 2200000)
+	f.rewrap = func(r *http.Request, resp *http.Response) {
+		if !strings.HasSuffix(r.URL.Path, "/packages") {
+			return
+		}
+		var params struct {
+			Page int `json:"page"`
+		}
+		_ = json.Unmarshal([]byte(r.URL.Query().Get("params")), &params)
+		body := fmt.Sprintf(`{"success":true,"page":%d,"size":1,"totalPage":3,"total":3,"data":[{"uuid":"00000000-0000-0000-0000-%012d","name":"%s","serviceName":"vstorage.hcm03","currencyUnit":"VND"}]}`, params.Page, params.Page, large)
+		_ = resp.Body.Close()
+		resp.Body = io.NopCloser(strings.NewReader(body))
+	}
+	out, err := newEPHarness(t, f).c.CreateEndpoint(context.Background(), epCreateInput())
+	if err == nil || out != nil || f.count(http.MethodGet, "/packages") != 2 || f.count(http.MethodPost, "/price") != 0 {
+		t.Fatalf("out=%v err=%v package reads=%d", out, err, f.count(http.MethodGet, "/packages"))
+	}
+}
+
 func TestEndpointPackagePages(t *testing.T) {
 	first := `{"uuid":"` + epPackage + `","name":"Standard","serviceName":"vstorage.hcm03","currencyUnit":"VND"}`
 	for _, tc := range []struct {
@@ -57,6 +102,38 @@ func TestEndpointCatalogIncompleteMetadataRefused(t *testing.T) {
 			_, err := newEPHarness(t, f).c.QuoteCreateEndpoint(context.Background(), epCreateInput())
 			if err == nil || f.count(http.MethodPost, "/price") != 0 {
 				t.Fatalf("err=%v", err)
+			}
+		})
+	}
+}
+
+func TestEndpointCreateRefusesUnrecognizedPageMarkers(t *testing.T) {
+	for _, marker := range []string{`"totalPages":2`, `"continuationToken":"more"`, `"ContinuationToken":"more"`, `"hasMore":true`, `"nextPage":2`} {
+		t.Run(marker, func(t *testing.T) {
+			f := epCreateFake()
+			f.packages = strings.Replace(f.packages, `"success":true`, `"success":true,`+marker, 1)
+			f.rewrap = func(r *http.Request, resp *http.Response) {
+				if strings.HasSuffix(r.URL.Path, "/packages") && strings.Contains(r.URL.Query().Get("params"), `"page":2`) {
+					_ = resp.Body.Close()
+					resp.Body = io.NopCloser(strings.NewReader(`{"success":true,"data":[{"uuid":"00000000-0000-0000-0000-0000000000b2","name":"Standard","serviceName":"vstorage.hcm03","currencyUnit":"VND"}]}`))
+				}
+			}
+			out, err := newEPHarness(t, f).c.CreateEndpoint(context.Background(), epCreateInput())
+			if err == nil || out != nil || f.count(http.MethodPost, "/price") != 0 || f.count(http.MethodPost, epBase) != 0 {
+				t.Fatalf("out=%v err=%v", out, err)
+			}
+		})
+	}
+}
+
+func TestEndpointCreateRefusesContradictoryFinalPage(t *testing.T) {
+	for _, marker := range []string{`"hasMore":true`, `"nextPage":2`, `"totalPages":2`} {
+		t.Run(marker, func(t *testing.T) {
+			f := epCreateFake()
+			f.packages = strings.Replace(f.packages, `"success":true`, `"success":true,"page":1,"size":1,"total":1,"totalPage":1,`+marker, 1)
+			out, err := newEPHarness(t, f).c.CreateEndpoint(context.Background(), epCreateInput())
+			if err == nil || out != nil || f.count(http.MethodPost, "/price") != 0 || f.count(http.MethodPost, epBase) != 0 {
+				t.Fatalf("out=%v err=%v", out, err)
 			}
 		})
 	}

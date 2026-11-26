@@ -22,10 +22,10 @@ does not grant bucket access and does not prove S3 connectivity.
 (`--availability-zone-id`, `--category-id`, `--service-id`, `--package-id`)
 select the offer. Each defaults to the verified value (`HCM03-1C`, the default
 category, `vstorage.hcm03`, and `Standard`). The SDK reads every catalog page
-and requires each selection to match exactly one enabled row, the package to
-be priced in VND, and the quote to have one matching price line within
-`MaxPrice`; a missing, repeated, or conflicting row is refused before any
-quote.
+and requires each selection to match exactly one row, the zone to be enabled,
+the package to be priced in VND, and the quote to have exactly one price line
+for that package; a missing, repeated, or conflicting row is refused before
+any quote. Only `CreateEndpoint` applies `MaxPrice`.
 
 ## Quote, create, delete
 

@@ -332,6 +332,38 @@ func endpointParams(page int, search []endpointFilter) url.Values {
 	return url.Values{"params": {string(raw)}}
 }
 
+func (o *endpointOp) pageEnvelope(ctx context.Context, req transport.Request, unpaged bool) (*natEnvelope, bool, error) {
+	raw, _, err := o.raw(ctx, req)
+	if err != nil {
+		return nil, false, err
+	}
+	var env natEnvelope
+	var fields map[string]json.RawMessage
+	if decodeNATEnvelope(raw, &env, reflect.TypeFor[map[string]json.RawMessage]()) != nil || env.Success == nil || !*env.Success || json.Unmarshal(raw, &fields) != nil {
+		return nil, false, endpointInvalid(o.op)
+	}
+	paged := false
+	for key := range fields {
+		switch key {
+		case "message", "code", "success", "data":
+		case "page", "size", "total", "totalPage":
+			paged = true
+		default:
+			return nil, false, endpointInvalid(o.op)
+		}
+	}
+	if !paged {
+		if !unpaged {
+			return nil, false, endpointInvalid(o.op)
+		}
+		return &env, false, nil
+	}
+	if env.Page == nil || env.Size == nil || env.Total == nil || env.TotalPage == nil {
+		return nil, false, endpointInvalid(o.op)
+	}
+	return &env, true, nil
+}
+
 func endpointScan[T any](ctx context.Context, o *endpointOp, parts []string, search []endpointFilter, decode func(json.RawMessage) ([]T, error), id func(T) string) ([]T, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -339,7 +371,7 @@ func endpointScan[T any](ctx context.Context, o *endpointOp, parts []string, sea
 	seen := map[string]bool{}
 	total, pages, size := -1, -1, -1
 	for page := 1; page <= 50; page++ {
-		env, err := o.envelope(ctx, transport.Request{Method: http.MethodGet, URL: o.route("vnetwork/v1", parts, endpointParams(page, search)), OK: []int{http.StatusOK}}, nil)
+		env, _, err := o.pageEnvelope(ctx, transport.Request{Method: http.MethodGet, URL: o.route("vnetwork/v1", parts, endpointParams(page, search)), OK: []int{http.StatusOK}}, false)
 		if err != nil {
 			return nil, err
 		}
@@ -348,7 +380,11 @@ func endpointScan[T any](ctx context.Context, o *endpointOp, parts []string, sea
 		}
 		if page == 1 {
 			total, pages, size = *env.Total, *env.TotalPage, *env.Size
-			if pages != (total+size-1)/size {
+			count := total / size
+			if total%size != 0 {
+				count++
+			}
+			if pages != count {
 				return nil, endpointInvalid(o.op)
 			}
 		} else if total != *env.Total || pages != *env.TotalPage || size != *env.Size {

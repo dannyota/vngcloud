@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"reflect"
 	"strings"
 	"time"
 
@@ -17,14 +16,14 @@ import (
 type endpointOffer struct{ zone, category, service, serviceName, pkg, packageName string }
 
 type endpointRow struct {
-	UUID              string `json:"uuid"`
-	EndpointName      string `json:"endpointName"`
-	EndpointServiceID string `json:"endpointServiceId"`
-	VPCID             string `json:"vpcId"`
-	Status            string `json:"status"`
-	EndpointType      string `json:"endpointType"`
-	ZoneUUID          string `json:"zoneUuid"`
-	EnableDNSName     bool   `json:"enableDnsName"`
+	UUID              string  `json:"uuid"`
+	EndpointName      string  `json:"endpointName"`
+	EndpointServiceID string  `json:"endpointServiceId"`
+	VPCID             string  `json:"vpcId"`
+	Status            string  `json:"status"`
+	EndpointType      *string `json:"endpointType"`
+	ZoneUUID          string  `json:"zoneUuid"`
+	EnableDNSName     bool    `json:"enableDnsName"`
 	Service           struct {
 		UUID string `json:"uuid"`
 		Name string `json:"name"`
@@ -41,45 +40,73 @@ type endpointRow struct {
 	resource, domains json.RawMessage
 }
 
-func endpointRows[T any](o *endpointOp, env *natEnvelope, required ...string) ([]T, error) {
-	rows, err := natDecodeRows[T](o.op, env.Data, required...)
-	if err != nil {
-		return nil, endpointSafeError(o.op, err)
-	}
-	return rows, nil
+type endpointZoneRow struct {
+	UUID      string `json:"uuid"`
+	ZoneType  string `json:"zoneType"`
+	IsEnabled bool   `json:"isEnabled"`
+}
+type endpointCategoryRow struct {
+	UUID      string `json:"uuid"`
+	IsDefault bool   `json:"isDefault"`
+}
+type endpointServiceRow struct {
+	UUID         string `json:"uuid"`
+	Name         string `json:"name"`
+	EndpointType string `json:"endpointType"`
+}
+type endpointPackageRow struct {
+	UUID         string `json:"uuid"`
+	Name         string `json:"name"`
+	ServiceName  string `json:"serviceName"`
+	CurrencyUnit string `json:"currencyUnit"`
+}
+type endpointSubnetRow struct {
+	UUID    string `json:"uuid"`
+	Status  string `json:"status"`
+	VPCUUID string `json:"vpcUuid"`
+	Zone    struct {
+		UUID string `json:"uuid"`
+	} `json:"zone"`
 }
 
-func (o *endpointOp) catalogRead(ctx context.Context, parts []string, search []endpointFilter, extra url.Values) (*natEnvelope, error) {
+func endpointCatalogSize[T any](row T) int {
+	switch r := any(row).(type) {
+	case endpointZoneRow:
+		return 128 + len(r.UUID) + len(r.ZoneType)
+	case endpointCategoryRow:
+		return 128 + len(r.UUID)
+	case endpointServiceRow:
+		return 128 + len(r.UUID) + len(r.Name) + len(r.EndpointType)
+	case endpointPackageRow:
+		return 128 + len(r.UUID) + len(r.Name) + len(r.ServiceName) + len(r.CurrencyUnit)
+	case endpointSubnetRow:
+		return 128 + len(r.UUID) + len(r.Status) + len(r.VPCUUID) + len(r.Zone.UUID)
+	default:
+		return natMaxBody + 1
+	}
+}
+
+func endpointCatalogRead[T any](ctx context.Context, o *endpointOp, parts []string, search []endpointFilter, extra url.Values, id func(T) string, required ...string) ([]T, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	var all []json.RawMessage
+	all := []T{}
 	seen := map[string]bool{}
-	total, pages, size := -1, -1, -1
+	total, pages, size, retained := -1, -1, -1, 0
 	for page := 1; page <= 50; page++ {
 		query := endpointParams(page, search)
 		for key, values := range extra {
 			query[key] = values
 		}
-		raw, _, err := o.raw(ctx, transport.Request{Method: http.MethodGet, URL: o.route("vnetwork/v1", append([]string{"endpoints"}, parts...), query), OK: []int{http.StatusOK}})
+		env, paged, err := o.pageEnvelope(ctx, transport.Request{Method: http.MethodGet, URL: o.route("vnetwork/v1", append([]string{"endpoints"}, parts...), query), OK: []int{http.StatusOK}}, page == 1)
 		if err != nil {
 			return nil, err
 		}
-		var env natEnvelope
-		var fields map[string]json.RawMessage
-		if decodeNATEnvelope(raw, &env, reflect.TypeFor[map[string]json.RawMessage]()) != nil || env.Success == nil || !*env.Success || json.Unmarshal(raw, &fields) != nil {
-			return nil, endpointInvalid(o.op)
-		}
-		for _, name := range []string{"nextPage", "next", "hasMore", "nextToken", "nextMarker", "pagination"} {
-			if _, ok := fields[name]; ok {
-				return nil, endpointInvalid(o.op)
+		if !paged {
+			rows, err := natDecodeRows[T](o.op, env.Data, required...)
+			if err != nil {
+				return nil, endpointSafeError(o.op, err)
 			}
-		}
-		_, hasPage := fields["page"]
-		_, hasSize := fields["size"]
-		_, hasTotal := fields["total"]
-		_, hasPages := fields["totalPage"]
-		if page == 1 && !hasPage && !hasSize && !hasTotal && !hasPages {
-			return &env, nil
+			return rows, nil
 		}
 		if env.Page == nil || *env.Page != page || env.Size == nil || *env.Size <= 0 || env.Total == nil || *env.Total < 0 || env.TotalPage == nil || *env.TotalPage < 0 || *env.TotalPage > 50 {
 			return nil, endpointInvalid(o.op)
@@ -96,11 +123,12 @@ func (o *endpointOp) catalogRead(ctx context.Context, parts []string, search []e
 		} else if total != *env.Total || pages != *env.TotalPage || size != *env.Size {
 			return nil, endpointInvalid(o.op)
 		}
-		var rows []json.RawMessage
-		if len(env.Data) == 0 && total == 0 && pages == 0 {
-			rows = []json.RawMessage{}
-		} else if json.Unmarshal(env.Data, &rows) != nil || rows == nil {
-			return nil, endpointInvalid(o.op)
+		var rows []T
+		if len(env.Data) != 0 || total != 0 || pages != 0 {
+			rows, err = natDecodeRows[T](o.op, env.Data, required...)
+			if err != nil {
+				return nil, endpointSafeError(o.op, err)
+			}
 		}
 		expected := size
 		if page == pages {
@@ -113,27 +141,22 @@ func (o *endpointOp) catalogRead(ctx context.Context, parts []string, search []e
 			return nil, endpointInvalid(o.op)
 		}
 		for _, row := range rows {
-			var id struct {
-				UUID string `json:"uuid"`
-			}
-			if json.Unmarshal(row, &id) != nil || core.CheckPathID(o.op, "catalog ID", id.UUID) != nil || seen[id.UUID] {
+			retained += endpointCatalogSize(row)
+			if retained > natMaxBody {
 				return nil, endpointInvalid(o.op)
 			}
-			seen[id.UUID] = true
+			key := id(row)
+			if core.CheckPathID(o.op, "catalog ID", key) != nil || seen[key] {
+				return nil, endpointInvalid(o.op)
+			}
+			seen[key] = true
 			all = append(all, row)
 		}
 		if page >= pages {
 			if len(all) != total {
 				return nil, endpointInvalid(o.op)
 			}
-			if all == nil {
-				all = []json.RawMessage{}
-			}
-			env.Data, err = json.Marshal(all)
-			if err != nil {
-				return nil, endpointInvalid(o.op)
-			}
-			return &env, nil
+			return all, nil
 		}
 	}
 	return nil, endpointInvalid(o.op)
@@ -143,15 +166,7 @@ func (o *endpointOp) resolveOffer(ctx context.Context, in *CreateEndpointInput) 
 	refuse := func(what string) (endpointOffer, error) {
 		return endpointOffer{}, fmt.Errorf("%w: %s: %s", core.ErrInvalidInput, o.op, what)
 	}
-	env, err := o.catalogRead(ctx, []string{"zones"}, nil, nil)
-	if err != nil {
-		return endpointOffer{}, err
-	}
-	zones, err := endpointRows[struct {
-		UUID      string `json:"uuid"`
-		ZoneType  string `json:"zoneType"`
-		IsEnabled bool   `json:"isEnabled"`
-	}](o, env, "uuid", "zoneType", "isEnabled")
+	zones, err := endpointCatalogRead(ctx, o, []string{"zones"}, nil, nil, func(row endpointZoneRow) string { return row.UUID }, "uuid", "zoneType", "isEnabled")
 	if err != nil {
 		return endpointOffer{}, err
 	}
@@ -160,11 +175,7 @@ func (o *endpointOp) resolveOffer(ctx context.Context, in *CreateEndpointInput) 
 		zone = endpointZone
 	}
 	matches := 0
-	var selectedZone struct {
-		UUID      string `json:"uuid"`
-		ZoneType  string `json:"zoneType"`
-		IsEnabled bool   `json:"isEnabled"`
-	}
+	var selectedZone endpointZoneRow
 	for _, z := range zones {
 		if z.UUID == zone {
 			matches++
@@ -175,13 +186,7 @@ func (o *endpointOp) resolveOffer(ctx context.Context, in *CreateEndpointInput) 
 		return refuse("zone is not eligible exactly once")
 	}
 
-	if env, err = o.catalogRead(ctx, []string{"categories"}, nil, nil); err != nil {
-		return endpointOffer{}, err
-	}
-	categories, err := endpointRows[struct {
-		UUID      string `json:"uuid"`
-		IsDefault bool   `json:"isDefault"`
-	}](o, env, "uuid", "isDefault")
+	categories, err := endpointCatalogRead(ctx, o, []string{"categories"}, nil, nil, func(row endpointCategoryRow) string { return row.UUID }, "uuid", "isDefault")
 	if err != nil {
 		return endpointOffer{}, err
 	}
@@ -203,14 +208,7 @@ func (o *endpointOp) resolveOffer(ctx context.Context, in *CreateEndpointInput) 
 		return refuse("category is not offered exactly once")
 	}
 
-	if env, err = o.catalogRead(ctx, []string{offer.category, "services"}, nil, url.Values{"zoneUuid": {offer.zone}}); err != nil {
-		return endpointOffer{}, err
-	}
-	services, err := endpointRows[struct {
-		UUID         string `json:"uuid"`
-		Name         string `json:"name"`
-		EndpointType string `json:"endpointType"`
-	}](o, env, "uuid", "name", "endpointType")
+	services, err := endpointCatalogRead(ctx, o, []string{offer.category, "services"}, nil, url.Values{"zoneUuid": {offer.zone}}, func(row endpointServiceRow) string { return row.UUID }, "uuid", "name", "endpointType")
 	if err != nil {
 		return endpointOffer{}, err
 	}
@@ -232,15 +230,7 @@ func (o *endpointOp) resolveOffer(ctx context.Context, in *CreateEndpointInput) 
 		return refuse("service is not offered exactly once")
 	}
 
-	if env, err = o.catalogRead(ctx, []string{offer.service, "packages"}, nil, nil); err != nil {
-		return endpointOffer{}, err
-	}
-	packages, err := endpointRows[struct {
-		UUID         string `json:"uuid"`
-		Name         string `json:"name"`
-		ServiceName  string `json:"serviceName"`
-		CurrencyUnit string `json:"currencyUnit"`
-	}](o, env, "uuid", "name", "serviceName", "currencyUnit")
+	packages, err := endpointCatalogRead(ctx, o, []string{offer.service, "packages"}, nil, nil, func(row endpointPackageRow) string { return row.UUID }, "uuid", "name", "serviceName", "currencyUnit")
 	if err != nil {
 		return endpointOffer{}, err
 	}
@@ -306,18 +296,7 @@ func (o *endpointOp) checkPlacement(ctx context.Context, offer endpointOffer, vp
 		return fmt.Errorf("%w: %s: VPC is not eligible for the endpoint offer", core.ErrNotFound, o.op)
 	}
 
-	env, err := o.catalogRead(ctx, []string{"vpcs", vpc, "subnets"}, []endpointFilter{{"isEndpointUsable", "true"}, {"zoneUuid", offer.zone}}, nil)
-	if err != nil {
-		return err
-	}
-	subnets, err := endpointRows[struct {
-		UUID    string `json:"uuid"`
-		Status  string `json:"status"`
-		VPCUUID string `json:"vpcUuid"`
-		Zone    struct {
-			UUID string `json:"uuid"`
-		} `json:"zone"`
-	}](o, env, "uuid", "status", "vpcUuid", "zone")
+	subnets, err := endpointCatalogRead(ctx, o, []string{"vpcs", vpc, "subnets"}, []endpointFilter{{"isEndpointUsable", "true"}, {"zoneUuid", offer.zone}}, nil, func(row endpointSubnetRow) string { return row.UUID }, "uuid", "status", "vpcUuid", "zone")
 	if err != nil {
 		return err
 	}
@@ -341,7 +320,7 @@ func (o *endpointOp) checkPlacement(ctx context.Context, offer endpointOffer, vp
 
 func (o *endpointOp) inventory(ctx context.Context) ([]endpointRow, error) {
 	return endpointScan(ctx, o, []string{"endpoints"}, nil, func(raw json.RawMessage) ([]endpointRow, error) {
-		rows, err := natDecodeRows[endpointRow](o.op, raw, "uuid", "endpointName", "endpointServiceId", "vpcId", "status", "endpointType", "zoneUuid", "enableDnsName", "subnet", "packageId", "project", "service")
+		rows, err := natDecodeRows[endpointRow](o.op, raw, "uuid", "endpointName", "endpointServiceId", "vpcId", "status", "zoneUuid", "enableDnsName", "subnet", "packageId", "project", "service")
 		if err != nil {
 			return nil, endpointSafeError(o.op, err)
 		}

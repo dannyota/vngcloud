@@ -43,7 +43,7 @@ func (o *endpointOp) waitCreate(ctx context.Context, s *endpointSpec, baseline m
 			}
 			if baseline[row.UUID] || row.EndpointName != s.info.EndpointName || row.VPCID != s.info.VPCUUID || row.Subnet.UUID != s.info.SubnetUUID ||
 				row.Service.UUID != s.info.ServiceUUID || row.Service.Name != s.offer.serviceName || row.PackageID.UUID != s.info.PackageUUID || row.Project.VServerProjectID != s.info.ProjectUUID ||
-				row.ZoneUUID != s.offer.zone || row.EndpointType != "Gateway" || row.EnableDNSName {
+				row.ZoneUUID != s.offer.zone || row.EndpointType == nil || *row.EndpointType != "Gateway" || row.EnableDNSName {
 				return endpointUnsettled(o.op)
 			}
 			out.Status = row.Status
