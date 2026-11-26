@@ -1,6 +1,6 @@
 # Release Notes Archive, v0.80.0 to v0.89.0
 
-Releases before the ones in [RELEASE_NOTES.md](../RELEASE_NOTES.md).
+Releases before the ones in [release-notes-archive-v0.93.md](release-notes-archive-v0.93.md).
 
 ## v0.89.0 - vMonitor Synthetic recovery and renewal
 
