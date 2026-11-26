@@ -22,8 +22,8 @@ cancellation between sequential component reads.
 Cap each component response at 1 MiB (`MaxBody`). The 8 MiB composite
 budget counts retained component bodies, including bodies rejected by later
 validation; it is not a total network-byte or Go heap limit. Discarded retry
-bodies do not consume it. Decode each returned component once, without an
-outer refetch loop; refuse before retaining a body beyond the budget.
+bodies do not consume it. Validate and project each returned component
+without an outer refetch loop. Refuse before retaining a body beyond budget.
 Sequential decoding also bounds transient buffers; decoded objects and
 allocator overhead are not measured by this body budget.
 
@@ -76,7 +76,8 @@ by Location/PackageID,
 and v1 Packages by Name/ID. Unknown statuses remain visible as unavailable.
 
 Require unique class IDs, v1 IDs, and option (PackageID, Location) pairs
-within a class; sharing a package across location options is allowed.
+within a class. Display shared package IDs separately and withhold free order
+eligibility.
 Validate positive option bounds/step/location, min <= max, and nonnegative
 integral v1 capacity counts. Reject malformed structures with a body-free
 InvalidResponse;
@@ -86,14 +87,15 @@ Cap periods for v1 zero-price entries by that maximum; missing/null price
 leaves periods empty. Negative/nonfinite prices fail. Array size uses the
 response cap; there is no inferred provider maximum or pagination.
 
-V1 Price comes only from its entry and AutoRenewEligible stays nil. Class
-option Price stays nil and the class package array carries unit prices.
-In `monitor/quotas_catalog.go`, replace the Basic/name/location/API/step
-predicate with the exact class package and option join in [free terms][free-terms].
-For a unique ACTIVE offer with a zero unit price, show settings periods at
-or below the free maximum and AutoRenewEligible false under the free policy.
-Other options keep empty periods and unknown auto-renew eligibility. These
-advertised periods can include terms whose order wire behavior is unverified.
+V1 Price comes only from its entry. Class option Price stays nil and the
+class package array carries unit prices. In `monitor/quotas_catalog.go`,
+replace the Basic predicate with the [full-catalog join][free-terms]. Show
+settings periods at or below the free maximum only for unique free offers
+whose class and option both report `ACTIVE`. An advertised period can have
+unverified wire behavior. AutoRenewEligible stays nil unless provider
+response evidence identifies a refusal for the exact offer in the caller's
+account. Zero price alone leaves it nil. The current catalog has no such
+evidence. Keep the observed Basic refusal in the support matrix.
 
 The table has separate class-option and v1-package sections, labeled with
 ID source, class status/description, limits, price, periods, and eligibility.
@@ -124,8 +126,8 @@ For present notification quotas, join their package lists by PackageID to
 show catalog price and name. Reject ambiguous notification joins; unmatched
 packages have unknown price/name. Synthetic display price/class come from
 identity-checked detail, and PackageName stays empty. For a present synthetic
-quota with explicit zero detail price, resolve [free terms][free-terms] with
-the matched class and settings reads. Skip those reads for absent, paid,
+quota with explicit zero detail price, resolve [free terms][free-terms]
+using the full class catalog and settings. Skip those reads for absent, paid,
 or unpriced quota detail. Use the existing composite budget across rows;
 filtered synthetic calls only the synthetic sources. Do not call the
 synthetic v1 package list, usage endpoints, trash, quotes, or writes.
@@ -218,18 +220,15 @@ NotFound, never permission to create. No trash item or count is a precondition.
 Freeze kind, quota ID, package, previous EndTime, status, flags, and the
 resolved [free terms][free-terms]. The quote uses the frozen quota ID and
 package with the confirmed API capacity. Apply the parent's price guard.
-Immediately before send reread quota/detail and the relevant class package,
-option, and settings. Repeat the entire predicate against the frozen terms,
-including quota ID, package, expiry, and flags. A change returns
-ErrQuotaChanged without another quote.
+Before send reread the full catalog and settings, then quota/detail. Compare
+against the frozen terms, including quota ID, package, expiry, and flags.
+A change returns ErrQuotaChanged without another quote.
 
 Send the evidenced `POST v2/trash/synthetic/quota` body through Once.
-The route names no ID: ExpectedQuotaID narrows a race but cannot bind the
-server's actual target. Recovery starts a term at recovery time, not at
-the old expiry. Use the unverified-response policy below. Read-back must
-show the frozen ID and package, ACTIVE, and EndTime > PreviousEndTime.
-A changed ID/package, trash exit alone, or a count of zero never confirms.
-Do not demand exact month arithmetic to declare settlement.
+Recovery starts a new term at recovery time. Use the response policy below
+and [exact-ID read-back][free-read-back] for settlement and reconciliation.
+Trash exit or an empty count cannot confirm. Settlement requires a later
+expiry without exact month arithmetic.
 
 Use the parent's 2-second polling and 120-second hard child deadline,
 also bounded by caller cancellation. A 404, unchanged IN-TRASH, CREATING,
@@ -294,7 +293,7 @@ classification, without a cloud call.
 | Result | Sent | Stage | Error.Code (Error.Status) | Exit |
 |-|-|-|-|-|
 | Renewal outside positive MaxDaysLeft | no | not-due | null Error | 0 |
-| Same-ID/package read-back confirms | yes; unknown if retained send evidence is unknown | confirmed | null Error; confirmation true | 0 |
+| Exact-ID read-back matches frozen terms and later expiry | yes; unknown if retained send evidence is unknown | confirmed | null Error; confirmation true | 0 |
 | Price guard refusal | no | preflight | PriceAboveMax or Unpriced (0) | 1 |
 | Stale expected expiry/ID or changed final terms, no unresolved prior attempt | no | preflight | QuotaChanged (0) | 1 |
 | Guard mismatch while a prior attempt remains unresolved | retained yes or unknown, never no | unconfirmed | NotSettled (retained status or 0); ErrQuotaChanged remains a safe cause | 1 |
@@ -385,18 +384,16 @@ required, including existing create, lifecycle, transport, and cache tests.
 - Catalog: disabled classes without config; deterministic ordering;
   separate ID spaces and arrays; duplicate IDs within each source refused;
   matching values across v1 and class sources never establish identity.
-  Cover zero, positive and null prices, joined and unmatched options, and
-  free period filtering. Status: present/absent/mixed, non-Basic free
-  eligibility, paid or unmatched read hints, one AsOf, 7-day boundary, no
-  quote or write, and partial rows on detail or catalog read failure.
+  Cover price/period filtering, a shared ID, and nil AutoRenewEligible for
+  free offers without refusal evidence. Status: present/absent/mixed,
+  non-Basic free eligibility, shared/paid/unmatched read hints, one AsOf,
+  7-day boundary, no quote or write, and partial rows on source failure.
 - Detail: explicit 0 versus null for every channel, legacy integer
   compatibility, and no Telegram prerequisite inferred from either view.
-- Recovery: expired IN-TRASH only; exact-now refused; expected ID required;
-  exact detail identity and catalog capacity; same terms at final read;
-  no v1 ID or list calls; zero mutation counts for every refusal. A delayed
-  same-ID ACTIVE with later expiry
-  confirms; a new ID/package, unchanged expiry, trash exit, or empty trash
-  cannot. Neither recover nor renew falls back to the other or to create.
+- Recovery: expired IN-TRASH only, strict time and expected ID guards,
+  exact detail identity, unchanged terms at final read, no v1 catalog calls,
+  and no mutation on refusal. Trash exit alone leaves the attempt open.
+  Keep renew, recover and create separate.
 - Both writes: tolerant-response cases above, nullable OrderID, payment
   detection, every failure and wait boundary, repeated calls and cross-
   operation attempt reconciliation, no second mutation. Preserve the
@@ -414,3 +411,4 @@ required, including existing create, lifecycle, transport, and cache tests.
   or generated examples. Reject --query before send; NoWait stays explicit.
 
 [free-terms]: monitor-synthetic-lifecycle.md#free-terms-from-the-caller-catalog
+[free-read-back]: monitor-synthetic-lifecycle.md#free-write-read-back

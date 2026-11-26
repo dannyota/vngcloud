@@ -157,8 +157,8 @@ Basic config.packages and config.locations[].packageId in
 `v2/synthetic/quota-class`. Quota/detail and the console renewal quote use
 the class-side packageId; detail.classId identifies Basic. No v1 ID join is
 evidenced. `GET v2/synthetic/packages` returns 404, not a fallback catalog.
-Basic is ACTIVE, priority 1, location amount 1, min/maxApi 10, step 1.
-Pro and Enterprise `(Coming soon)` are DISABLED with no config. The
+Basic and its location option are ACTIVE. The option has amount 1,
+min/maxApi 10, and step 1. Pro and Enterprise are DISABLED with no config. The
 [class package capture][synthetic-evidence] supplies the unit price.
 Other free classes, capacities, and unit sizes have no live write evidence.
 
@@ -368,14 +368,14 @@ create/delete/ensure evidence and checks live in the focused sibling.
   `updatedAt` null decoding, unknown usage kinds reported without raw JSON,
   the SMS usage read refused with zero requests. Detail failures return nil
   Output. Check quota/detail identities and absence versus other 404s.
-- Pricing: preserve distinct Synthetic ID spaces. Use class unit price,
-  exact-ID detail, and settings. Check zero, positive, null, and missing
-  catalog/detail/quote prices, including nonzero values rounded to zero.
-  Verify the reread preserves frozen quantity and period. Keep quote-only
-  fields out of mutations, and count zero mutations on refusal.
-  Notifications retain duplicate/unknown package, ambiguous default, and
-  budget cases, including 100000 quote against 110000 list and Unpriced.
-  Require an explicit v2 total. Quotes never order.
+- Pricing: keep v1 IDs separate. Check explicit zero catalog/detail/quote
+  prices, positive/null/missing prices, and underflow. Refuse changed terms
+  and keep quote-only fields out of mutations. Retain notification budget
+  and package cases. Quotes never order.
+- Raw Synthetic JSON: send duplicate `price`, `optimumPrice`, ID, `status`,
+  `autoRenew`, `message`, and `paymentUrl` keys through real loopback reads.
+  Include nested and escaped duplicates and both field orders. Assert no
+  mutation on preflight refusal and retained NotSettled after a possible send.
 - Writes: every supported mutation body and success status, 400/401/403/404/
   409/429, 500/502/503/504, dial failure, disconnect after send, cancellation,
   malformed/oversized 2xx, and every redirect including 307/308; at most one
@@ -391,11 +391,12 @@ create/delete/ensure evidence and checks live in the focused sibling.
   The pre-send reread repeats the whole predicate: a snapshot that changes
   only `autoRenew` or `poc` during quoting, or whose flag stops decoding,
   aborts with no send; for create, a quota appearing during quoting aborts.
-- Wait/uncertainty: selected package and identity checks, unchanged expiry
-  despite ACTIVE, leaving trash without extension, delay, read error, hard
-  deadline during a slow request, cancellation, NoWait, and paymentUrl.
-  Partial Outputs and wrapped causes survive CLI output/error handling.
-  Never print the URL or declare Renewed merely on an accepted response.
+- Wait/reconcile: for create, renew and recover assert the exact-ID detail
+  route. An ACTIVE row with the right time still requires matching resource,
+  class/package, API and location, and exact-zero detail price. Vary each
+  field, include null price and detail 404, and assert retained NotSettled
+  with no resend. Keep delayed reads, deadlines, cancellation, and NoWait.
+  Preserve partial outcomes and withhold payment URLs.
 - Concurrency: lock wait cancellation, delayed visibility, concurrent create
   versus renewal, two same-expiry renewals, repeated unresolved and NoWait
   calls, and read reconciliation that stays unknown; no second send. After
@@ -435,10 +436,10 @@ The lifecycle sibling owns notification action budgets and row gates;
    use the renew-only service account and environment-only CLI for one
    approved renewal: fresh ExpectedEndTime, MaxDaysLeft 7, MaxPrice 0, and
    NoWait false. Read quota-status --kind synthetic before and after, with
-   no Email/SMS grants. Verify that the same principal can read class,
-   class packages, settings, and exact-ID detail. Privately retain quote,
-   baseline identity/expiry, request, response if available, outcome,
-   exit code, read-back identity/expiry, and term arithmetic.
+   no Email/SMS grants. Verify that the principal can read all class packages,
+   including disabled classes, plus settings and exact-ID detail. Retain
+   the quote, baseline, request, response if available, outcome, exit code,
+   read-back identity/expiry, and term arithmetic privately.
 3. A definite early 409 ends the run without retry. After uncertainty use
    reads and inspect billing; never resend, create, recover, or delete.
    A 404 or unchanged expiry proves nothing. Renewed requires read-back;

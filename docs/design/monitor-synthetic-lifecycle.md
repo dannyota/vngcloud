@@ -87,26 +87,29 @@ unit price, tier, and class status. JSON/text/query retain all three views.
 ## Free terms from the caller catalog
 
 Use one private resolver for create, renewal, recovery, and their quotes.
-Reuse its eligibility rules for catalog and status. Read the caller's classes,
-the matched class's packages, and settings through the existing sensitive
-read path. Keep the 64-class, 1 MiB component, and 8 MiB retained-body caps.
-Keep resolver reads within the caller's account and exclude the v1 package list.
+Reuse it for catalog and status eligibility. Read the caller's full class
+list, every class's packages (including disabled classes), and settings.
+An incomplete read cannot establish uniqueness. Use the sensitive reader and
+existing 64-class, 1 MiB component and 8 MiB retained-body caps. The v1
+package list is outside this lookup.
 
 1. For create, use input ClassID, PackageID, and Quantity (API test capacity).
    For an existing quota, read detail at `v2/synthetic/{quota.ID}/quota-detail`.
    Require `detail.resourceId == quota.ID` and `detail.packageId == quota.PackageID`.
    Use `detail.classId`, the quota's PackageID, and `detail.api` as selectors.
    Validate path IDs before use. Keep class ID private to the SDK.
-2. Resolve exactly one class by ID with status ACTIVE, exactly one package by
-   ID in that class, and exactly one option by package ID and package Location.
-   If the option reports a status, require ACTIVE. Match existing detail
-   location to the option's location. Names and priority are display fields.
-3. Require positive integral units and capacity. Capacity must fit the option's
-   min/max API and step from min, and be divisible by package API. Expected
-   location capacity is the option's Location, independent of API quantity.
-   Compute unit count as API capacity divided by package API, and ListPrice
-   as unit price times unit count, with finite checked arithmetic. The wire
-   quantity and SDK Quantity use API capacity for the verified unit mapping.
+2. Require the wire pair `packageId, quantity` to identify one offer in the
+   full class catalog before quoting and again before sending. Require exactly
+   one package row and one `config.locations` option for that ID across all
+   classes. They must agree on the selected class ID and location amount.
+   A shared package ID refuses even if the other class or option is disabled
+   or its quantity range differs. Require explicit `ACTIVE` on both the class
+   and option. Match existing detail location to the option's location.
+3. Require positive integral units and API capacity. Check the option's API
+   bounds and step from min, and require capacity divisible by package API.
+   Location capacity is the option's Location. ListPrice is unit price times
+   API capacity divided by package API, with finite checked arithmetic. Use
+   API capacity as wire and SDK Quantity for the verified unit mapping.
 4. Validate distinct positive `monthPeriods` and a positive free maximum.
    Select exactly one listed period at or below `maxMonthPeriodForFreeQuota`.
    Apply the wire limits below. Freeze the period for quote output, mutation,
@@ -118,14 +121,13 @@ Keep resolver reads within the caller's account and exclude the v1 package list.
    Preserve the existing Unpriced and MaxPrice classifications. A budget
    that covers a positive price still refuses. Paid Synthetic remains class B.
 
-Refuse a missing match, unavailable class/option, invalid capacity, or zero or
-multiple eligible periods with ErrInvalidInput. Duplicate or malformed catalog
-values, missing/null prices, and mismatched detail identity use body-free
-InvalidResponse. A valid eligibility change on the final reread returns
-ErrQuotaChanged. Compare the frozen IDs, option bounds, units, capacity, zero
-prices, and period settings. Reconcile open attempts from frozen read-back
-terms before a new derivation. The final reads narrow the race before Once;
-the server supplies neither a conditional write nor a price lock.
+Refuse missing/shared IDs, unavailable class/option, invalid capacity, or
+zero/multiple eligible periods with ErrInvalidInput. Malformed or duplicate
+records, missing/null prices, and invalid detail joins use body-free
+InvalidResponse. A valid eligibility change at the final reread, including a
+new shared ID, returns ErrQuotaChanged. Compare the frozen IDs, option state
+and bounds, units, capacity, exact-zero prices, and period settings. Use the
+[shared read-back rule](#free-write-read-back) for open attempts.
 
 In `monitor/quotas_synthetic_create.go`, replace the Basic, API, location,
 and quantity literals in preparation with resolved terms. Confirm the frozen
@@ -175,25 +177,32 @@ Validate and execute in this order:
 5. Apply the free price requirements. Keep the existing budget and error
    order: Unpriced, then ErrPriceAboveMax if max(ListPrice, OptimumPrice)
    exceeds the write budget, then refusal of any remaining positive price.
-6. Immediately before send, reread absence and resolve the same terms again.
-   A quota appearing or changed terms returns ErrQuotaChanged. Malformed
-   peer data returns safe APIError. Use the original quote and terms.
+6. Immediately before send, resolve the full catalog terms again, then
+   reread absence. A quota appearing or changed terms returns ErrQuotaChanged.
+   Malformed peer data returns safe APIError. Use the original quote and terms.
 7. Capture SentAt immediately before the single Once order. Use the [tolerant
    response policy][response-policy] with observed status 200. NoWait returns
    accepted/unconfirmed and retains the record. Otherwise poll every 2 s with
    the shared hard 120 s child deadline and caller cancellation. Preparation
    uses caller context and normal request limits.
 
-Confirm only an ACTIVE quota with expected PackageID, StartTime >= SentAt, and
-EndTime > StartTime. Read detail at that quota's exact ID and match its resource
-and package IDs, frozen class ID, and API and location capacities. Freeze the
-confirmed ID. Confirmation uses state and identity. 404/CREATING, an older
-start, or mismatched detail cannot confirm. Other read errors return
-NotSettled. Clock skew or coarser server
-timestamp precision can prevent confirmation; never round SentAt backwards or
-resend to fix it. A concurrent matching create can still satisfy the read
-predicate: no server idempotency key or order-to-quota proof exists. State that
-limit plainly.
+Create requires an ACTIVE quota with the frozen PackageID, StartTime >=
+SentAt, and EndTime > StartTime. Use that candidate quota's ID for the
+shared read-back and retain the confirmed ID. Clock skew or coarser server
+timestamps can leave the result unconfirmed. A concurrent matching create
+can pass the same read-back because the server supplies no order-to-quota proof.
+
+### Free write read-back
+
+Both initial confirmation and later reconciliation read the current quota.
+Renewal and recovery require the pinned quota ID and package, ACTIVE, and
+EndTime > PreviousEndTime. For all three operations read detail at the exact
+candidate or pinned quota ID. Require `resourceId` to equal that ID and
+match the frozen package ID, class ID, API capacity, location capacity, and
+explicit exact-zero detail price. Check against the retained terms without
+rebuilding them from the catalog. A mismatch cannot confirm or retire the
+attempt. If reads fail or never match within the wait, return NotSettled and
+retain the attempt without resending.
 
 ## Delete
 
@@ -361,14 +370,10 @@ run goldens, generation idempotence, and wiki preview in each slice.
   Invariant: no credentials, raw body, or payment URL leaves any outcome, error,
   capture, or debug path. Retain credentials across reconciliation and refresh;
   test canaries in every field, malformed body, and CLI format.
-- **Hostile peer, high:** inflated class fan-out, missing prices, forged
-  absence, or false settlement triggers a wrong write. Existing bounds at
-  `monitor/quotas.go:184`, decoder at `:282`, and identity checks at
-  `monitor/quotas_lifecycle.go:375` must cover new reads. Invariant: bounded
-  bodies/fan-out, exact absence route/body, valid unit arithmetic and
-  identities, no invented pagination, and safe partial errors. Test retry body
-  accounting, overflow, nulls, duplicates, response IDs, delayed reads, create
-  start boundary, and delete detail-404 confusion before allocation.
+- **Hostile peer, high:** enforce body and fan-out caps, exact absence
+  recognition, checked unit arithmetic, and exact-ID read-back. The
+  [raw JSON guard](monitor-quotas.md#quote-and-price-contract) rejects
+  duplicate decision keys before map decoding. Keep peer data out of errors.
 - **Foreign host, high:** redirects or modified hooks move tokens or replay
   orders/deletes; ensure inherits either risk. Attachment is at
   `internal/transport/transport.go:471`, hook origin checks at
@@ -403,11 +408,12 @@ run goldens, generation idempotence, and wiki preview in each slice.
 Use loopback HTTP, fake clock/sleep, synthetic auth, and raw SDK fixtures;
 retain existing quota/notification/transport/cache regressions. Require:
 
-- Catalog: joins, disabled/unknown classes, empty/malformed arrays, duplicates,
-  units/tier/price, fan-out, cancellation, nil failures, and retry body budget.
-  Mock a free class with a different name, API capacity, and location count.
-  Check no match and ambiguous matches, missing prices, capacity bounds/step,
-  indivisible units, and zero/multiple/unverified periods.
+- Catalog: joins, units/tier/price, fan-out, cancellation, nil failures, and
+  retry body budget. Mock a free class with different capacity. Reject shared
+  package IDs across classes or location options before quote and if newly
+  present at the final read. Include disabled rows, disjoint ranges, an
+  unreadable class, and missing/null/inactive option status at either read.
+  Cover capacity bounds/step, indivisible units, and unsupported periods.
 - Create: exact absence and required inputs, frozen quote/order bodies with
   buyWith {}, no resourceId, computed total and price refusal, final changes
   in class/package/option/settings, and tolerant responses. Check clock skew,

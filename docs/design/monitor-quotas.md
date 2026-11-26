@@ -203,6 +203,15 @@ terms shared by quote, mutation, and retained attempts.
 Email quotes are inferred pre-VAT in the API sibling, so the actual debit
 can exceed the quote; a paid package is allowed whenever MaxPrice covers.
 
+For free Synthetic, inspect bounded raw JSON in `quotaRequestOutcome` before
+`monitor/quotas.go:128` decodes to a map for redaction. Token-scan objects
+in quota, detail, catalog, settings, quote and mutation responses. Reject
+repeated decoded key names within an object, including nested objects and
+escaped spellings, so price, identity, state and absence fields survive
+unambiguously. Return body-free InvalidResponse for an invalid read or
+quote. A rejected success body after a possible send leaves NotSettled and
+retains the attempt. Preserve redaction, body caps and empty-body handling.
+
 ### Order and renewal execution
 
 Preparation reads quota and applicable price sources under the write lock.
@@ -228,11 +237,11 @@ switches to recovery. Recovery has a separate
 [expected-ID contract](monitor-quota-coverage.md#synthetic-recovery) and
 uses the quota read, not an inferred trash item.
 
-Immediately before send, repeat the complete eligibility predicate. Require
-the frozen quota identity, package, expiry, status, POC, and auto-renew
-state. Synthetic also repeats its exact detail and [catalog checks][free-terms].
-Create verifies absence again. A change aborts before send, with
-ErrQuotaChanged for Synthetic. Malformed peer data is an APIError.
+Immediately before send, repeat the complete eligibility predicate. For
+Synthetic, repeat the full [catalog check][free-terms], then reread quota
+and exact-ID detail. Compare frozen identity, package, expiry, status, POC,
+and auto-renew state. Create verifies absence again. A change aborts before
+send with ErrQuotaChanged for Synthetic. Malformed peer data is an APIError.
 Use the original quote and terms.
 
 Send the evidenced body with `pay: true`, the frozen period, and the fixed
@@ -257,9 +266,9 @@ without requiring an inferred order envelope.
 Otherwise wait with reads every 2 seconds under a 120-second child context
 bounded also by caller context. Notification create settles on the selected
 package at ACTIVE; a 404 or a CREATING read, whose `updatedAt` can be null,
-keeps polling (live: 404, CREATING at 3 s, ACTIVE at 5 to 6 s). Renewal
-needs the same quota/package, ACTIVE, and EndTime later than
-PreviousEndTime; trash exit alone is insufficient. NoWait skips the wait only.
+keeps polling (live: 404, CREATING at 3 s, ACTIVE at 5 to 6 s). Synthetic
+confirmation and reconciliation use [exact-ID detail and frozen terms][free-read-back].
+NoWait skips the wait only.
 
 Recovery/renewal return Output under [the outcome contract][quota-outcomes];
 notification create errors stay unchanged. The focused page owns additions.
@@ -373,19 +382,16 @@ These constraints guide independent review of recovery and renewal.
   refusal before requests. These controls do not defeat an attacker with
   the same user privileges; ExpectedQuotaID/ExpectedEndTime are not account
   authentication. Retain existing cache permission/identity tests.
-- **Concurrent or repeated charges, high.** Both mutations target the
-  account's current quota without a server condition. Price or resource
-  replacement after the final read remains possible. Existing attempt
-  reconciliation is `monitor/quotas_write.go:109`, mutation Once is at
-  line 168, and the hard wait is `monitor/quotas_wait.go:38`. Extend them
-  with operation-bound frozen identity, full pre-send reread, price guards,
-  and the same lock/ledger used by auto-renew. Test two callers, stale
-  guards, flag/quantity flips, changed operations, delayed visibility,
-  NoWait, and lost responses. At transport level verify Once overrides
-  status/dial/auth retries and HTTP replay, not just a mocked send count.
-  No cross-process lock, price lock, or idempotency key exists. Callers
-  serialize and persist baselines; no cleanup delete, replacement order,
-  or renewed attempt follows uncertainty without separate authority.
+- **Concurrent or repeated charges, high.** Free Synthetic writes send
+  `pay: true`. Renew and recover carry no quota ID in their routes or
+  bodies. Pricing or the server's target can change after the last read.
+  The local price guard supplies no server-side charge ceiling. Bound
+  exposure with a fresh full reread immediately before one `Once` send,
+  the per-Client lock and retained attempt, and caller serialization with
+  persisted baselines per account/kind. Exact-ID read-back detects some
+  mismatches after send. Uncertainty blocks attempts until reconciliation.
+  Test stale guards, changed terms, concurrent callers and lost responses.
+  Verify that Once prevents retries and replay at the transport layer.
 
 Existing history bounds remain 16 MiB per response, 32 MiB per call, and
 64 alarms; quota responses remain capped at 1 MiB. Never truncate results.
@@ -432,3 +438,4 @@ evidence; unverified response bodies retain that label.
 [quota-outcomes]: monitor-quota-coverage.md#machine-readable-write-outcomes
 [quota-consent]: monitor-quota-coverage.md#cli-and-documentation
 [free-terms]: monitor-synthetic-lifecycle.md#free-terms-from-the-caller-catalog
+[free-read-back]: monitor-synthetic-lifecycle.md#free-write-read-back
