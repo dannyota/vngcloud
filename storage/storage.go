@@ -205,7 +205,10 @@ func (c *Client) regionID(ctx context.Context, op, name string) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	items, err := requiredProjectList[Region](op, env)
+	if _, err := completeProjectList(op, env); err != nil {
+		return "", err
+	}
+	items, err := decodeList[Region](op, http.StatusOK, env)
 	if err != nil {
 		return "", err
 	}

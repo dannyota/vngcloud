@@ -52,10 +52,12 @@ call fails with `vngcloud.ErrPermission`.
 
 ## Regions
 
-vStorage has its own regions, `HCM04` and `HAN02`, separate from the
-`hcm-3` and `han-1` config regions. Every method except `ListRegions` takes
-a `Region` field with the vStorage region name, matched without regard to
-case. An empty `Region` maps the config region: `hcm-3` to `HCM04` and
+vStorage has its own regions, such as `HCM04` and `HAN02`, separate from the
+`hcm-3` and `han-1` config regions. `ListRegions` lists the ones your account
+has. Every other method takes a `Region` field with a vStorage region name,
+matched without regard to case, or its UUID; it must match exactly one
+region in that list. Native S3 object operations accept only `HCM04` and
+`HAN02`. An empty `Region` maps the config region: `hcm-3` to `HCM04` and
 `han-1` to `HAN02`. Any other config region with an empty `Region` returns
 `vngcloud.ErrInvalidInput`, and nothing is sent. An unknown name returns
 `ErrInvalidInput` too. The client looks up region IDs once and keeps them,

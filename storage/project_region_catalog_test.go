@@ -82,6 +82,29 @@ func TestRegionCatalogIncompleteIsNeverCached(t *testing.T) {
 	}
 }
 
+func TestRegionCatalogRejectsAmbiguousRowFields(t *testing.T) {
+	for _, row := range []string{
+		`{"regionId":"region-1","RegionID":"region-2","regionName":"DAD01"}`,
+		`{"regionId":"region-1","regionId":"region-2","regionName":"DAD01"}`,
+	} {
+		t.Run(row, func(t *testing.T) {
+			calls := 0
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				_, _ = fmt.Fprintf(w, `{"success":true,"datas":[%s]}`, row)
+			}))
+			for range 2 {
+				if id, err := c.regionID(context.Background(), "test", "DAD01"); err == nil {
+					t.Fatalf("accepted ambiguous row as %q", id)
+				}
+			}
+			if calls != 2 {
+				t.Fatalf("catalog requests %d", calls)
+			}
+		})
+	}
+}
+
 func TestRegionCatalogRejectsInvalidID(t *testing.T) {
 	for _, method := range []string{"management", "discovery"} {
 		t.Run(method, func(t *testing.T) {
