@@ -55,6 +55,40 @@ func TestEndpointCatalogStopsWhenSelectedFieldsExceedBudget(t *testing.T) {
 	}
 }
 
+func TestEndpointUnpagedCatalogExceedsRetainedBudget(t *testing.T) {
+	var body strings.Builder
+	body.WriteString(`{"success":true,"data":[{"uuid":"HCM03-1C","zoneType":"AVAILABILITY","isEnabled":true}`)
+	for i := 0; i < 32000; i++ {
+		fmt.Fprintf(&body, `,{"uuid":"Z%d","zoneType":"AVAILABILITY","isEnabled":true}`, i)
+	}
+	body.WriteString(`]}`)
+	if body.Len() >= natMaxBody {
+		t.Fatal("fixture exceeds transport limit")
+	}
+	f := epCreateFake()
+	f.zones = body.String()
+	out, err := newEPHarness(t, f).c.CreateEndpoint(context.Background(), epCreateInput())
+	if err == nil || out != nil || f.count(http.MethodPost, "/price") != 0 || f.count(http.MethodPost, epBase) != 0 {
+		t.Fatalf("out=%v err=%v", out, err)
+	}
+}
+
+func TestEndpointUnpagedCatalogRejectsOtherBadIDs(t *testing.T) {
+	for _, rows := range []string{
+		`{"uuid":"BAD/ID","zoneType":"AVAILABILITY","isEnabled":true}`,
+		`{"uuid":"OTHER","zoneType":"AVAILABILITY","isEnabled":true},{"uuid":"OTHER","zoneType":"AVAILABILITY","isEnabled":true}`,
+	} {
+		t.Run(rows, func(t *testing.T) {
+			f := epCreateFake()
+			f.zones = `{"success":true,"data":[{"uuid":"HCM03-1C","zoneType":"AVAILABILITY","isEnabled":true},` + rows + `]}`
+			out, err := newEPHarness(t, f).c.CreateEndpoint(context.Background(), epCreateInput())
+			if err == nil || out != nil || f.count(http.MethodPost, "/price") != 0 {
+				t.Fatalf("out=%v err=%v", out, err)
+			}
+		})
+	}
+}
+
 func TestEndpointPackagePages(t *testing.T) {
 	first := `{"uuid":"` + epPackage + `","name":"Standard","serviceName":"vstorage.hcm03","currencyUnit":"VND"}`
 	for _, tc := range []struct {

@@ -101,17 +101,10 @@ func endpointCatalogRead[T any](ctx context.Context, o *endpointOp, parts []stri
 		if err != nil {
 			return nil, err
 		}
-		if !paged {
-			rows, err := natDecodeRows[T](o.op, env.Data, required...)
-			if err != nil {
-				return nil, endpointSafeError(o.op, err)
-			}
-			return rows, nil
-		}
-		if env.Page == nil || *env.Page != page || env.Size == nil || *env.Size <= 0 || env.Total == nil || *env.Total < 0 || env.TotalPage == nil || *env.TotalPage < 0 || *env.TotalPage > 50 {
+		if paged && (env.Page == nil || *env.Page != page || env.Size == nil || *env.Size <= 0 || env.Total == nil || *env.Total < 0 || env.TotalPage == nil || *env.TotalPage < 0 || *env.TotalPage > 50) {
 			return nil, endpointInvalid(o.op)
 		}
-		if page == 1 {
+		if paged && page == 1 {
 			total, pages, size = *env.Total, *env.TotalPage, *env.Size
 			count := total / size
 			if total%size != 0 {
@@ -120,25 +113,27 @@ func endpointCatalogRead[T any](ctx context.Context, o *endpointOp, parts []stri
 			if count != pages {
 				return nil, endpointInvalid(o.op)
 			}
-		} else if total != *env.Total || pages != *env.TotalPage || size != *env.Size {
+		} else if paged && (total != *env.Total || pages != *env.TotalPage || size != *env.Size) {
 			return nil, endpointInvalid(o.op)
 		}
 		var rows []T
-		if len(env.Data) != 0 || total != 0 || pages != 0 {
+		if !paged || len(env.Data) != 0 || total != 0 || pages != 0 {
 			rows, err = natDecodeRows[T](o.op, env.Data, required...)
 			if err != nil {
 				return nil, endpointSafeError(o.op, err)
 			}
 		}
-		expected := size
-		if page == pages {
-			expected = total - size*(pages-1)
-		}
-		if total == 0 {
-			expected = 0
-		}
-		if len(rows) != expected {
-			return nil, endpointInvalid(o.op)
+		if paged {
+			expected := size
+			if page == pages {
+				expected = total - size*(pages-1)
+			}
+			if total == 0 {
+				expected = 0
+			}
+			if len(rows) != expected {
+				return nil, endpointInvalid(o.op)
+			}
 		}
 		for _, row := range rows {
 			retained += endpointCatalogSize(row)
@@ -151,6 +146,9 @@ func endpointCatalogRead[T any](ctx context.Context, o *endpointOp, parts []stri
 			}
 			seen[key] = true
 			all = append(all, row)
+		}
+		if !paged {
+			return all, nil
 		}
 		if page >= pages {
 			if len(all) != total {
